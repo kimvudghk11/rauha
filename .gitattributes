@@ -1,0 +1,4 @@
+# Windows와 다른 OS 사이에서 줄바꿈이 섞이지 않게 저장소에는 LF로 보관한다.
+* text=auto eol=lf
+*.png binary
+*.jpg binary

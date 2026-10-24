@@ -1,0 +1,8 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // 타입 검사 때는 빌드 없이 다른 패키지의 소스를 바로 읽는다.
+    "customConditions": ["rauha-source"]
+  },
+  "include": ["src"]
+}

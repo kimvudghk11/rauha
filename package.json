@@ -1,0 +1,25 @@
+{
+  "name": "rauha-monorepo",
+  "private": true,
+  "description": "Multi-agent orchestration harness on Claude Agent SDK: a team lead routes BDD/TDD work to Haiku, Sonnet and Opus subagents.",
+  "type": "module",
+  "packageManager": "yarn@4.18.1",
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "yarn workspaces foreach -At run build",
+    "typecheck": "yarn workspaces foreach -At run typecheck",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "rauha": "yarn workspace @rauha/cli run start"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.7"
+  }
+}

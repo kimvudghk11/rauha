@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    // 빌드 때는 @rauha/core 의 dist 타입을 쓴다 (yarn build 가 core 를 먼저 빌드한다).
+    "customConditions": [],
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "exclude": ["src/**/*.spec.ts"]
+}
