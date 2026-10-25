@@ -1,3 +1,5 @@
+import { displayWidth, wrapText } from '../text-width.js';
+
 /** Ink useInput이 주는 키 정보 중 입력창이 쓰는 것 */
 export interface InputKey {
   readonly leftArrow?: boolean;
@@ -49,4 +51,33 @@ export function editInput(state: InputState, input: string, key: InputKey): { st
   if (key.ctrl || key.meta || key.escape || key.tab || key.upArrow || key.downArrow || input === '') return keep(state);
   const typed = [...input.replace(/[\r\n]/g, '')];
   return keep({ text: [...chars.slice(0, at), ...typed, ...chars.slice(at)].join(''), cursor: at + typed.length });
+}
+
+/** 입력창에 그릴 줄들과 커서 자리(줄 번호, 그 줄 앞에서부터 칸 수). */
+export interface InputLayout {
+  readonly lines: readonly string[];
+  readonly row: number;
+  readonly column: number;
+}
+
+/**
+ * 입력 글을 width 칸으로 접고 커서 자리를 계산한다. 진짜 터미널 커서를 이 자리에 두어야
+ * 한글 입력기가 조합 중인 글자를 입력창 안에 그린다.
+ */
+export function inputLayout(state: InputState, width: number): InputLayout {
+  const lines = wrapText(state.text, width);
+  const at = Math.min(state.cursor, [...state.text].length);
+  let before = 0;
+  for (let row = 0; row < lines.length; row++) {
+    const chars = [...lines[row]!];
+    const last = row === lines.length - 1;
+    if (at < before + chars.length || (last && at === before + chars.length)) {
+      const column = displayWidth(chars.slice(0, at - before).join(''));
+      // 꽉 찬 줄 끝의 커서는 그 줄에 둘 칸이 없어서 다음 빈 줄로 보낸다.
+      if (column >= width) return { lines: [...lines, ''], row: row + 1, column: 0 };
+      return { lines, row, column };
+    }
+    before += chars.length;
+  }
+  return { lines, row: lines.length - 1, column: 0 };
 }

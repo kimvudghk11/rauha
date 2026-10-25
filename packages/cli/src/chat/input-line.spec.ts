@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { editInput, type InputState } from './input-line.js';
+import { editInput, inputLayout, type InputState } from './input-line.js';
 
 const empty: InputState = { text: '', cursor: 0 };
 const type = (state: InputState, input: string) => editInput(state, input, {}).state;
@@ -30,5 +30,25 @@ describe('editInput', () => {
   it('Ctrl이나 Esc 같은 조합은 글로 넣지 않는다', () => {
     expect(editInput(empty, 'c', { ctrl: true }).state).toEqual(empty);
     expect(editInput(empty, '', { escape: true }).state).toEqual(empty);
+  });
+});
+
+describe('inputLayout', () => {
+  it('짧은 글은 한 줄, 커서는 앞 글자들의 칸 수만큼 뒤에 있다 (한글은 두 칸)', () => {
+    expect(inputLayout({ text: '가a', cursor: 2 }, 10)).toEqual({ lines: ['가a'], row: 0, column: 3 });
+    expect(inputLayout({ text: '가a', cursor: 1 }, 10)).toEqual({ lines: ['가a'], row: 0, column: 2 });
+  });
+
+  it('입력창보다 긴 글은 줄을 바꿔 모두 보여 주고, 커서가 있는 줄을 알려 준다', () => {
+    expect(inputLayout({ text: 'abcdefg', cursor: 6 }, 4)).toEqual({ lines: ['abcd', 'efg'], row: 1, column: 2 });
+  });
+
+  it('줄을 꽉 채운 뒤 끝에 있는 커서는 다음 빈 줄 맨 앞에 둔다', () => {
+    expect(inputLayout({ text: 'abcd', cursor: 4 }, 4)).toEqual({ lines: ['abcd', ''], row: 1, column: 0 });
+    expect(inputLayout({ text: 'abcdef', cursor: 4 }, 4)).toEqual({ lines: ['abcd', 'ef'], row: 1, column: 0 });
+  });
+
+  it('빈 입력은 빈 한 줄', () => {
+    expect(inputLayout({ text: '', cursor: 0 }, 4)).toEqual({ lines: [''], row: 0, column: 0 });
   });
 });

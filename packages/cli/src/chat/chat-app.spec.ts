@@ -129,6 +129,30 @@ describe('ChatApp', () => {
     for (const line of lines) expect(line.length).toBeLessThanOrEqual(14);
   });
 
+  it('진짜 커서를 입력창의 글자 자리로 옮기고, 일하는 동안에는 치운다 (한글 조합이 입력창에 보이게)', async () => {
+    const spots: unknown[] = [];
+    const store = new ChatStore();
+    const r = render(React.createElement(ChatApp, { store, banner: () => '배너', view: null, onSubmit: vi.fn(), cursor: { set: (s) => spots.push(s) } }));
+    mounted.push(r);
+    await tick();
+    r.stdin.write('가a');
+    await tick();
+    // ▕ + 여백 + '> ' = 4칸, '가a' = 3칸. 입력 줄은 아래 테두리 위, 화면 끝 다음 줄에서 두 줄 위.
+    expect(spots.at(-1)).toEqual({ up: 2, column: 7 });
+    store.setBusy(true);
+    await tick();
+    expect(spots.at(-1)).toBeNull();
+  });
+
+  it('긴 입력은 입력창 안에서 줄을 바꿔 다 보여 준다', async () => {
+    const { stdin, lastFrame } = app();
+    await tick();
+    stdin.write('가'.repeat(50));
+    await tick();
+    const rows = visible(lastFrame()).split('\n').filter((l) => l.includes('가'));
+    expect(rows.length).toBe(2);
+  });
+
   it('고정 줄은 출력된 순서대로 남는다', async () => {
     const store = new ChatStore();
     const { lastFrame } = app(store);

@@ -8,6 +8,7 @@ import { createLoop, createTeam, loadPrompts, openMemory, roleSettings } from '.
 import { ChatApp } from './chat-app.js';
 import { ChatStore } from './chat-store.js';
 import { HELP_TEXT, parseCommand } from './commands.js';
+import { parkingStream } from './cursor-park.js';
 import { describeTurn } from './describe-turn.js';
 
 export interface ChatOptions {
@@ -97,14 +98,16 @@ export async function runChat(options: ChatOptions): Promise<number> {
     today: () => new Date().toISOString().slice(0, 10),
   });
 
+  const screen = parkingStream(process.stderr);
   const app = render(
     React.createElement(ChatApp, {
       store,
       banner: (width: number) => view?.banner(workDir, width) ?? `${profile.badge()} ${workDir}`,
       view,
       onSubmit: (text: string) => void handle(text),
+      cursor: screen.park,
     }),
-    { stdout: process.stderr, exitOnCtrlC: true },
+    { stdout: screen.stream, exitOnCtrlC: true },
   );
 
   async function handle(text: string): Promise<void> {

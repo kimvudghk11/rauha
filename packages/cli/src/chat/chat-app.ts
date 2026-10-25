@@ -3,9 +3,10 @@ import React, { useEffect, useReducer, useState } from 'react';
 import { formatElapsed } from '../live-line.js';
 import type { MascotView } from '../mascot.js';
 import { menuKey, menuLines } from '../menu.js';
-import { fitLines } from '../text-width.js';
+import { displayWidth, fitLines } from '../text-width.js';
+import type { CursorPark, CursorSpot } from './cursor-park.js';
 import type { ChatStore, Prompt, Working } from './chat-store.js';
-import { editInput, type InputState } from './input-line.js';
+import { editInput, inputLayout, type InputState } from './input-line.js';
 
 const h = React.createElement;
 
@@ -29,6 +30,8 @@ export interface ChatAppProps {
   readonly banner: (columns: number) => string;
   readonly view: MascotView | null;
   readonly onSubmit: (text: string) => void;
+  /** 진짜 터미널 커서를 입력 자리로 옮기는 곳. 없으면 반전 글자로 커서를 흉내 낸다. */
+  readonly cursor?: CursorPark;
 }
 
 function useStore(store: ChatStore): void {
@@ -70,7 +73,15 @@ function MenuPrompt({ store, prompt, view }: { store: ChatStore; prompt: Extract
   );
 }
 
-function TextPrompt({ store, prompt }: { store: ChatStore; prompt: Extract<Prompt, { kind: 'text' }> }) {
+/** 진짜 커서를 spot에 둔다. 화면에서 사라지면 치운다. */
+function useParkedCursor(cursor: CursorPark | null, spot: CursorSpot | null): void {
+  useEffect(() => {
+    cursor?.set(spot);
+  }, [cursor, spot?.up, spot?.column]);
+  useEffect(() => () => cursor?.set(null), [cursor]);
+}
+
+function TextPrompt({ store, prompt, cursor }: { store: ChatStore; prompt: Extract<Prompt, { kind: 'text' }>; cursor: CursorPark | null }) {
   const [state, setState] = useState<InputState>({ text: '', cursor: 0 });
   useInput((input, key) => {
     if (key.return) {
@@ -79,10 +90,13 @@ function TextPrompt({ store, prompt }: { store: ChatStore; prompt: Extract<Promp
     }
     setState(editInput(state, input, key).state);
   });
-  return h(Box, null, h(Text, { color: SKY }, `  ${prompt.label}: `), withCursor(state));
+  const label = `  ${prompt.label}: `;
+  const before = [...state.text].slice(0, state.cursor).join('');
+  useParkedCursor(cursor, { up: 1, column: displayWidth(label) + displayWidth(before) });
+  return h(Box, null, h(Text, { color: SKY }, label), cursor !== null ? h(Text, null, state.text) : withCursor(state));
 }
 
-function InputBox({ busy, onSubmit }: { busy: boolean; onSubmit: (text: string) => void }) {
+function InputBox({ busy, onSubmit, cursor }: { busy: boolean; onSubmit: (text: string) => void; cursor: CursorPark | null }) {
   const [state, setState] = useState<InputState>({ text: '', cursor: 0 });
   const { stdout } = useStdout();
   const width = Math.min((stdout.columns || 80) - 1, MAX_INPUT_WIDTH);
@@ -94,10 +108,22 @@ function InputBox({ busy, onSubmit }: { busy: boolean; onSubmit: (text: string) 
     },
     { isActive: !busy },
   );
+  // 테두리 두 칸, 여백 두 칸, '> ' 두 칸을 빼고 접는다. Ink가 따로 접지 않게 미리 접어야 커서 자리를 안다.
+  const layout = inputLayout(state, width - 6);
+  // 입력 줄 아래에 아래 테두리가 있고, Ink는 그린 뒤 커서를 그다음 줄에 둔다.
+  useParkedCursor(cursor, busy ? null : { up: layout.lines.length - layout.row + 1, column: 4 + layout.column });
+  const offset = state.cursor - layout.lines.slice(0, layout.row).reduce((sum, l) => sum + [...l].length, 0);
+  const line = (text: string, row: number) =>
+    h(
+      Box,
+      { key: row },
+      h(Text, { color: SKY }, row === 0 ? '> ' : '  '),
+      cursor === null && row === layout.row ? withCursor({ text, cursor: offset }) : h(Text, null, text),
+    );
   return h(
     Box,
-    { borderStyle: BLOCK_BORDER, borderColor: SKY, paddingX: 1, marginTop: 1, width },
-    busy ? h(Text, { dimColor: true }, '팀원이 일하는 중이에요… (끝나면 다시 입력할 수 있어요)') : h(Box, null, h(Text, { color: SKY }, '> '), withCursor(state)),
+    { borderStyle: BLOCK_BORDER, borderColor: SKY, paddingX: 1, marginTop: 1, width, flexDirection: 'column' },
+    busy ? h(Text, { dimColor: true }, '팀원이 일하는 중이에요… (끝나면 다시 입력할 수 있어요)') : layout.lines.map(line),
   );
 }
 
@@ -136,7 +162,7 @@ function useScreen(): Screen {
  * 다시 그린다. Claude Code처럼 입력창은 화면 맨 아래에 붙인다: 지난 출력이 화면을 다 채우기 전에는
  * 그 사이를 빈 줄로 채운다. 그러려면 지난 출력이 몇 줄인지 알아야 해서, 고정 줄은 미리 창 너비로 접어 둔다.
  */
-export function ChatApp({ store, banner, view, onSubmit }: ChatAppProps) {
+export function ChatApp({ store, banner, view, onSubmit, cursor }: ChatAppProps) {
   useStore(store);
   const screen = useScreen();
   const prompt = store.prompt;
@@ -153,8 +179,8 @@ export function ChatApp({ store, banner, view, onSubmit }: ChatAppProps) {
       { flexDirection: 'column', justifyContent: 'flex-end', minHeight: fill },
       store.working !== null ? h(WorkingLine, { working: store.working, view }) : null,
       prompt?.kind === 'menu' ? h(MenuPrompt, { key: prompt.screen, store, prompt, view }) : null,
-      prompt?.kind === 'text' ? h(TextPrompt, { key: prompt.label, store, prompt }) : null,
-      prompt === null ? h(InputBox, { busy: store.busy, onSubmit }) : null,
+      prompt?.kind === 'text' ? h(TextPrompt, { key: prompt.label, store, prompt, cursor: cursor ?? null }) : null,
+      prompt === null ? h(InputBox, { busy: store.busy, onSubmit, cursor: cursor ?? null }) : null,
     ),
   );
 }
