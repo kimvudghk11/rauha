@@ -126,6 +126,12 @@ describe('ReadingGuideDto — 근거와 추측', () => {
     expect(ReadingGuideDto.create(base).stopMessage()).toBeNull();
   });
 
+  it('머리줄에 달러 비용을 쓰지 않는다', () => {
+    const head = ReadingGuideDto.create({ ...base, costUsd: 0.123 }).toMarkdown().split('\n')[0]!;
+    expect(head).not.toContain('$');
+    expect(head).not.toContain('추정');
+  });
+
   it('리뷰를 받았으면 머리줄에 리뷰 횟수를 쓴다', () => {
     expect(ReadingGuideDto.create({ ...base, facts }).toMarkdown().split('\n')[0]).toContain('완료(리뷰 2회)');
     expect(ReadingGuideDto.create(base).toMarkdown().split('\n')[0]).toContain('완료(리뷰 전)');

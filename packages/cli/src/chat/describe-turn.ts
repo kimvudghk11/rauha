@@ -50,7 +50,7 @@ export function describeTurn(turn: TurnOutcome, view: MascotView | null): Printa
         ...turn.answer.split('\n').map((line) => (line === '' ? '' : `  ${titled(line, view)}`)),
         '',
         ...(sources.length > 0 ? ['  출처', ...sources.map((s) => `  - ${s}`), ''] : []),
-        `  근거 확인됨 ${verified.length}개 · ${formatElapsed(turn.durationMs)} · 추정 $${turn.costUsd.toFixed(3)}`,
+        `  근거 확인됨 ${verified.length}개 · ${formatElapsed(turn.durationMs)}`,
         '',
       ];
     }

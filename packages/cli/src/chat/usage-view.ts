@@ -33,10 +33,10 @@ function windowLine(label: string, window: UsageWindow | null, now: Date, timeZo
   return `  ${label}  ${gauge(window.percent, USAGE_CELLS)} ${String(Math.round(window.percent)).padStart(3)}%${reset}`;
 }
 
-/** /usage 화면. Claude Code /usage처럼 구독 사용률이 먼저고, API 요금으로 친 비용은 참고로만. */
+/** /usage 화면. Claude Code /usage처럼 구독 사용률과 이번 대화 호출 수. 달러 비용은 구독으로 쓰는 사람에게 의미가 없어 쓰지 않는다. */
 export function usageLines(plan: PlanUsage | null, session: SessionCalls, now: Date, timeZone?: string, gauge: Gauge = gaugeText): string[] {
   const calls = (Object.entries(session.calls) as [ModelTier, number][]).filter(([, n]) => n > 0).map(([tier, n]) => `${tier} ${n}회`);
-  const callText = calls.length > 0 ? `${calls.join(' · ')} (API 요금으로 치면 $${session.costUsd.toFixed(3)})` : '아직 없음';
+  const callText = calls.length > 0 ? calls.join(' · ') : '아직 없음';
   return [
     '',
     ...(plan === null

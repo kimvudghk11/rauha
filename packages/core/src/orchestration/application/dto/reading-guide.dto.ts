@@ -134,7 +134,7 @@ export class ReadingGuideDto {
     const reviewed = facts !== null && facts.reviewRounds > 0;
     const state = p.status === 'complete' ? (reviewed ? `완료(리뷰 ${facts.reviewRounds}회)` : '완료(리뷰 전)') : '멈춤';
     const lines: string[] = [
-      `${p.badge} ${p.title} · ${state} · ${formatDuration(p.durationMs)} · ${tiers} · 추정 $${p.costUsd.toFixed(3)}`,
+      `${p.badge} ${p.title} · ${state} · ${formatDuration(p.durationMs)} · ${tiers}`,
     ];
 
     // 가정은 맨 위에: 해석이 다르면 코드를 읽기 전에 알아야 한다.

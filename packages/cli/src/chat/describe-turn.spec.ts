@@ -8,6 +8,8 @@ describe('describeTurn', () => {
     const text = describeTurn({ kind: 'answer', answer: '정한 해석 때문입니다.', checked: [claim('floor를 쓴다', false), claim('예전엔 round였다', true)], costUsd: 0.01, durationMs: 9000 }, null).join('\n');
     expect(text).toContain('정한 해석 때문입니다.');
     expect(text).toContain('근거 확인됨 1개');
+    expect(text).not.toContain('$');
+    expect(text).not.toContain('추정');
     expect(text).not.toContain('추측');
     expect(text).not.toContain('예전엔 round였다');
   });
