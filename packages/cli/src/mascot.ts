@@ -68,6 +68,25 @@ const FACES: Readonly<Record<Face, FaceSpec>> = {
   },
 };
 
+/**
+ * 대화 화면에서 팀원이 일하는 동안 옆에 두는 작은 Delfi(10×8 픽셀 = 4줄).
+ * 줄마다 마지막으로 칠한 칸은 위아래 중 하나만 칠해 배경색이 줄 끝에 오지 않게 했다.
+ */
+const MINI = [
+  '....S.....',
+  '...HBB....',
+  '..HBBBB...',
+  '.HEBBEB...',
+  '.BBBBBB...',
+  'SBLLLLBS..',
+  '.SBLLBS...',
+  '..SSSS....',
+];
+
+export function paintMiniDelfi(): Pixels {
+  return MINI.map((row) => [...row].map((k) => (k === '.' ? null : COLORS[k]!)));
+}
+
 export function paintDelfi(face: Face): Pixels {
   const spec = FACES[face];
   const px: Pixels = BODY.map((row) => [...row.padEnd(WIDTH, '.')].map((k) => (k === '.' ? null : COLORS[k]!)));
@@ -210,6 +229,8 @@ export interface MascotView {
   step(message: string, role?: MemberRole): string;
   /** 팀원이 일하는 동안 다시 그리는 한 줄 */
   working(frame: string, message: string, role: MemberRole, elapsed: string): string;
+  /** 대화 화면용: 작은 Delfi 옆에 그린 작업 중 줄(여러 줄이라 -p의 한 줄 진행 표시에는 못 쓴다) */
+  workingDelfi(frame: string, message: string, role: MemberRole, elapsed: string): string;
   /** 팀원 일이 끝나 고정되는 줄 */
   done(message: string, role: MemberRole, elapsed: string): string;
   finale(status: 'complete' | 'stopped'): string;
@@ -257,6 +278,10 @@ export function mascotView(depth: number, version: string, badge: string): Masco
     },
     step: (message, role) => (role === undefined ? `  ${dim('·')} ${dim(message)}` : `  ${fg(ROLE_COLOR[role], '◆')} ${message}`),
     working: (frame, message, role, elapsed) => `  ${fg(ROLE_COLOR[role], frame)} ${message} ${dim(elapsed)}`,
+    workingDelfi: (frame, message, role, elapsed) => {
+      const mini = toAnsi(paintMiniDelfi(), depth).map((line) => `  ${line}`);
+      return beside(mini, [`${fg(ROLE_COLOR[role], frame)} ${message} ${dim(elapsed)}`], 1).join('\n');
+    },
     done: (message, role, elapsed) => `  ${fg(ROLE_COLOR[role], '◆')} ${message.replace(/ 작업 중…$/, '')} ${dim(elapsed)}`,
     finale: (status) =>
       status === 'complete'
@@ -280,7 +305,8 @@ export function mascotView(depth: number, version: string, badge: string): Masco
       const state = card.status === 'complete' ? fg(DONE_COLOR, '완료') : fg(STOP_COLOR, '멈춤');
       const shown = card.files.slice(0, MAX_CARD_FILES);
       const lines = [
-        ...fit(`\x1b[1m${state}\x1b[1m · ${card.title}${RESET} ${dim(`· ${card.elapsed}`)}`),
+        // '·'는 한글 글꼴 cmd에서 두 칸이라 박스 안에서는 띄어쓰기로 나눈다.
+        ...fit(`\x1b[1m${state}\x1b[1m  ${card.title}${RESET}  ${dim(card.elapsed)}`),
         ...(card.stopMessage !== null ? ['', ...fit(card.stopMessage)] : []),
         ...(card.files.length > 0
           ? [

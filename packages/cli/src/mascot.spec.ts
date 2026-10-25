@@ -214,6 +214,8 @@ describe('mascotView', () => {
       expect(text).toContain('+ src/money.spec.ts');
       expect(text).toContain('확인할 것');
       expect(text).toContain('/guide');
+      // '·'는 한글 글꼴 cmd에서 두 칸이라 박스 안에 쓰면 오른쪽 테두리가 밀린다.
+      expect(text).not.toContain('·');
     }
   });
 
@@ -229,6 +231,18 @@ describe('mascotView', () => {
     expect(text).toContain('로그인이 필요해서 멈췄습니다.');
     expect(text).toContain('외 3개');
     expect(text).not.toContain('확인할 것');
+  });
+
+  it('대화 화면의 작업 중 줄은 작은 Delfi 옆에 그린다 (마지막 글자에 배경색 없음)', () => {
+    const view = mascotView(24, 'v0', '[personal]')!;
+    const lines = view.workingDelfi('▖', '접수 > 테스트 중…', 'tester', '12초').split('\n');
+    expect(lines).toHaveLength(4);
+    expect(lines.map(visible).join('\n')).toContain('▖ 접수 > 테스트 중… 12초');
+    expect(lines.map(visible).join('\n')).toMatch(/[▀▄]/);
+    for (const line of lines) {
+      const last = line.split(/(?=\x1b\[)/).filter((seg) => visible(seg).trim() !== '').at(-1);
+      if (last !== undefined) expect(last).not.toMatch(/48;/);
+    }
   });
 
   it('끝 인사는 결과에 따라 다르다', () => {

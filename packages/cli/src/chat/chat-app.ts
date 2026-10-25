@@ -57,7 +57,7 @@ function WorkingLine({ working, view }: { working: Working; view: MascotView | n
   }, []);
   const spinner = SPINNER[frame % SPINNER.length]!;
   const elapsed = formatElapsed(Date.now() - working.startedAt);
-  return h(Text, null, view?.working(spinner, working.text, working.role, elapsed) ?? `  ${spinner} ${working.text} ${elapsed}`);
+  return h(Text, null, view?.workingDelfi(spinner, working.text, working.role, elapsed) ?? `  ${spinner} ${working.text} ${elapsed}`);
 }
 
 function MenuPrompt({ store, prompt, view }: { store: ChatStore; prompt: Extract<Prompt, { kind: 'menu' }>; view: MascotView | null }) {
