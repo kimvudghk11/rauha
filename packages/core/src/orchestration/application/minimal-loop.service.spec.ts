@@ -81,8 +81,9 @@ class FakeTeam implements TeamMemberPort {
   constructor(
     private readonly ws: FakeWorkspace,
     private readonly scripts: Partial<Record<MemberRole, Script[]>>,
-    /** 이 역할을 부르면 구독 사용 한도 오류를 낸다 */
+    /** 이 역할을 부르면 구독 사용 한도(또는 로그인 필요) 오류를 낸다 */
     private readonly limitOn: MemberRole | null = null,
+    private readonly blockReason: 'usage-limit' | 'login' = 'usage-limit',
   ) {}
   async run(call: MemberCall): Promise<MemberResult> {
     this.calls.push(call.role);
@@ -93,7 +94,7 @@ class FakeTeam implements TeamMemberPort {
     return {
       output: script && limited === null ? script(call, this.ws) : null,
       error: limited,
-      limited,
+      blocked: limited === null ? null : { reason: this.blockReason, message: limited },
       usage: { model: call.setting.tier, durationMs: 10, costUsd: 0.001, turns: 3, inputTokens: 100, outputTokens: 50, cacheReadTokens: 0, denials: [], endReason: 'success' },
       fetched: [],
     };
@@ -303,6 +304,15 @@ describe('MinimalLoopService', () => {
     expect(outcome).toMatchObject({ status: 'stopped', stopReason: 'usage-limit' });
     expect(steps.some((s) => s.includes('resets 5:40pm'))).toBe(true);
     expect(outcome.guide.toMarkdown()).toContain('사용 한도');
+  });
+
+  it('로그인이 안 돼 있으면 더 부르지 않고 로그인하라고 알리며 멈춘다', async () => {
+    const ws = new FakeWorkspace();
+    const team = new FakeTeam(ws, { intake: [() => intake()] }, 'intake', 'login');
+    const outcome = await service(ws, team, new FakeChecks(ws)).run('할인');
+    expect(team.calls).toEqual(['intake']);
+    expect(outcome).toMatchObject({ status: 'stopped', stopReason: 'login-required' });
+    expect(outcome.guide.toMarkdown()).toContain('rauha login');
   });
 
   it('접수에서 한도에 걸려도 다시 접수하지 않고 멈춘다', async () => {

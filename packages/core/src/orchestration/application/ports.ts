@@ -39,8 +39,14 @@ export interface MemberResult {
   readonly usage: MemberUsage;
   /** 이번 호출에서 팀원이 WebFetch로 실제로 연 주소. web 근거 확인에 쓴다. */
   readonly fetched: readonly FetchedPage[];
-  /** 구독 사용 한도에 걸렸으면 그 문장(풀리는 시각 포함). 아니면 null이나 없음. */
-  readonly limited?: string | null;
+  /** 계정 문제(사용 한도, 로그인 안 됨)로 막혔으면 그 내용. 다시 불러도 같은 오류라 바로 멈춘다. 아니면 null이나 없음. */
+  readonly blocked?: AccountBlock | null;
+}
+
+/** 팀원 호출을 막은 계정 문제. usage-limit의 message에는 풀리는 시각이 들어 있다. */
+export interface AccountBlock {
+  readonly reason: 'usage-limit' | 'login';
+  readonly message: string;
 }
 
 export interface TeamMemberPort {

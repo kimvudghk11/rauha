@@ -40,12 +40,13 @@ class FakeTeam implements TeamMemberPort {
   constructor(
     private readonly scripts: Partial<Record<MemberRole, Script[]>>,
     private readonly limitOn: MemberRole | null = null,
+    private readonly blockReason: 'usage-limit' | 'login' = 'usage-limit',
   ) {}
   async run(call: MemberCall): Promise<MemberResult> {
     this.calls.push({ role: call.role, message: call.userMessage });
     if (call.role === this.limitOn) {
       const limited = "You've hit your session limit · resets 9:40pm";
-      return { output: null, error: limited, limited, fetched: [], usage: { model: call.setting.tier, durationMs: 1, costUsd: 0, turns: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, denials: [], endReason: 'error' } };
+      return { output: null, error: limited, blocked: { reason: this.blockReason, message: limited }, fetched: [], usage: { model: call.setting.tier, durationMs: 1, costUsd: 0, turns: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, denials: [], endReason: 'error' } };
     }
     const queue = this.scripts[call.role] ?? [];
     const script = queue.length > 1 ? (queue.shift() as Script) : queue[0];
@@ -249,15 +250,24 @@ describe('ChatSession — 사용 한도', () => {
   it('질문하다 구독 한도에 걸리면 한도 문장을 그대로 알린다', async () => {
     const team = new FakeTeam({ router: [route('question')] }, 'answerer');
     const turn = await session({ team }).handle('왜 floor야?');
-    expect(turn).toMatchObject({ kind: 'limited', message: "You've hit your session limit · resets 9:40pm" });
+    expect(turn).toMatchObject({ kind: 'blocked', reason: 'usage-limit', message: "You've hit your session limit · resets 9:40pm" });
   });
 
   it('라우터에서 한도에 걸리면 작업을 시작하지 않는다', async () => {
     const loops = new FakeLoops();
     const team = new FakeTeam({}, 'router');
     const turn = await session({ team, loops }).handle('Money에 할인 넣어줘');
-    expect(turn.kind).toBe('limited');
+    expect(turn.kind).toBe('blocked');
     expect(loops.runs).toEqual([]);
+  });
+
+  it('라우터가 로그인 안 돼 있으면 질문을 작업으로 넘기지 않고 로그인 필요를 알린다', async () => {
+    const loops = new FakeLoops();
+    const team = new FakeTeam({}, 'router', 'login');
+    const turn = await session({ team, loops }).handle('ECS on EC2와 Fargate 차이 알려줘');
+    expect(turn).toMatchObject({ kind: 'blocked', reason: 'login' });
+    expect(loops.runs).toEqual([]);
+    expect(team.calls.map((c) => c.role)).toEqual(['router']);
   });
 });
 

@@ -16,6 +16,7 @@ import { ReviewReportDto } from './dto/review-report.dto.js';
 import type { MemberRole, RoleSettingsDto } from './dto/role-settings.dto.js';
 import { IMPLEMENTER_REPORT_SCHEMA, INTAKE_SCHEMA, REVIEWER_REPORT_SCHEMA, TESTER_REPORT_SCHEMA } from './dto/schemas.js';
 import type {
+  AccountBlock,
   ChecksPort,
   MemberCall,
   MemberResult,
@@ -80,8 +81,15 @@ export interface RunContextBlocks {
 const NO_CONTEXT: RunContextBlocks = { conversation: null, pastWork: null };
 
 
-/** 한도에 걸린 뒤에는 몇 번을 다시 불러도 같은 오류라서, 흐름을 끊고 바로 멈추는 데 쓴다. */
-class UsageLimitReached extends Error {}
+/** 사용 한도·로그인 문제는 몇 번을 다시 불러도 같은 오류라서, 흐름을 끊고 바로 멈추는 데 쓴다. */
+class AccountBlocked extends Error {
+  constructor(readonly block: AccountBlock) {
+    super(block.message);
+  }
+}
+
+const BLOCK_STOP: Readonly<Record<AccountBlock['reason'], RunStopReason>> = { 'usage-limit': 'usage-limit', login: 'login-required' };
+const BLOCK_STEP: Readonly<Record<AccountBlock['reason'], string>> = { 'usage-limit': 'Claude 사용 한도에 걸렸습니다', login: 'Claude 로그인이 필요합니다' };
 
 /** 멈췄을 때 안내서에 쓸 만큼만 들고 있는 진행 상황 */
 interface RunProgress {
@@ -182,8 +190,8 @@ export class MinimalLoopService {
     try {
       return await this.execute(request, tally, started, current, context);
     } catch (error) {
-      if (!(error instanceof UsageLimitReached)) throw error;
-      return this.finish({ tally, started, start: current.start, lockedTests: current.lockedTests, title: current.title, status: 'stopped', stopReason: 'usage-limit', assumptions: current.assumptions });
+      if (!(error instanceof AccountBlocked)) throw error;
+      return this.finish({ tally, started, start: current.start, lockedTests: current.lockedTests, title: current.title, status: 'stopped', stopReason: BLOCK_STOP[error.block.reason], assumptions: current.assumptions });
     }
   }
 
@@ -476,9 +484,9 @@ export class MinimalLoopService {
     const result = await this.deps.team.run(call);
     const attempt = tally.add(call, result);
     await this.deps.log.recordCall(role, attempt, call, result);
-    if (result.limited) {
-      this.deps.progress.step(`Claude 사용 한도에 걸렸습니다: ${result.limited}`);
-      throw new UsageLimitReached(result.limited);
+    if (result.blocked) {
+      this.deps.progress.step(`${BLOCK_STEP[result.blocked.reason]}: ${result.blocked.message}`);
+      throw new AccountBlocked(result.blocked);
     }
     if (result.error !== null) this.deps.progress.step(`${ROLE_LABEL[role]} 오류: ${result.error}`);
     return result.output;

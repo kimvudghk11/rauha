@@ -171,9 +171,9 @@ export async function runBench(props: {
         promptHash = hash;
         rows.push(toRow(req.id, variant, outcome));
         props.log(`   → ${outcome.status === 'complete' ? '완료' : `멈춤(${outcome.stopReason})`} · ${outcome.logDir}`);
-        if (outcome.stopReason === 'usage-limit') {
+        if (outcome.stopReason === 'usage-limit' || outcome.stopReason === 'login-required') {
           limited = true;
-          props.log('   → 구독 사용 한도에 걸려 남은 요청은 돌리지 않습니다.');
+          props.log(`   → ${outcome.stopReason === 'usage-limit' ? '구독 사용 한도에 걸려' : '로그인이 필요해서'} 남은 요청은 돌리지 않습니다.`);
         }
       } catch (error) {
         props.log(`   → 오류: ${(error as Error).message}`);

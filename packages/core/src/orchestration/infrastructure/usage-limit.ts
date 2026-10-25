@@ -1,3 +1,5 @@
+import type { AccountBlock } from '../application/ports.js';
+
 /** "You've hit your session limit · resets 5:40pm (Asia/Seoul)" 같은 구독 한도 문장 */
 const LIMIT = /You['’]ve hit your [\w ]*limit[^\n]*/i;
 
@@ -8,4 +10,15 @@ const LIMIT = /You['’]ve hit your [\w ]*limit[^\n]*/i;
 export function usageLimitMessage(error: string | null): string | null {
   if (error === null) return null;
   return LIMIT.exec(error)?.[0].trim() ?? null;
+}
+
+/** Claude Code가 로그인이 안 됐거나 인증이 풀렸을 때 내는 오류 */
+const LOGIN = /Not logged in|Please run \/login|authentication_failed|Invalid API key|OAuth token (?:has )?expired/i;
+
+/** 팀원 호출 오류가 계정 문제(사용 한도, 로그인 안 됨)인지. 아니면 null. */
+export function accountBlock(error: string | null): AccountBlock | null {
+  const limit = usageLimitMessage(error);
+  if (limit !== null) return { reason: 'usage-limit', message: limit };
+  if (error !== null && LOGIN.test(error)) return { reason: 'login', message: '이 프로필은 Claude에 로그인되어 있지 않습니다.' };
+  return null;
 }

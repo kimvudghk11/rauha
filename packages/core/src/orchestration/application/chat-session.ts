@@ -7,7 +7,7 @@ import type { MemberRole, RoleSettingsDto } from './dto/role-settings.dto.js';
 import { RouteDto } from './dto/route.dto.js';
 import { ANSWER_SCHEMA, ROUTE_SCHEMA } from './dto/schemas.js';
 import type { RunContextBlocks, RunOutcome } from './minimal-loop.service.js';
-import type { MemberResult, ProgressPort, TeamMemberPort, UserPort, WorkspacePort } from './ports.js';
+import type { AccountBlock, MemberResult, ProgressPort, TeamMemberPort, UserPort, WorkspacePort } from './ports.js';
 
 export type { RunContextBlocks };
 
@@ -19,8 +19,8 @@ const CANDIDATES = 3;
 export type TurnOutcome =
   | { readonly kind: 'work'; readonly outcome: RunOutcome }
   | { readonly kind: 'answer'; readonly answer: string; readonly checked: readonly CheckedClaim[]; readonly costUsd: number; readonly durationMs: number }
-  /** 구독 사용 한도에 걸림. message에 풀리는 시각이 들어 있다. */
-  | { readonly kind: 'limited'; readonly message: string };
+  /** 계정 문제(사용 한도, 로그인 안 됨)로 막힘. 사용 한도면 message에 풀리는 시각이 들어 있다. */
+  | { readonly kind: 'blocked'; readonly reason: AccountBlock['reason']; readonly message: string };
 
 export interface ChatSessionDeps {
   /** 요청 하나를 돌릴 최소 루프. carried = 세션 중 rauha가 남긴 파일(그 위에서 이어 일함). */
@@ -78,7 +78,7 @@ export class ChatSession {
   async handle(input: string): Promise<TurnOutcome> {
     const conversation = this.conversation();
     const routed = await this.member('router', [conversation !== null ? `<conversation>\n${conversation}\n</conversation>` : '', `<message>\n${input}\n</message>`], ROUTE_SCHEMA);
-    if (routed.limited) return { kind: 'limited', message: routed.limited };
+    if (routed.blocked) return { kind: 'blocked', ...routed.blocked };
     const route = RouteDto.read(routed.output);
     const past = route.refersToPast ? await this.pickPast(route.pastQuery ?? input) : null;
     return route.mode === 'question' ? this.answer(input, past) : this.work(input, conversation, past);
@@ -124,7 +124,7 @@ export class ChatSession {
       [`<today>${this.deps.today()}</today>`, block !== '' ? `<memory>\n기억된 지난 작업과 그때의 결정입니다.\n${block}\n</memory>` : '', `<question>\n${input}\n</question>`],
       ANSWER_SCHEMA,
     );
-    if (result.limited) return { kind: 'limited', message: result.limited };
+    if (result.blocked) return { kind: 'blocked', ...result.blocked };
     const dto = this.readAnswer(result.output);
     const claims = dto?.claims() ?? [];
     const files = new Map(await Promise.all(citedPaths(claims).map(async (path) => [path, await this.deps.workspace.readFile(path)] as const)));
