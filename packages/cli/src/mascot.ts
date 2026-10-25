@@ -1,5 +1,5 @@
 import type { MemberRole, PermissionRequest } from '@rauha/core';
-import { displayWidth, wrapText } from './text-width.js';
+import { displayWidth, fitLines, wrapText } from './text-width.js';
 
 export { displayWidth };
 
@@ -184,6 +184,26 @@ const MAX_PERMISSION_WIDTH = 76;
 const ROLE_COLOR: Readonly<Record<MemberRole, string>> = { intake: '#8FD3F7', tester: '#F3958F', implementer: '#84D9AE', reviewer: '#C3B4F5', router: '#8FD3F7', answerer: '#8FD3F7' };
 const ROLE_NAME: Readonly<Record<MemberRole, string>> = { intake: '팀장', tester: '테스트 팀원', implementer: '구현 팀원', reviewer: '리뷰어', router: '라우터', answerer: '답변 팀원' };
 
+export interface ResultCard {
+  readonly status: 'complete' | 'stopped';
+  readonly title: string;
+  readonly elapsed: string;
+  readonly stopMessage: string | null;
+  readonly files: readonly { readonly path: string; readonly kind: 'added' | 'modified' | 'deleted' }[];
+  /** 사용자가 직접 확인해야 할 것(확인 안 된 가정, 근거 못 찾은 사실) */
+  readonly todo: readonly string[];
+}
+
+/** 결과 카드에 다 쓰는 바뀐 파일 수. 넘으면 "외 n개". */
+const MAX_CARD_FILES = 6;
+const DONE_COLOR = '#84D9AE';
+const STOP_COLOR = '#F3958F';
+const FILE_MARK: Readonly<Record<ResultCard['files'][number]['kind'], readonly [string, string]>> = {
+  added: ['+', DONE_COLOR],
+  modified: ['~', '#8FD3F7'],
+  deleted: ['-', STOP_COLOR],
+};
+
 export interface MascotView {
   /** columns: 터미널 너비. 박스가 이보다 넓어지지 않게 작업 폴더 경로를 줄인다. */
   banner(workDir: string, columns: number): string;
@@ -197,6 +217,8 @@ export interface MascotView {
   permission(request: PermissionRequest, columns: number): string;
   /** 코드에 들어갔는데 근거를 확인하지 못한 사실을 보여 주는 화면 */
   factCheck(claim: string, columns: number): string;
+  /** 작업이 끝났을 때 결과 요약 카드: 상태·바뀐 파일·확인할 것. 자세한 안내서는 /guide로. */
+  resultCard(card: ResultCard, columns: number): string;
   /** "아까 그 기능" 후보를 고르게 하기 전에 보여 주는 화면 */
   pastPick(columns: number): string;
   /** 선택 목록에서 고른 줄 색칠 */
@@ -251,6 +273,31 @@ export function mascotView(depth: number, version: string, badge: string): Masco
       const inner = Math.min(columns - 1, MAX_PERMISSION_WIDTH) - 4;
       const lines = wrapText(claim, inner - 2).map((line) => `  \x1b[1m${line}${RESET}`);
       return [say('ask', ['근거를 확인하지 못했어요. 맞는지 알려 주세요.']), '', ...box([dim('코드에 들어간 사실'), '', ...lines], COLORS['B']!, depth)].join('\n');
+    },
+    resultCard: (card, columns) => {
+      const inner = Math.min(columns - 1, MAX_PERMISSION_WIDTH) - 4;
+      const fit = (text: string, indent = '') => fitLines(`${indent}${text}`, inner);
+      const state = card.status === 'complete' ? fg(DONE_COLOR, '완료') : fg(STOP_COLOR, '멈춤');
+      const shown = card.files.slice(0, MAX_CARD_FILES);
+      const lines = [
+        ...fit(`\x1b[1m${state}\x1b[1m · ${card.title}${RESET} ${dim(`· ${card.elapsed}`)}`),
+        ...(card.stopMessage !== null ? ['', ...fit(card.stopMessage)] : []),
+        ...(card.files.length > 0
+          ? [
+              '',
+              `바뀐 파일 ${card.files.length}개`,
+              ...shown.flatMap((f) => fit(`${fg(FILE_MARK[f.kind][1], FILE_MARK[f.kind][0])} ${f.path}`, '  ')),
+              ...(card.files.length > shown.length ? [dim(`  외 ${card.files.length - shown.length}개`)] : []),
+            ]
+          : []),
+        ...(card.todo.length > 0 ? ['', fg(STOP_COLOR, `확인할 것 ${card.todo.length}개`), ...card.todo.flatMap((t) => fit(`- ${t}`, '  '))] : []),
+        '',
+        dim('자세한 읽기 안내서는 /guide'),
+      ];
+      // 박스 너비를 창에 맞춰 고정한다(첫 줄을 채워 둔다).
+      const head = lines[0]!;
+      lines[0] = `${head}${' '.repeat(Math.max(0, inner - displayWidth(head)))}`;
+      return box(lines, COLORS['B']!, depth).join('\n');
     },
     pastPick: () => say('ask', ['혹시 이 작업을 말씀하시는 건가요?']),
     highlight: (text) => `\x1b[1m${fg(COLORS['B']!, text)}`,

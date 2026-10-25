@@ -1,6 +1,7 @@
 import type { TurnOutcome } from '@rauha/core';
 import { formatElapsed } from '../live-line.js';
 import type { MascotView } from '../mascot.js';
+import type { Printable } from './chat-store.js';
 
 /**
  * 답변 팀원이 쓴 "■ 제목" 줄을 강조한다. ■는 한글 글꼴 cmd에서 두 칸으로 그려져 줄이 어긋나서,
@@ -23,12 +24,22 @@ function shortUrl(url: string): string {
 }
 
 /** 한 번의 입력 결과 → 화면에 고정해 둘 줄들. 작업은 끝 표정 + 읽기 안내서, 답은 답 + 확인된 근거 수. */
-export function describeTurn(turn: TurnOutcome, view: MascotView | null): string[] {
+export function describeTurn(turn: TurnOutcome, view: MascotView | null): Printable[] {
   switch (turn.kind) {
     case 'work': {
       const { outcome } = turn;
-      // 파일 하이퍼링크(OSC 8)는 Ink가 글자째 지워서, 대화 화면에서는 링크 없는 안내서를 쓴다.
-      return [...(view !== null ? ['', view.finale(outcome.status)] : []), '', outcome.guide.toMarkdown(), ''];
+      // 화면이 없으면 안내서 전체. 파일 하이퍼링크(OSC 8)는 Ink가 글자째 지워서 링크 없는 안내서를 쓴다.
+      if (view === null) return ['', outcome.guide.toMarkdown(), ''];
+      // 긴 안내서 대신 결과 카드. 안내서 전체는 /guide로 본다.
+      const card = {
+        status: outcome.status,
+        title: outcome.title,
+        elapsed: formatElapsed(outcome.durationMs),
+        stopMessage: outcome.guide.stopMessage(),
+        files: outcome.changedInRun,
+        todo: [...outcome.assumptions.filter((a) => !a.confirmed).map((a) => `${a.question} → ${a.chosen}`), ...outcome.facts.unconfirmed.map((c) => c.text)],
+      };
+      return ['', view.finale(outcome.status), '', (columns: number) => view.resultCard(card, columns), ''];
     }
     case 'answer': {
       // 근거를 확인하지 못한 주장 목록은 답을 읽는 데 방해만 돼서 보여 주지 않는다(사용자 결정).

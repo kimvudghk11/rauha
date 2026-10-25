@@ -81,6 +81,8 @@ export async function runChat(options: ChatOptions): Promise<number> {
   const ctx = { root: workDir, profile, home, ask, user, progress, requireClean: true, threePass: options.threePass };
   const team = createTeam(ctx, prompts);
   const memory = openMemory(ctx);
+  /** 마지막 작업의 읽기 안내서. 결과 카드 대신 자세히 볼 때 /guide로 연다. */
+  let lastGuide: string | null = null;
   const session = ChatSession.start({
     newLoop: (carried) => createLoop(ctx, prompts, team, carried),
     team,
@@ -123,6 +125,9 @@ export async function runChat(options: ChatOptions): Promise<number> {
           await refreshStatus();
           for (const line of usageLines(plan, session.usage(), new Date())) store.print(line);
           return;
+        case 'guide':
+          store.print(lastGuide !== null ? `\n${lastGuide}\n` : '  아직 끝난 작업이 없어요.');
+          return;
         case 'help':
           store.print(HELP_TEXT);
           return;
@@ -138,6 +143,7 @@ export async function runChat(options: ChatOptions): Promise<number> {
     store.setBusy(true);
     try {
       const turn = await session.handle(text);
+      if (turn.kind === 'work') lastGuide = turn.outcome.guide.toMarkdown();
       finishWorking();
       for (const line of describeTurn(turn, view)) store.print(line);
     } catch (error) {

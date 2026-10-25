@@ -39,6 +39,29 @@ describe('describeTurn', () => {
 });
 
 describe('describeTurn — 작업', () => {
+  it('작업이 끝나면 긴 안내서 대신 결과 카드를 창 너비로 그린다', () => {
+    const cards: unknown[] = [];
+    const view = {
+      finale: () => 'FINALE',
+      resultCard: (card: unknown, columns: number) => (cards.push(card), `CARD ${columns}`),
+    } as unknown as Parameters<typeof describeTurn>[1];
+    const guide = { toMarkdown: () => 'LONG GUIDE', stopMessage: () => null };
+    const outcome = {
+      status: 'complete',
+      title: '할인',
+      durationMs: 111_000,
+      guide,
+      changedInRun: [{ path: 'src/a.ts', kind: 'modified' }],
+      assumptions: [{ question: '반올림?', chosen: '내림', alternatives: [], confirmed: false }],
+      facts: { unconfirmed: [{ text: '필드 이름은 email' }] },
+    };
+    const lines = describeTurn({ kind: 'work', outcome } as unknown as Parameters<typeof describeTurn>[0], view);
+    const card = lines.find((l) => typeof l === 'function') as (columns: number) => string;
+    expect(card(80)).toBe('CARD 80');
+    expect(cards[0]).toMatchObject({ status: 'complete', title: '할인', elapsed: '1분 51초', files: [{ path: 'src/a.ts' }], todo: ['반올림? → 내림', '필드 이름은 email'] });
+    expect(lines.filter((l) => typeof l === 'string').join('\n')).not.toContain('LONG GUIDE');
+  });
+
   it('대화 화면의 안내서는 하이퍼링크 없이 쓴다 (Ink가 링크 글자를 지운다)', () => {
     const guide = { toTerminal: () => '\u001b]8;;file:///E:/a.ts\u001b\\a.ts\u001b]8;;\u001b\\', toMarkdown: () => 'a.ts' };
     const turn = { kind: 'work', outcome: { status: 'complete', guide } } as unknown as Parameters<typeof describeTurn>[0];

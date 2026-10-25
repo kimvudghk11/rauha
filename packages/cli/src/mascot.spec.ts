@@ -190,6 +190,47 @@ describe('mascotView', () => {
     expect(lines.join('\n')).toContain('근거를 확인하지 못했어요');
   });
 
+  it('작업 결과 카드는 상태·바뀐 파일·확인할 것을 한 박스에 담고 창 너비를 넘지 않는다', () => {
+    const view = mascotView(24, 'v0', '[personal]')!;
+    const card = {
+      status: 'complete' as const,
+      title: '할인 기능 추가',
+      elapsed: '1분 51초',
+      stopMessage: null,
+      files: [
+        { path: 'src/money.ts', kind: 'modified' as const },
+        { path: 'src/money.spec.ts', kind: 'added' as const },
+      ],
+      todo: ['응답 필드 이름은 email이다 '.repeat(4)],
+    };
+    for (const columns of [40, 80, 120]) {
+      const lines = view.resultCard(card, columns).split('\n').map(visible);
+      expect(lines[0]).toMatch(/^ ▁+ $/);
+      for (const line of lines) expect(displayWidth(line)).toBeLessThan(columns);
+      const text = lines.join('\n');
+      expect(text).toContain('완료');
+      expect(text).toContain('할인 기능 추가');
+      expect(text).toContain('~ src/money.ts');
+      expect(text).toContain('+ src/money.spec.ts');
+      expect(text).toContain('확인할 것');
+      expect(text).toContain('/guide');
+    }
+  });
+
+  it('멈춘 결과 카드에는 멈춘 이유를 쓰고, 바뀐 파일이 많으면 몇 개만 보여 준다', () => {
+    const view = mascotView(24, 'v0', '[personal]')!;
+    const files = Array.from({ length: 9 }, (_, i) => ({ path: `src/f${i}.ts`, kind: 'modified' as const }));
+    const text = view
+      .resultCard({ status: 'stopped', title: 't', elapsed: '3초', stopMessage: '로그인이 필요해서 멈췄습니다.', files, todo: [] }, 80)
+      .split('\n')
+      .map(visible)
+      .join('\n');
+    expect(text).toContain('멈춤');
+    expect(text).toContain('로그인이 필요해서 멈췄습니다.');
+    expect(text).toContain('외 3개');
+    expect(text).not.toContain('확인할 것');
+  });
+
   it('끝 인사는 결과에 따라 다르다', () => {
     const view = mascotView(24, 'v0', '[personal]')!;
     expect(visible(view.finale('complete'))).not.toBe(visible(view.finale('stopped')));

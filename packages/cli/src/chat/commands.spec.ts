@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseCommand } from './commands.js';
+import { parseCommand, suggestCommands } from './commands.js';
 
 describe('parseCommand', () => {
   it('/로 시작하지 않으면 명령이 아니다', () => {
@@ -16,5 +16,24 @@ describe('parseCommand', () => {
 
   it('알 수 없는 명령은 요청으로 보내지 않고 알 수 없는 명령으로 본다', () => {
     expect(parseCommand('/deploy now')).toEqual({ kind: 'unknown', name: '/deploy' });
+  });
+});
+
+describe('/guide', () => {
+  it('/guide는 지난 작업의 읽기 안내서를 여는 명령이다', () => {
+    expect(parseCommand('/guide')).toEqual({ kind: 'guide' });
+  });
+});
+
+describe('suggestCommands', () => {
+  it('/만 치면 모든 명령을, 더 치면 앞이 맞는 명령만 설명과 함께 보여 준다', () => {
+    expect(suggestCommands('/').map((c) => c.name)).toEqual(['/clear', '/status', '/usage', '/guide', '/help', '/exit']);
+    expect(suggestCommands('/u')).toEqual([{ name: '/usage', help: expect.stringContaining('구독 사용률') }]);
+  });
+
+  it('명령이 아닌 글이나 띄어쓰기가 들어간 뒤에는 보여 주지 않는다', () => {
+    expect(suggestCommands('안녕')).toEqual([]);
+    expect(suggestCommands('/usage ')).toEqual([]);
+    expect(suggestCommands('')).toEqual([]);
   });
 });

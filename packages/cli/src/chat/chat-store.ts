@@ -5,6 +5,9 @@ export type Prompt =
   | { readonly kind: 'menu'; readonly screen: string; readonly options: readonly string[] }
   | { readonly kind: 'text'; readonly label: string };
 
+/** 화면에 고정할 글. 창 너비에 따라 달라지는 것(박스)은 너비를 받아 만드는 함수로 두어 창을 바꾸면 다시 만든다. */
+export type Printable = string | ((columns: number) => string);
+
 export interface Working {
   readonly text: string;
   readonly role: MemberRole;
@@ -21,14 +24,14 @@ interface Pending {
  * 팀원 둘이 동시에 물어도 질문은 줄을 세워 한 번에 하나씩 띄운다.
  */
 export class ChatStore {
-  private printed: string[] = [];
+  private printed: Printable[] = [];
   private current: Working | null = null;
   private waiting: Pending[] = [];
   private isBusy = false;
   private statusText = '';
   private readonly listeners = new Set<() => void>();
 
-  get lines(): readonly string[] {
+  get lines(): readonly Printable[] {
     return this.printed;
   }
   get working(): Working | null {
@@ -55,7 +58,7 @@ export class ChatStore {
     return () => this.listeners.delete(listener);
   }
 
-  print(text: string): void {
+  print(text: Printable): void {
     this.printed = [...this.printed, text];
     this.changed();
   }

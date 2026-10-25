@@ -169,7 +169,10 @@ export function ChatApp({ store, banner, view, onSubmit, cursor }: ChatAppProps)
   const prompt = store.prompt;
   const below = store.status !== '' ? 1 : 0;
   // 마지막 칸까지 채운 줄은 터미널이 한 번 더 접어서 한 칸을 비운다. 빈 줄은 ' '로(빈 글은 높이가 0).
-  const lines = [banner(screen.columns), ...store.lines].flatMap((item) => fitLines(item, screen.columns - 1)).map((line) => line || ' ');
+  const lines = [banner, ...store.lines]
+    .map((item) => (typeof item === 'function' ? item(screen.columns) : item))
+    .flatMap((item) => fitLines(item, screen.columns - 1))
+    .map((line) => line || ' ');
   // 그린 뒤 커서가 한 줄 더 내려가므로 화면 높이보다 한 줄 적게 채운다.
   const fill = Math.max(0, screen.rows - 1 - lines.length);
   return h(

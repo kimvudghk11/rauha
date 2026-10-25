@@ -166,6 +166,16 @@ describe('ChatApp', () => {
     expect(rows.length).toBe(2);
   });
 
+  it('창 너비에 따라 달라지는 고정 줄은 그 너비로 만들어 그린다 (창을 바꾸면 다시 만든다)', async () => {
+    const store = new ChatStore();
+    const { stdout, lastFrame } = app(store);
+    store.print((columns) => `카드 ${columns}칸`);
+    await tick();
+    expect(visible(lastFrame())).toContain('카드 100칸');
+    await resize(stdout, 60, 20);
+    expect(visible(lastScreen(lastFrame() ?? ''))).toContain('카드 60칸');
+  });
+
   it('고정 줄은 출력된 순서대로 남는다', async () => {
     const store = new ChatStore();
     const { lastFrame } = app(store);
