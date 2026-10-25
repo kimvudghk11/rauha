@@ -1,0 +1,14 @@
+{
+  "name": "rauha-sandbox",
+  "private": true,
+  "description": "rauha 연습용 프로젝트. bench가 매번 새로 복사해서 쓴다. 의존성은 rauha 루트 node_modules에서 찾는다.",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.7"
+  }
+}

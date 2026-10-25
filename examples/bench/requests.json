@@ -1,0 +1,22 @@
+[
+  {
+    "id": "reverse",
+    "request": "shared에 문자열을 거꾸로 뒤집는 reverse 함수를 추가해줘. 한글도 글자 단위로 뒤집혀야 해."
+  },
+  {
+    "id": "discount",
+    "request": "Money에 퍼센트 할인을 적용하는 discount 메서드를 추가해줘. 10% 할인하면 10,000원이 9,000원이 되고, 할인율이 0~100 밖이면 에러가 나야 해. 원 미만은 버림."
+  },
+  {
+    "id": "remove-item",
+    "request": "Cart에서 상품을 빼는 removeItem을 추가해줘. 장바구니에 없는 상품을 빼려고 하면 에러가 나야 해."
+  },
+  {
+    "id": "summary",
+    "request": "CartService에 장바구니 합계를 '12,000원' 같은 문자열로 돌려주는 summary 메서드를 추가해줘."
+  },
+  {
+    "id": "compare",
+    "request": "Money끼리 크기를 비교하는 isGreaterThan 메서드를 추가해줘."
+  }
+]
