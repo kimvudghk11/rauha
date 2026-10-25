@@ -5,34 +5,57 @@ import type { ChatStore } from './chat-store.js';
 
 /** 질문을 나누고 답하는 팀원. 사용자에게는 한 가지 "작업 중"으로 보이고, 끝나도 줄을 남기지 않는다(답이 곧 결과). */
 const QUIET: ReadonlySet<MemberRole> = new Set(['router', 'answerer']);
+/** 작업 단계 이름. 진행 줄은 "접수 > 테스트 > 구현 중…"처럼 지나온 단계를 한 줄에 잇는다. */
+const STAGE: Readonly<Partial<Record<MemberRole, string>>> = { intake: '접수', tester: '테스트', implementer: '구현', reviewer: '리뷰' };
 
 /**
- * 진행 알림 → 대화 화면. role이 붙은 알림 = 그 팀원이 일을 시작함(앞 팀원 줄은 걸린 시간과 함께 고정).
- * finish는 한 번의 입력이 끝났을 때 남은 작업 중 줄을 정리한다.
+ * 진행 알림 → 대화 화면. role이 붙은 알림 = 그 팀원이 일을 시작함.
+ * 작업 팀원은 줄을 쌓지 않고 한 진행 줄에서 단계를 이어 가고, finish 때 지나온 단계와 걸린 시간을 한 줄로 남긴다.
  */
 export function chatProgress(store: ChatStore, view: MascotView | null, now: () => number) {
-  let working: { text: string; role: MemberRole; startedAt: number } | null = null;
+  let quiet: { role: MemberRole; startedAt: number } | null = null;
+  let stages: string[] = [];
+  let lastRole: MemberRole | null = null;
+  let pipelineStart = 0;
+
+  const stageLabel = (role: MemberRole) => {
+    const name = STAGE[role] ?? role;
+    const count = stages.filter((s) => s === name || s.startsWith(`${name}(`)).length;
+    return count === 0 ? name : `${name}(${count + 1})`;
+  };
+  const endQuiet = () => {
+    if (quiet === null) return;
+    store.stopWorking(null);
+    quiet = null;
+  };
   const finish = () => {
-    if (working === null) return;
-    const elapsed = formatElapsed(now() - working.startedAt);
-    store.stopWorking(QUIET.has(working.role) ? null : (view?.done(working.text, working.role, elapsed) ?? `  ◆ ${working.text} ${elapsed}`));
-    working = null;
+    endQuiet();
+    if (stages.length === 0 || lastRole === null) return;
+    const text = stages.join(' > ');
+    const elapsed = formatElapsed(now() - pipelineStart);
+    store.stopWorking(view?.done(text, lastRole, elapsed) ?? `  ◆ ${text} ${elapsed}`);
+    stages = [];
+    lastRole = null;
   };
   return {
     finish,
     step: (message: string, role?: MemberRole) => {
-      // 라우터 → 답변 팀원은 같은 작업 중 줄을 이어 간다.
-      if (role !== undefined && QUIET.has(role) && working !== null && QUIET.has(working.role)) {
-        working = { ...working, role };
-        return;
-      }
-      finish();
       if (role === undefined) {
         store.print(view?.step(message) ?? `  · ${message}`);
         return;
       }
-      working = { text: message, role, startedAt: now() };
-      store.startWorking(message, role, working.startedAt);
+      if (QUIET.has(role)) {
+        // 라우터 → 답변 팀원은 같은 작업 중 줄을 이어 간다.
+        if (quiet !== null) return;
+        quiet = { role, startedAt: now() };
+        store.startWorking('작업 중…', role, quiet.startedAt);
+        return;
+      }
+      endQuiet();
+      if (stages.length === 0) pipelineStart = now();
+      stages = [...stages, stageLabel(role)];
+      lastRole = role;
+      store.startWorking(`${stages.join(' > ')} 중…`, role, now());
     },
   };
 }
