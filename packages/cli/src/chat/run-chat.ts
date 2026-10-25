@@ -5,6 +5,7 @@ import { promisify } from 'node:util';
 import { ChatSession, GitWorkspace, readPlanUsage, type PermissionAsker, type PlanUsage, type Profile, type UserPort } from '@rauha/core';
 import { FACT_ANSWERED, FACT_OPTIONS, PERMISSION_ANSWERED, PERMISSION_OPTIONS, toFactAnswer, toPermissionAnswer } from '../ask.js';
 import { mascotView } from '../mascot.js';
+import { createNotifier, NOTIFY_AFTER_MS, notifyWhile } from '../notify.js';
 import { createLoop, createTeam, definedEnv, loadPrompts, openMemory, roleSettings } from '../run.js';
 import { ChatApp } from './chat-app.js';
 import { chatProgress } from './chat-progress.js';
@@ -53,7 +54,7 @@ export async function runChat(options: ChatOptions): Promise<number> {
   const progress = chatProgress(store, view, Date.now);
   const finishWorking = progress.finish;
 
-  const ask: PermissionAsker = async (request) => {
+  const askPermission: PermissionAsker = async (request) => {
     const screen = view?.permission(request, columns()) ?? `⚠ 위험 동작 허락? ${request.reason}\n  ${request.detail}`;
     const compactScreen = view?.permission(request, columns(), true);
     const index = (await store.ask({ kind: 'menu', screen, compactScreen, options: PERMISSION_OPTIONS })) as number;
@@ -61,7 +62,7 @@ export async function runChat(options: ChatOptions): Promise<number> {
     store.print(`  → ${PERMISSION_ANSWERED[index < 0 ? 2 : index]}`);
     return toPermissionAnswer(index, note);
   };
-  const user: UserPort = {
+  const asker: UserPort = {
     interactive: true,
     choose: async (assumption) => {
       const options = [`${assumption.chosen}  (추천)`, ...assumption.alternatives];
@@ -83,6 +84,17 @@ export async function runChat(options: ChatOptions): Promise<number> {
       const index = (await store.ask({ kind: 'menu', screen, compactScreen, options })) as number;
       return index >= 0 && index < candidates.length ? candidates[index]!.id : null;
     },
+  };
+
+  // 사용자가 바로 답하지 않는 질문은 운영체제 알림으로도 알린다(바로 답하면 알림은 뜨지 않는다).
+  const notifier = createNotifier();
+  const asking = <T>(body: string, task: () => Promise<T>) => notifyWhile(notifier, NOTIFY_AFTER_MS, `${profile.badge()} 선택이 필요해요`, body, task);
+  const ask: PermissionAsker = (request) => asking(`${request.tool} 실행 허락: ${request.detail}`, () => askPermission(request));
+  const user: UserPort = {
+    interactive: true,
+    choose: (assumption) => asking(`요청의 해석을 정해 주세요: ${assumption.question}`, () => asker.choose(assumption)),
+    confirmFact: (claim) => asking(`근거를 못 찾은 사실이 맞는지 알려 주세요: ${claim.text}`, () => asker.confirmFact(claim)),
+    pickPast: (candidates) => asking('이 작업이 맞는지 알려 주세요', () => asker.pickPast(candidates)),
   };
 
   const prompts = await loadPrompts();

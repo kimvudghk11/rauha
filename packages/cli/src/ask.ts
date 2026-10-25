@@ -4,6 +4,7 @@ import type { Assumption, FactAnswer, PermissionAnswer, PermissionAsker, UserPor
 import type { LiveLine } from './live-line.js';
 import type { MascotView } from './mascot.js';
 import { menuKey, menuLines, type Key } from './menu.js';
+import { NOTIFY_AFTER_MS, notifyWhile, type Notifier } from './notify.js';
 
 export type Asker = PermissionAsker;
 
@@ -79,12 +80,20 @@ export function toPermissionAnswer(index: number, note: string | null): Permissi
 
 export interface AskScreen {
   readonly view: MascotView | null;
+  /** 사용자가 바로 답하지 않을 때 운영체제 알림을 띄울 곳. 없으면 알리지 않는다. */
+  readonly notifier?: Notifier | null;
+  /** 알림 제목에 붙일 이름(프로필 배지) */
+  readonly name?: string;
   /** 질문하는 동안 멈출 작업 중 표시. 없으면 null. */
   readonly live: LiveLine | null;
   readonly log: (line: string) => void;
 }
 
 const pausing = <T>(live: LiveLine | null, task: () => Promise<T>) => (live === null ? task() : live.pause(task));
+
+/** 질문하는 동안 알림을 예약한다(바로 답하면 알림은 뜨지 않는다). */
+const notifying = <T>(screen: Pick<AskScreen, 'notifier' | 'name'>, body: string, task: () => Promise<T>) =>
+  notifyWhile(screen.notifier ?? null, NOTIFY_AFTER_MS, `${screen.name ?? 'rauha'} 선택이 필요해요`, body, task);
 
 /**
  * 터미널에서 위험 동작 허락을 받는다. Claude Code처럼 박스로 무엇을 하려는지 보여 주고 목록에서 고른다.
@@ -93,7 +102,7 @@ const pausing = <T>(live: LiveLine | null, task: () => Promise<T>) => (live === 
 export function terminalAsker(screen: AskScreen): Asker {
   if (!interactive()) return refuseAll(screen.log);
   const run = serialized<PermissionAnswer>();
-  return (request) =>
+  const asker: Asker = (request) =>
     run(() =>
       pausing(screen.live, async () => {
         const columns = process.stderr.columns ?? 80;
@@ -106,6 +115,7 @@ export function terminalAsker(screen: AskScreen): Asker {
         return answer;
       }),
     );
+  return (request) => notifying(screen, `${request.tool} 실행 허락: ${request.detail}`, () => asker(request));
 }
 
 export const FACT_OPTIONS = ['맞아요', '틀려요 (바로잡을 내용 입력)', '모르겠어요 (추측으로 남김)'] as const;
@@ -119,9 +129,9 @@ export function toFactAnswer(index: number, correction: string | null): FactAnsw
 }
 
 /** 해석이 갈리는 지점과 코드에 들어간 추측을 터미널에서 확인받는다. */
-export function terminalUser(screen: Pick<AskScreen, 'view' | 'live'> = { view: null, live: null }): UserPort {
+export function terminalUser(screen: Pick<AskScreen, 'view' | 'live' | 'notifier' | 'name'> = { view: null, live: null }): UserPort {
   if (!interactive()) return noUser;
-  return {
+  const base: UserPort = {
     interactive: true,
     choose: (assumption: Assumption) =>
       pausing(screen.live, async () => {
@@ -149,6 +159,12 @@ ${shown}
         const index = await select(options, screen.view?.highlight);
         return index >= 0 && index < candidates.length ? candidates[index]!.id : null;
       }),
+  };
+  return {
+    interactive: true,
+    choose: (assumption) => notifying(screen, `요청의 해석을 정해 주세요: ${assumption.question}`, () => base.choose(assumption)),
+    confirmFact: (claim) => notifying(screen, `근거를 못 찾은 사실이 맞는지 알려 주세요: ${claim.text}`, () => base.confirmFact(claim)),
+    pickPast: (candidates) => notifying(screen, '이 작업이 맞는지 알려 주세요', () => base.pickPast(candidates)),
   };
 }
 

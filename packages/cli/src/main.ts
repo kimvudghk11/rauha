@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { DomainError, loadProfileConfig, type MemberRole } from '@rauha/core';
 import { parseArgs } from './args.js';
 import { terminalAsker, terminalUser } from './ask.js';
+import { createNotifier } from './notify.js';
 import { runBench } from './bench.js';
 import { runChat } from './chat/run-chat.js';
 import { LiveLine } from './live-line.js';
@@ -124,6 +125,7 @@ async function run(argv: readonly string[]): Promise<number> {
           })
         : null;
       const say = (line: string) => (live ? live.print(line) : log(line));
+      const notifier = createNotifier();
       const step = (message: string, role?: MemberRole) => {
         if (view === null || live === null) return log(`${profile.badge()} ${message}`);
         live.stop();
@@ -135,8 +137,8 @@ async function run(argv: readonly string[]): Promise<number> {
         root: workDir,
         profile,
         home: homedir(),
-        ask: terminalAsker({ view, live, log: say }),
-        user: terminalUser({ view, live }),
+        ask: terminalAsker({ view, live, log: say, notifier, name: profile.badge() }),
+        user: terminalUser({ view, live, notifier, name: profile.badge() }),
         progress: { step },
         requireClean: true,
         threePass: !command.quick,
