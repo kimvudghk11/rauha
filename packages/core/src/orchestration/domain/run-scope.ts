@@ -33,6 +33,11 @@ export class RunScope {
     return new RunScope(RED_GREEN, new Set(['haiku', 'sonnet']), 'review');
   }
 
+  /** 사다리 + 리뷰어 재검증. 리뷰가 통과해 docs 단계에 닿으면 완료(문서 팀은 아직 없음). */
+  static threePass(): RunScope {
+    return new RunScope(new Map<Stage, TeamRole>([...RED_GREEN, ['review', 'reviewer']]), new Set(['haiku', 'sonnet']), 'docs');
+  }
+
   decide(order: WorkOrder): ScopeDecision {
     if (order.difficulty.startsWithSenior()) return { kind: 'stop', reason: 'too-large' };
     if (order.stage === this.completeAt) return { kind: 'complete' };

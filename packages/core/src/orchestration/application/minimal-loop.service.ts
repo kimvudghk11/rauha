@@ -26,7 +26,7 @@ const INTAKE_ATTEMPTS = 2;
 /** 상태 머신이 멈추게 되어 있지만, 무한 반복을 막는 마지막 안전장치. */
 const MAX_STEPS = 12;
 const toSettled = ({ question, chosen, confirmed }: SettledAssumptionChoice): SettledAssumption => ({ question, chosen, confirmed });
-const ROLE_LABEL: Readonly<Record<MemberRole, string>> = { intake: '팀장 접수', tester: '테스트 팀원', implementer: '구현 팀원' };
+const ROLE_LABEL: Readonly<Record<MemberRole, string>> = { intake: '팀장 접수', tester: '테스트 팀원', implementer: '구현 팀원', reviewer: '리뷰어' };
 
 export interface RunOutcome {
   readonly guide: ReadingGuideDto;
@@ -73,7 +73,7 @@ class RunTally {
   };
   costUsd = 0;
   calls = 0;
-  readonly attempts: Record<MemberRole, number> = { intake: 0, tester: 0, implementer: 0 };
+  readonly attempts: Record<MemberRole, number> = { intake: 0, tester: 0, implementer: 0, reviewer: 0 };
   readonly implementerTiers: ModelTier[] = [];
   /** 승격된 업무에서 구현 팀원을 부른 적이 있는지(모델 고정 실험과 구분하려고 모델 이름이 아니라 업무 상태로 센다) */
   escalated = false;

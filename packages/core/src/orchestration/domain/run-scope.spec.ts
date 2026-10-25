@@ -97,3 +97,37 @@ describe('RunScope.ladder', () => {
     expect(ladder.decide(openAtRed('L'))).toEqual({ kind: 'stop', reason: 'too-large' });
   });
 });
+
+describe('RunScope.threePass', () => {
+  const three = RunScope.threePass();
+  const atReview = () => {
+    const order = openAtRed();
+    order.recordRed(red);
+    order.recordGreen(green);
+    return order;
+  };
+
+  it('3단 범위는 검증을 통과하면 리뷰어(sonnet)를 부른다', () => {
+    expect(three.decide(atReview())).toEqual({ kind: 'continue', assignment: { role: 'reviewer', tier: 'sonnet' } });
+  });
+
+  it('리뷰가 통과하면 완료', () => {
+    const order = atReview();
+    order.recordReview('pass');
+    expect(three.decide(order)).toEqual({ kind: 'complete' });
+  });
+
+  it('리뷰 수정 요청이면 구현 팀원에게 돌아간다', () => {
+    const order = atReview();
+    order.recordReview('changes');
+    expect(three.decide(order)).toEqual({ kind: 'continue', assignment: { role: 'implementer', tier: 'haiku' } });
+  });
+
+  it('리뷰 수정 요청이 두 번이면 멈춘다(halted)', () => {
+    const order = atReview();
+    order.recordReview('changes');
+    order.recordGreen(green);
+    order.recordReview('changes');
+    expect(three.decide(order)).toEqual({ kind: 'stop', reason: 'halted' });
+  });
+});

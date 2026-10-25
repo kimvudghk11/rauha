@@ -34,6 +34,13 @@ describe('RoleSettingsDto', () => {
     expect(roles.forAssignment('implementer', 'sonnet').tier).toBe('sonnet');
   });
 
+  it('리뷰어는 sonnet이고 파일을 쓰는 도구가 없다', () => {
+    const reviewer = RoleSettingsDto.defaults().get('reviewer');
+    expect(reviewer).toMatchObject({ tier: 'sonnet', effort: 'medium' });
+    expect(reviewer.tools).toContain('Read');
+    for (const tool of ['Edit', 'Write', 'Bash']) expect(reviewer.tools).not.toContain(tool);
+  });
+
   it('형식이 틀린 환경 변수는 거부한다', () => {
     expect(() => RoleSettingsDto.defaults().withEnv({ RAUHA_ROLE_TESTER: 'gpt:fast' })).toThrow(DomainError);
   });

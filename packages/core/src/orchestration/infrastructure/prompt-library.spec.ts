@@ -18,15 +18,20 @@ function folder(files: Record<string, string>): string {
 
 describe('PromptLibrary', () => {
   it('공통 앞부분과 역할 프롬프트를 이어 붙인다', async () => {
-    const lib = await PromptLibrary.load(folder({ '_common.md': 'COMMON', 'intake.md': 'I', 'tester.md': 'T', 'implementer.md': 'M' }));
+    const lib = await PromptLibrary.load(folder({ '_common.md': 'COMMON', 'intake.md': 'I', 'tester.md': 'T', 'implementer.md': 'M', 'reviewer.md': 'R' }));
     expect(lib.system('tester')).toBe('COMMON\n\nT');
     expect(lib.hash).toMatch(/^[0-9a-f]{8}$/);
   });
 
   it('프롬프트가 바뀌면 해시도 바뀐다', async () => {
-    const a = await PromptLibrary.load(folder({ '_common.md': 'C', 'intake.md': 'I', 'tester.md': 'T', 'implementer.md': 'M' }));
-    const b = await PromptLibrary.load(folder({ '_common.md': 'C', 'intake.md': 'I', 'tester.md': 'T2', 'implementer.md': 'M' }));
+    const a = await PromptLibrary.load(folder({ '_common.md': 'C', 'intake.md': 'I', 'tester.md': 'T', 'implementer.md': 'M', 'reviewer.md': 'R' }));
+    const b = await PromptLibrary.load(folder({ '_common.md': 'C', 'intake.md': 'I', 'tester.md': 'T2', 'implementer.md': 'M', 'reviewer.md': 'R' }));
     expect(a.hash).not.toBe(b.hash);
+  });
+
+  it('리뷰어 프롬프트도 공통 원칙과 합쳐 읽는다', async () => {
+    const lib = await PromptLibrary.load(folder({ '_common.md': 'C', 'intake.md': 'I', 'tester.md': 'T', 'implementer.md': 'M', 'reviewer.md': 'R' }));
+    expect(lib.system('reviewer')).toBe('C\n\nR');
   });
 
   it('역할 프롬프트가 없으면 알려 준다', async () => {
