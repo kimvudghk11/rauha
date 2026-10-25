@@ -105,21 +105,25 @@ describe('ReadingGuideDto — 근거와 추측', () => {
     reviewMissing: false,
   };
 
-  it('확인된 근거는 결정 옆에, 추측은 따로 모아 보여 준다', () => {
+  it('확인된 근거는 결정 옆에 쓰고, 근거 없는 추측 목록은 쓰지 않는다', () => {
     const md = ReadingGuideDto.create({ ...base, facts }).toMarkdown();
     expect(md).toContain('(근거: src/domain/money.ts:12)');
-    const guesses = md.slice(md.indexOf('⚠ 추측'));
-    expect(guesses).toContain('할인율은 정수만 받는다');
+    expect(md).not.toContain('⚠ 추측');
+    expect(md).not.toContain('할인율은 정수만 받는다');
   });
 
-  it('확인 필요는 맨 위에, 리뷰어 추측은 따로 보여 준다', () => {
+  it('확인 필요는 맨 위에 두고, 리뷰어 추측은 쓰지 않는다', () => {
     const md = ReadingGuideDto.create({ ...base, facts }).toMarkdown();
     const lines = md.split('\n');
     expect(lines.findIndex((l) => l.startsWith('⚠ 확인 필요'))).toBeLessThan(lines.findIndex((l) => l.startsWith('읽는 순서')));
-    expect(md).toContain('리뷰어 추측');
-    expect(md).toContain('함수 이름이 어색하다');
-    // 확인 필요에 나온 추측은 추측 절에 다시 나오지 않는다
+    expect(md).not.toContain('리뷰어 추측');
+    expect(md).not.toContain('함수 이름이 어색하다');
     expect(md.split('응답 필드 이름은 email이다')).toHaveLength(2);
+  });
+
+  it('멈춘 이유 문장을 따로 꺼낼 수 있다 (요약 카드에 쓴다)', () => {
+    expect(ReadingGuideDto.create({ ...base, status: 'stopped', stopReason: 'login-required' }).stopMessage()).toContain('rauha login');
+    expect(ReadingGuideDto.create(base).stopMessage()).toBeNull();
   });
 
   it('리뷰를 받았으면 머리줄에 리뷰 횟수를 쓴다', () => {

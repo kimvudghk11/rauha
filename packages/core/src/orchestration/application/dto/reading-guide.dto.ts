@@ -107,6 +107,11 @@ export class ReadingGuideDto {
     return new ReadingGuideDto(props);
   }
 
+  /** 멈췄으면 그 이유 문장, 아니면 null */
+  stopMessage(): string | null {
+    return this.props.status === 'stopped' && this.props.stopReason !== null ? STOP_MESSAGE[this.props.stopReason] : null;
+  }
+
   toMarkdown(): string {
     return this.render((_path, label) => label);
   }
@@ -145,7 +150,7 @@ export class ReadingGuideDto {
 
     // 코드에 들어갔는데 확인 못 한 사실도 맨 위에: 코드를 믿기 전에 사용자가 직접 확인해야 한다.
     if (facts !== null && facts.unconfirmed.length > 0) {
-      lines.push('', '⚠ 확인 필요 (코드에 들어간 추측, 물어볼 화면이 없었음)');
+      lines.push('', '⚠ 확인 필요 (코드에 들어갔는데 근거를 찾지 못함)');
       for (const c of facts.unconfirmed) lines.push(`  - ${c.text}`);
     }
 
@@ -173,17 +178,8 @@ export class ReadingGuideDto {
       if (e.untested.length > 0) lines.push(`  - 자동 테스트가 못 잡는 부분: ${e.untested.join(', ')}`);
     }
 
+    // 근거 없는 추측·리뷰어 지적 목록은 읽는 데 방해만 돼서 쓰지 않는다(사용자 결정). 코드에 들어간 것은 위 '확인 필요'에 남는다.
     if (facts !== null) {
-      const pending = new Set(facts.unconfirmed.map((c) => c.text));
-      const guesses = facts.checked.filter((c) => c.isGuess && !pending.has(c.text));
-      if (guesses.length > 0) {
-        lines.push('', '⚠ 추측 (근거 확인 안 됨)');
-        for (const c of guesses) lines.push(`  - ${c.text}`);
-      }
-      if (facts.reviewerGuesses.length > 0) {
-        lines.push('', '리뷰어 추측 (근거 없는 지적이라 반영하지 않음)');
-        for (const c of facts.reviewerGuesses) lines.push(`  - ${c.text}`);
-      }
       if (facts.reviewMissing) lines.push('', '리뷰어 보고를 읽지 못한 리뷰가 있었습니다. 그 리뷰는 지적 없음으로 처리했습니다.');
     }
 
