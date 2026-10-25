@@ -54,6 +54,7 @@ export {
   type MemberRole,
   type RoleSetting,
 } from './orchestration/application/dto/role-settings.dto.js';
+export { PlanUsageDto, type PlanUsage, type UsageWindow } from './orchestration/application/dto/plan-usage.dto.js';
 export { INTAKE_SCHEMA, TESTER_REPORT_SCHEMA, IMPLEMENTER_REPORT_SCHEMA } from './orchestration/application/dto/schemas.js';
 export type * from './orchestration/application/ports.js';
 export { InMemoryWorkOrderRepository } from './orchestration/infrastructure/in-memory-work-order.repository.js';
@@ -68,6 +69,7 @@ export { ProfileConfigDto } from './profile/application/dto/profile-config.dto.j
 export { AgentSdkTeamMember, type AgentSdkTeamMemberOptions } from './orchestration/infrastructure/agent-sdk-team-member.js';
 export { PromptLibrary } from './orchestration/infrastructure/prompt-library.js';
 export { GitWorkspace } from './orchestration/infrastructure/git-workspace.js';
+export { readPlanUsage } from './orchestration/infrastructure/agent-sdk-plan-usage.js';
 export { NodeChecks, NodeProject, type PackageManager } from './orchestration/infrastructure/node-checks.js';
 export { FileRunLog } from './orchestration/infrastructure/file-run-log.js';
 export {

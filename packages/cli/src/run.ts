@@ -41,7 +41,7 @@ export interface RunResult {
   readonly promptHash: string;
 }
 
-function definedEnv(env: NodeJS.ProcessEnv): Record<string, string> {
+export function definedEnv(env: NodeJS.ProcessEnv): Record<string, string> {
   return Object.fromEntries(Object.entries(env).filter((e): e is [string, string] => e[1] !== undefined));
 }
 

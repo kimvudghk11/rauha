@@ -25,6 +25,7 @@ export class ChatStore {
   private current: Working | null = null;
   private waiting: Pending[] = [];
   private isBusy = false;
+  private statusText = '';
   private readonly listeners = new Set<() => void>();
 
   get lines(): readonly string[] {
@@ -38,6 +39,15 @@ export class ChatStore {
   }
   get busy(): boolean {
     return this.isBusy;
+  }
+  /** 입력창 아래 상태 줄(프로필 · 사용률 · 브랜치). 빈 글이면 그리지 않는다. */
+  get status(): string {
+    return this.statusText;
+  }
+
+  setStatus(text: string): void {
+    this.statusText = text;
+    this.changed();
   }
 
   subscribe(listener: () => void): () => void {

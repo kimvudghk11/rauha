@@ -144,6 +144,19 @@ describe('ChatApp', () => {
     expect(spots.at(-1)).toBeNull();
   });
 
+  it('입력창 아래에 상태 줄을 흐리게 보여 주고, 커서 자리는 그만큼 위로 잡는다', async () => {
+    const spots: unknown[] = [];
+    const store = new ChatStore();
+    store.setStatus('[personal] · 세션 83% · 주간 21% · main');
+    const r = render(React.createElement(ChatApp, { store, banner: () => '배너', view: null, onSubmit: vi.fn(), cursor: { set: (s) => spots.push(s) } }));
+    mounted.push(r);
+    await tick();
+    const lines = visible(r.lastFrame()).split('\n');
+    expect(lines.at(-1)).toContain('세션 83% · 주간 21% · main');
+    expect(lines.at(-2)).toContain('▔');
+    expect(spots.at(-1)).toEqual({ up: 3, column: 4 });
+  });
+
   it('긴 입력은 입력창 안에서 줄을 바꿔 다 보여 준다', async () => {
     const { stdin, lastFrame } = app();
     await tick();

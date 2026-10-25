@@ -81,7 +81,7 @@ function useParkedCursor(cursor: CursorPark | null, spot: CursorSpot | null): vo
   useEffect(() => () => cursor?.set(null), [cursor]);
 }
 
-function TextPrompt({ store, prompt, cursor }: { store: ChatStore; prompt: Extract<Prompt, { kind: 'text' }>; cursor: CursorPark | null }) {
+function TextPrompt({ store, prompt, cursor, below }: { store: ChatStore; prompt: Extract<Prompt, { kind: 'text' }>; cursor: CursorPark | null; below: number }) {
   const [state, setState] = useState<InputState>({ text: '', cursor: 0 });
   useInput((input, key) => {
     if (key.return) {
@@ -92,11 +92,12 @@ function TextPrompt({ store, prompt, cursor }: { store: ChatStore; prompt: Extra
   });
   const label = `  ${prompt.label}: `;
   const before = [...state.text].slice(0, state.cursor).join('');
-  useParkedCursor(cursor, { up: 1, column: displayWidth(label) + displayWidth(before) });
+  useParkedCursor(cursor, { up: 1 + below, column: displayWidth(label) + displayWidth(before) });
   return h(Box, null, h(Text, { color: SKY }, label), cursor !== null ? h(Text, null, state.text) : withCursor(state));
 }
 
-function InputBox({ busy, onSubmit, cursor }: { busy: boolean; onSubmit: (text: string) => void; cursor: CursorPark | null }) {
+/** below: 입력창 아래에 더 그리는 줄 수(상태 줄). 커서 자리를 그만큼 위로 잡는다. */
+function InputBox({ busy, onSubmit, cursor, below }: { busy: boolean; onSubmit: (text: string) => void; cursor: CursorPark | null; below: number }) {
   const [state, setState] = useState<InputState>({ text: '', cursor: 0 });
   const { stdout } = useStdout();
   const width = Math.min((stdout.columns || 80) - 1, MAX_INPUT_WIDTH);
@@ -111,7 +112,7 @@ function InputBox({ busy, onSubmit, cursor }: { busy: boolean; onSubmit: (text: 
   // 테두리 두 칸, 여백 두 칸, '> ' 두 칸을 빼고 접는다. Ink가 따로 접지 않게 미리 접어야 커서 자리를 안다.
   const layout = inputLayout(state, width - 6);
   // 입력 줄 아래에 아래 테두리가 있고, Ink는 그린 뒤 커서를 그다음 줄에 둔다.
-  useParkedCursor(cursor, busy ? null : { up: layout.lines.length - layout.row + 1, column: 4 + layout.column });
+  useParkedCursor(cursor, busy ? null : { up: layout.lines.length - layout.row + 1 + below, column: 4 + layout.column });
   const offset = state.cursor - layout.lines.slice(0, layout.row).reduce((sum, l) => sum + [...l].length, 0);
   const line = (text: string, row: number) =>
     h(
@@ -166,6 +167,7 @@ export function ChatApp({ store, banner, view, onSubmit, cursor }: ChatAppProps)
   useStore(store);
   const screen = useScreen();
   const prompt = store.prompt;
+  const below = store.status !== '' ? 1 : 0;
   // 마지막 칸까지 채운 줄은 터미널이 한 번 더 접어서 한 칸을 비운다. 빈 줄은 ' '로(빈 글은 높이가 0).
   const lines = [banner(screen.columns), ...store.lines].flatMap((item) => fitLines(item, screen.columns - 1)).map((line) => line || ' ');
   // 그린 뒤 커서가 한 줄 더 내려가므로 화면 높이보다 한 줄 적게 채운다.
@@ -179,8 +181,9 @@ export function ChatApp({ store, banner, view, onSubmit, cursor }: ChatAppProps)
       { flexDirection: 'column', justifyContent: 'flex-end', minHeight: fill },
       store.working !== null ? h(WorkingLine, { working: store.working, view }) : null,
       prompt?.kind === 'menu' ? h(MenuPrompt, { key: prompt.screen, store, prompt, view }) : null,
-      prompt?.kind === 'text' ? h(TextPrompt, { key: prompt.label, store, prompt, cursor: cursor ?? null }) : null,
-      prompt === null ? h(InputBox, { busy: store.busy, onSubmit, cursor: cursor ?? null }) : null,
+      prompt?.kind === 'text' ? h(TextPrompt, { key: prompt.label, store, prompt, cursor: cursor ?? null, below }) : null,
+      prompt === null ? h(InputBox, { busy: store.busy, onSubmit, cursor: cursor ?? null, below }) : null,
+      store.status !== '' ? h(Text, { dimColor: true }, ` ${store.status}`) : null,
     ),
   );
 }

@@ -1,15 +1,18 @@
 import { render } from 'ink';
 import React from 'react';
-import { ChatSession, GitWorkspace, type PermissionAsker, type Profile, type UserPort } from '@rauha/core';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { ChatSession, GitWorkspace, readPlanUsage, type PermissionAsker, type PlanUsage, type Profile, type UserPort } from '@rauha/core';
 import { FACT_ANSWERED, FACT_OPTIONS, PERMISSION_ANSWERED, PERMISSION_OPTIONS, toFactAnswer, toPermissionAnswer } from '../ask.js';
 import { mascotView } from '../mascot.js';
-import { createLoop, createTeam, loadPrompts, openMemory, roleSettings } from '../run.js';
+import { createLoop, createTeam, definedEnv, loadPrompts, openMemory, roleSettings } from '../run.js';
 import { ChatApp } from './chat-app.js';
 import { chatProgress } from './chat-progress.js';
 import { ChatStore } from './chat-store.js';
 import { HELP_TEXT, parseCommand } from './commands.js';
 import { parkingStream } from './cursor-park.js';
 import { describeTurn } from './describe-turn.js';
+import { statusLine, usageLines } from './usage-view.js';
 
 export interface ChatOptions {
   readonly workDir: string;
@@ -21,6 +24,16 @@ export interface ChatOptions {
 }
 
 const columns = () => process.stderr.columns ?? 80;
+
+/** 지금 브랜치 이름. git이 없거나 실패하면 null. */
+async function currentBranch(cwd: string): Promise<string | null> {
+  try {
+    const { stdout } = await promisify(execFile)('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd });
+    return stdout.trim() || null;
+  } catch {
+    return null;
+  }
+}
 
 /** rauha(인자 없음): Claude Code 같은 대화 화면. 화면이 없으면 열지 않는다. */
 export async function runChat(options: ChatOptions): Promise<number> {
@@ -106,11 +119,10 @@ export async function runChat(options: ChatOptions): Promise<number> {
           store.print(`  대화 ${s.turns}번 · 이어 일할 파일 ${s.carriedFiles}개 · 마지막 작업: ${s.lastTitle ?? '없음'}`);
           return;
         }
-        case 'usage': {
-          const u = session.usage();
-          store.print(`  이번 세션: haiku ${u.calls.haiku}회 · sonnet ${u.calls.sonnet}회 · opus ${u.calls.opus}회 · 추정 $${u.costUsd.toFixed(3)}`);
+        case 'usage':
+          await refreshStatus();
+          for (const line of usageLines(plan, session.usage(), new Date())) store.print(line);
           return;
-        }
         case 'help':
           store.print(HELP_TEXT);
           return;
@@ -133,8 +145,19 @@ export async function runChat(options: ChatOptions): Promise<number> {
       store.print(`rauha: ${(error as Error).message}`);
     } finally {
       store.setBusy(false);
+      void refreshStatus();
     }
   }
+
+  // 상태 줄: 시작할 때와 입력 하나가 끝날 때마다 사용률을 새로 읽는다(모델을 부르지 않는다).
+  const agentEnv = { ...definedEnv(process.env), ...profile.agentEnv(home) };
+  let plan: PlanUsage | null = null;
+  const refreshStatus = async () => {
+    const [usage, branch] = await Promise.all([readPlanUsage(agentEnv), currentBranch(workDir)]);
+    plan = usage;
+    store.setStatus(statusLine(profile.badge(), plan, branch));
+  };
+  void refreshStatus();
 
   await app.waitUntilExit();
   memory.close();

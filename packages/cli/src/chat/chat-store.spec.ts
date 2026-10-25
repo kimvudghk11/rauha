@@ -16,6 +16,15 @@ describe('ChatStore', () => {
     expect(store.prompt).toBeNull();
   });
 
+  it('상태 줄을 바꾸면 구독자에게 알린다', () => {
+    const store = new ChatStore();
+    let notified = 0;
+    store.subscribe(() => (notified += 1));
+    store.setStatus('[personal] · 세션 83%');
+    expect(store.status).toBe('[personal] · 세션 83%');
+    expect(notified).toBe(1);
+  });
+
   it('출력과 상태가 바뀌면 구독자에게 알린다', () => {
     const store = new ChatStore();
     let notified = 0;
