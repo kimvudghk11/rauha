@@ -18,12 +18,22 @@ const TIERS: readonly ModelTier[] = ['haiku', 'sonnet', 'opus'];
 const EFFORTS: readonly Effort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
 const ROLES: readonly MemberRole[] = ['intake', 'tester', 'implementer'];
 
+/** 상태 머신이 sonnet으로 올렸을 때 쓰는 설정. 표에 없는 조합은 역할 기본값에서 모델만 바꾼다. */
+const ESCALATED: Readonly<Partial<Record<MemberRole, Partial<Record<ModelTier, Partial<RoleSetting>>>>>> = {
+  tester: { sonnet: { maxBudgetUsd: 1 } },
+  implementer: { sonnet: { maxBudgetUsd: 2 } },
+};
+
 /**
- * 역할별 모델·effort·상한. 실험대에서 바꿔 보기 쉽도록
- * `RAUHA_ROLE_<ROLE>=<tier>[:<effort>]` 환경 변수로 덮어쓸 수 있다.
+ * 역할별 모델·effort·상한. 모델은 보통 상태 머신이 배정하고(forAssignment), 실험대에서 바꿔 보기 쉽도록
+ * `RAUHA_ROLE_<ROLE>=<tier>[:<effort>]` 환경 변수로 그 역할의 모델을 고정할 수 있다.
  */
 export class RoleSettingsDto {
-  private constructor(private readonly settings: Readonly<Record<MemberRole, RoleSetting>>) {}
+  private constructor(
+    private readonly settings: Readonly<Record<MemberRole, RoleSetting>>,
+    /** 환경 변수로 모델을 고정한 역할. 배정 모델을 무시한다. */
+    private readonly pinned: ReadonlySet<MemberRole> = new Set(),
+  ) {}
 
   static defaults(): RoleSettingsDto {
     return new RoleSettingsDto({
@@ -35,6 +45,7 @@ export class RoleSettingsDto {
 
   withEnv(env: Readonly<Record<string, string | undefined>>): RoleSettingsDto {
     const next = { ...this.settings };
+    const pinned = new Set(this.pinned);
     for (const role of ROLES) {
       const key = `RAUHA_ROLE_${role.toUpperCase()}`;
       const value = env[key];
@@ -44,11 +55,19 @@ export class RoleSettingsDto {
         throw new DomainError('INVALID_INPUT', `${key}: <${TIERS.join('|')}>[:<${EFFORTS.join('|')}>] 형식이어야 합니다.`);
       }
       next[role] = { ...next[role], tier: tier as ModelTier, ...(effort !== undefined ? { effort: effort as Effort } : {}) };
+      pinned.add(role);
     }
-    return new RoleSettingsDto(next);
+    return new RoleSettingsDto(next, pinned);
   }
 
   get(role: MemberRole): RoleSetting {
     return this.settings[role];
+  }
+
+  /** 상태 머신이 배정한 모델로 부를 때의 설정. 환경 변수로 고정한 역할은 고정 모델을 쓴다. */
+  forAssignment(role: MemberRole, tier: ModelTier): RoleSetting {
+    const base = this.settings[role];
+    if (this.pinned.has(role) || tier === base.tier) return base;
+    return { ...base, tier, ...ESCALATED[role]?.[tier] };
   }
 }
