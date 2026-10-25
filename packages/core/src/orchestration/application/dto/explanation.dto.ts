@@ -1,13 +1,23 @@
 import { DomainError } from '../../../shared/domain-error.js';
 import { asRecord, readOptionalString, readString, readStringArray } from '../../../shared/validation.js';
+import type { Claim, Evidence } from '../../domain/fact-check.js';
+import { EvidenceDto } from './evidence.dto.js';
 import { WorkReportDto } from './work-report.dto.js';
 
 export const EXPLANATION_TOKEN_BUDGET = 400;
+const MAX_FACTS = 6;
 
 export interface Decision {
   readonly what: string;
   readonly why: string;
   readonly rejected: string | null;
+  readonly evidence: readonly Evidence[];
+}
+
+/** 코드에 넣은 외부 사실(API 경로, 요청·응답 필드, 설정 키, 라이브러리 동작 등) */
+export interface Fact {
+  readonly claim: string;
+  readonly evidence: readonly Evidence[];
 }
 
 export interface ReadingStop {
@@ -41,6 +51,7 @@ export class ExplanationDto {
     readonly readingOrder: readonly ReadingStop[],
     readonly manualChecks: readonly string[],
     readonly untested: readonly string[],
+    readonly facts: readonly Fact[],
   ) {}
 
   static from(input: unknown): ExplanationDto {
@@ -50,6 +61,7 @@ export class ExplanationDto {
         what: readString(item, 'what', what),
         why: readString(item, 'why', what),
         rejected: readOptionalString(item, 'rejected', what),
+        evidence: EvidenceDto.list(item['evidence'], `${what}.evidence`),
       })),
       readList(obj, 'readingOrder', 2, 4, (item, what) => {
         const line = item['line'];
@@ -61,7 +73,22 @@ export class ExplanationDto {
       }),
       countRange(readStringArray(obj, 'manualChecks', 'Explanation'), 'manualChecks', 1, 3),
       countRange(readStringArray(obj, 'untested', 'Explanation'), 'untested', 0, 3),
+      // 근거 칸이 생기기 전 보고에는 facts가 없다.
+      obj['facts'] === undefined
+        ? []
+        : readList(obj, 'facts', 0, MAX_FACTS, (item, what) => ({
+            claim: readString(item, 'claim', what),
+            evidence: EvidenceDto.list(item['evidence'], `${what}.evidence`),
+          })),
     );
+  }
+
+  /** 근거 확인에 넘길 주장 목록: 결정은 '무엇 — 왜', 외부 사실은 그대로. */
+  claims(): Claim[] {
+    return [
+      ...this.decisions.map((d): Claim => ({ kind: 'decision', text: `${d.what} — ${d.why}`, evidence: d.evidence })),
+      ...this.facts.map((f): Claim => ({ kind: 'fact', text: f.claim, evidence: f.evidence })),
+    ];
   }
 
   /** WorkReportDto.estimateTokens와 같은 보수적 계산. */

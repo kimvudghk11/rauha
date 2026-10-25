@@ -23,6 +23,29 @@ describe('ExplanationDto', () => {
     expect(dto.decisions[0]?.rejected).toBe('유틸 함수');
   });
 
+  it('결정과 외부 사실을 근거와 함께 주장 목록으로 바꾼다', () => {
+    const blank = { path: null, line: null, quote: null, name: null, url: null, text: null };
+    const dto = ExplanationDto.from({
+      ...explanation,
+      decisions: [{ ...explanation.decisions[0], evidence: [{ ...blank, kind: 'code', path: 'src/domain/money.ts', line: 12, quote: 'add(other: Money): Money' }] }],
+      facts: [{ claim: '응답 필드 이름은 email이다', evidence: [{ ...blank, kind: 'web', url: 'https://api.example.com/docs' }] }],
+    });
+    expect(dto.claims()).toEqual([
+      { kind: 'decision', text: 'discount를 Money 메서드로 둠 — add·multiply와 같은 자리', evidence: [{ kind: 'code', path: 'src/domain/money.ts', line: 12, quote: 'add(other: Money): Money' }] },
+      { kind: 'fact', text: '응답 필드 이름은 email이다', evidence: [{ kind: 'web', url: 'https://api.example.com/docs', quote: null }] },
+    ]);
+  });
+
+  it('근거와 facts가 없던 예전 보고도 읽는다', () => {
+    const dto = ExplanationDto.from(explanation);
+    expect(dto.facts).toEqual([]);
+    expect(dto.claims()[0]?.evidence).toEqual([]);
+  });
+
+  it('facts가 6개를 넘으면 거부한다', () => {
+    expect(() => ExplanationDto.from({ ...explanation, facts: Array(7).fill({ claim: 'x', evidence: [] }) })).toThrow(DomainError);
+  });
+
   it('설명이 400토큰을 넘으면 예산 초과', () => {
     expect(ExplanationDto.from(explanation).isWithinBudget()).toBe(true);
     const long = { ...explanation, manualChecks: ['가'.repeat(500)] };

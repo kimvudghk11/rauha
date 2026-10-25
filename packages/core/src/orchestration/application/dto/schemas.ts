@@ -44,6 +44,27 @@ export const INTAKE_SCHEMA: Record<string, unknown> = {
   },
 };
 
+/**
+ * 근거 한 개. 구조화 출력에서 oneOf를 피하려고 모든 칸을 두고, 종류에 안 쓰는 칸은 null.
+ * code: path·line·quote(실제 코드 한 줄 그대로), test: name, web: url·quote, user: text.
+ */
+const EVIDENCE = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'path', 'line', 'quote', 'name', 'url', 'text'],
+  properties: {
+    kind: { enum: ['code', 'test', 'web', 'user'] },
+    path: nullableStr,
+    line: { type: ['integer', 'null'] },
+    quote: nullableStr,
+    name: nullableStr,
+    url: nullableStr,
+    text: nullableStr,
+  },
+} as const;
+
+const evidenceList = (max: number) => ({ type: 'array', maxItems: max, items: EVIDENCE }) as const;
+
 const reportProperties = {
   result: { enum: ['done', 'failed', 'needs-decision'] },
   did: { ...strList, minItems: 1, maxItems: 3 },
@@ -73,7 +94,7 @@ export const IMPLEMENTER_REPORT_SCHEMA: Record<string, unknown> = {
     explanation: {
       type: 'object',
       additionalProperties: false,
-      required: ['decisions', 'readingOrder', 'manualChecks', 'untested'],
+      required: ['decisions', 'readingOrder', 'manualChecks', 'untested', 'facts'],
       properties: {
         decisions: {
           type: 'array',
@@ -82,8 +103,19 @@ export const IMPLEMENTER_REPORT_SCHEMA: Record<string, unknown> = {
           items: {
             type: 'object',
             additionalProperties: false,
-            required: ['what', 'why', 'rejected'],
-            properties: { what: str, why: str, rejected: nullableStr },
+            required: ['what', 'why', 'rejected', 'evidence'],
+            properties: { what: str, why: str, rejected: nullableStr, evidence: evidenceList(4) },
+          },
+        },
+        facts: {
+          type: 'array',
+          maxItems: 6,
+          description: '코드에 넣은 외부 사실(API 경로, 요청·응답 필드, 설정 키, 라이브러리 동작). 없으면 빈 배열.',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['claim', 'evidence'],
+            properties: { claim: str, evidence: evidenceList(4) },
           },
         },
         readingOrder: {
@@ -99,6 +131,26 @@ export const IMPLEMENTER_REPORT_SCHEMA: Record<string, unknown> = {
         },
         manualChecks: { ...strList, minItems: 1, maxItems: 3 },
         untested: { ...strList, maxItems: 3 },
+      },
+    },
+  },
+};
+
+export const REVIEWER_REPORT_SCHEMA: Record<string, unknown> = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['verdict', 'summary', 'issues'],
+  properties: {
+    verdict: { enum: ['pass', 'changes'] },
+    summary: str,
+    issues: {
+      type: 'array',
+      maxItems: 6,
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['problem', 'path', 'line', 'evidence'],
+        properties: { problem: str, path: nullableStr, line: { type: ['integer', 'null'] }, evidence: evidenceList(4) },
       },
     },
   },
