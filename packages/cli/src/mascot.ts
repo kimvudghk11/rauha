@@ -210,7 +210,9 @@ export interface ResultCard {
   readonly elapsed: string;
   readonly stopMessage: string | null;
   readonly files: readonly { readonly path: string; readonly kind: 'added' | 'modified' | 'deleted' }[];
-  /** 사용자가 직접 확인해야 할 것(확인 안 된 가정, 근거 못 찾은 사실) */
+  /** rauha가 추천대로 알아서 정한 해석(묻지 않은 것). 다르면 다시 요청하면 된다. */
+  readonly decided: readonly string[];
+  /** 사용자가 직접 확인해야 할 것(코드에 들어갔는데 근거를 못 찾은 사실) */
   readonly todo: readonly string[];
 }
 
@@ -329,6 +331,7 @@ export function mascotView(depth: number, version: string, badge: string): Masco
               ...(card.files.length > shown.length ? [dim(`  외 ${card.files.length - shown.length}개`)] : []),
             ]
           : []),
+        ...(card.decided.length > 0 ? ['', `알아서 정한 것 ${card.decided.length}개`, ...card.decided.flatMap((t) => fit(`- ${t}`, '  ').map(dim))] : []),
         ...(card.todo.length > 0 ? ['', fg(STOP_COLOR, `확인할 것 ${card.todo.length}개`), ...card.todo.flatMap((t) => fit(`- ${t}`, '  '))] : []),
         '',
         dim('자세한 읽기 안내서는 /guide'),

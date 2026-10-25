@@ -408,7 +408,28 @@ describe('MinimalLoopService', () => {
 });
 
 describe('MinimalLoopService — 해석이 갈리는 요청과 재시도 정보', () => {
-  const assumption = { question: '원 미만은 무엇을 버리나', chosen: '할인 후 금액', alternatives: ['할인액'] };
+  const assumption = { question: '원 미만은 무엇을 버리나', chosen: '할인 후 금액', alternatives: ['할인액'], needsUser: true };
+
+  it('사용자가 꼭 정해야 하는 해석이 아니면 묻지 않고 추천대로 진행해 안내서에 알아서 정한 해석으로 남긴다', async () => {
+    const ws = new FakeWorkspace();
+    const optional = { ...assumption, needsUser: false };
+    const team = new FakeTeam(ws, { intake: [() => intake({ assumptions: [optional] })], tester: [writeTest], implementer: [implement] });
+    const user = new FakeUser(true);
+    const outcome = await service(ws, team, new FakeChecks(ws), new FakeLog(), user).run('할인');
+    expect(user.asked).toEqual([]);
+    expect(team.calls.filter((r) => r === 'intake')).toHaveLength(1);
+    expect(outcome.guide.toMarkdown()).toContain('알아서 정한 해석');
+    expect(outcome.guide.toMarkdown()).toContain('원 미만은 무엇을 버리나 → 할인 후 금액');
+  });
+
+  it('꼭 물어볼 것과 아닌 것이 섞이면 꼭 물어볼 것만 묻는다', async () => {
+    const ws = new FakeWorkspace();
+    const other = { question: '빈 입력은', chosen: '0원', alternatives: ['오류'], needsUser: false };
+    const team = new FakeTeam(ws, { intake: [() => intake({ assumptions: [other, assumption] })], tester: [writeTest], implementer: [implement] });
+    const user = new FakeUser(true, [0]);
+    await service(ws, team, new FakeChecks(ws), new FakeLog(), user).run('할인');
+    expect(user.asked).toEqual(['원 미만은 무엇을 버리나']);
+  });
 
   it('해석이 갈리면 사용자에게 묻고, 다른 해석을 고르면 확정해서 접수를 다시 받는다', async () => {
     const ws = new FakeWorkspace();
@@ -443,13 +464,13 @@ describe('MinimalLoopService — 해석이 갈리는 요청과 재시도 정보'
     expect(team.calls.filter((r) => r === 'intake')).toHaveLength(1);
   });
 
-  it('물어볼 화면이 없으면 추천 해석으로 진행하고 안내서에 확인 안 된 가정으로 남긴다', async () => {
+  it('물어볼 화면이 없으면 추천 해석으로 진행하고 안내서에 알아서 정한 해석으로 남긴다', async () => {
     const ws = new FakeWorkspace();
     const team = new FakeTeam(ws, { intake: [() => intake({ assumptions: [assumption] })], tester: [writeTest], implementer: [implement] });
     const user = new FakeUser(false);
     const outcome = await service(ws, team, new FakeChecks(ws), new FakeLog(), user).run('할인');
     expect(user.asked).toEqual([]);
-    expect(outcome.guide.toMarkdown()).toContain('⚠ 확인 안 된 가정');
+    expect(outcome.guide.toMarkdown()).toContain('알아서 정한 해석');
     expect(outcome.guide.toMarkdown()).toContain('원 미만은 무엇을 버리나 → 할인 후 금액');
   });
 
@@ -595,7 +616,7 @@ describe('MinimalLoopService — 사실 기반 3단 작업', () => {
 
   it('업무 지시서에 적힌 그대로 질문 → 해석 형태로 인용한 정한 해석도 근거로 인정한다', async () => {
     const ws = new FakeWorkspace();
-    const assumption = { question: '버림 대상', chosen: '할인 후 금액에서 원 미만 버림 (999원 → 899원)', alternatives: ['할인액을 먼저 버림'] };
+    const assumption = { question: '버림 대상', chosen: '할인 후 금액에서 원 미만 버림 (999원 → 899원)', alternatives: ['할인액을 먼저 버림'], needsUser: true };
     const cite: Script = (_c, w) => {
       w.files.set('src/money.ts', CODE);
       const decision = { what: 'floor를 할인 후 금액에 씀', why: '정한 해석', rejected: null, evidence: [{ ...blank, kind: 'user', text: '버림 대상 → 할인 후 금액에서 원 미만 버림 (999원 → 899원)' }] };

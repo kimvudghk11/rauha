@@ -15,6 +15,11 @@ export interface Assumption {
   readonly question: string;
   readonly chosen: string;
   readonly alternatives: readonly string[];
+  /**
+   * 사용자가 꼭 정해야 하는 해석인지. 틀리면 되돌리기 어렵거나(돈·데이터 삭제·보안·공개 API·DB 구조),
+   * 이 코드베이스의 관례로는 추천을 못 정하는 경우만 true. 아니면 추천대로 진행하고 안내서에만 남긴다.
+   */
+  readonly needsUser: boolean;
 }
 
 export interface SettledAssumptionChoice {
@@ -43,6 +48,7 @@ function readAssumptions(obj: Record<string, unknown>): Assumption[] {
       question: readString(a, 'question', `Intake.assumptions[${i}]`),
       chosen: readString(a, 'chosen', `Intake.assumptions[${i}]`),
       alternatives,
+      needsUser: readBoolean(a, 'needsUser', `Intake.assumptions[${i}]`, false),
     };
   });
 }
@@ -110,16 +116,18 @@ export class IntakeDto {
   }
 
   /**
-   * 사용자의 선택(0 = 추천, 1.. = 다른 후보)을 반영한 가정 목록. picks가 null이면 묻지 못한 것이다.
+   * 사용자의 선택(0 = 추천, 1.. = 다른 후보)을 반영한 가정 목록.
+   * picks[i]가 null이면 그 가정은 묻지 않은 것이고(꼭 물을 필요가 없었거나 물을 화면이 없었다), 추천대로 정한다.
    */
-  settleAssumptions(picks: readonly number[] | null): SettledAssumptionChoice[] {
+  settleAssumptions(picks: readonly (number | null)[] | null): SettledAssumptionChoice[] {
     return this.assumptions.map((a, i) => {
-      const pick = picks?.[i] ?? 0;
+      const pick = picks?.[i] ?? null;
+      const alternative = pick !== null && pick > 0 ? a.alternatives[pick - 1] : undefined;
       return {
         question: a.question,
-        chosen: pick > 0 ? (a.alternatives[pick - 1] ?? a.chosen) : a.chosen,
-        confirmed: picks !== null,
-        changed: picks !== null && pick > 0 && a.alternatives[pick - 1] !== undefined,
+        chosen: alternative ?? a.chosen,
+        confirmed: pick !== null,
+        changed: alternative !== undefined,
       };
     });
   }

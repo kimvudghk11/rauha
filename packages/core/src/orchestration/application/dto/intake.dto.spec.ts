@@ -51,7 +51,21 @@ describe('IntakeDto — 해석이 갈리는 요청', () => {
 
   it('해석이 갈리는 지점을 고른 해석과 다른 후보와 함께 읽는다', () => {
     const dto = IntakeDto.from({ ...valid, assumptions: [assumption] });
-    expect(dto.assumptions).toEqual([assumption]);
+    expect(dto.assumptions).toEqual([{ ...assumption, needsUser: false }]);
+  });
+
+  it('사용자가 꼭 정해야 하는 해석만 needsUser로 표시되고, 표시가 없으면 묻지 않는다', () => {
+    const dto = IntakeDto.from({ ...valid, assumptions: [{ ...assumption, needsUser: true }, assumption] });
+    expect(dto.assumptions.map((a) => a.needsUser)).toEqual([true, false]);
+  });
+
+  it('묻지 않은 해석은 추천대로 정하고 확인되지 않은 것으로 남긴다', () => {
+    const dto = IntakeDto.from({ ...valid, assumptions: [{ ...assumption, needsUser: true }, assumption] });
+    const settled = dto.settleAssumptions([1, null]);
+    expect(settled.map((s) => [s.chosen === assumption.chosen, s.confirmed, s.changed])).toEqual([
+      [false, true, true],
+      [true, false, false],
+    ]);
   });
 
   it('가정이 없으면 빈 목록이다', () => {

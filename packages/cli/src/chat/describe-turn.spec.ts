@@ -64,7 +64,7 @@ describe('describeTurn — 작업', () => {
     const lines = describeTurn({ kind: 'work', outcome } as unknown as Parameters<typeof describeTurn>[0], view);
     const card = lines.find((l) => typeof l === 'function') as (columns: number) => string;
     expect(card(80)).toBe('CARD 80');
-    expect(cards[0]).toMatchObject({ status: 'complete', title: '할인', elapsed: '1분 51초', files: [{ path: 'src/a.ts' }], todo: ['반올림? → 내림', '필드 이름은 email'] });
+    expect(cards[0]).toMatchObject({ status: 'complete', title: '할인', elapsed: '1분 51초', files: [{ path: 'src/a.ts' }], decided: ['반올림? → 내림'], todo: ['필드 이름은 email'] });
     expect(lines.filter((l) => typeof l === 'string').join('\n')).not.toContain('LONG GUIDE');
   });
 

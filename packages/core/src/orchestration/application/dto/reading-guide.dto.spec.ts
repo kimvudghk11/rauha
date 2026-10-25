@@ -86,7 +86,7 @@ describe('ReadingGuideDto — 가정', () => {
       assumptions: [{ question: '원 미만 처리', chosen: '할인 후 금액을 버림', confirmed: false }],
     }).toMarkdown();
     const lines = md.split('\n');
-    expect(lines[2]).toBe('⚠ 확인 안 된 가정 (rauha가 추천 해석으로 진행했습니다. 다르면 다시 요청하세요)');
+    expect(lines[2]).toBe('알아서 정한 해석 (추천대로 진행했어요. 다르면 다시 요청해 주세요)');
     expect(lines[3]).toBe('  - 원 미만 처리 → 할인 후 금액을 버림');
   });
 });

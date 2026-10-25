@@ -37,7 +37,8 @@ export function describeTurn(turn: TurnOutcome, view: MascotView | null): Printa
         elapsed: formatElapsed(outcome.durationMs),
         stopMessage: outcome.guide.stopMessage(),
         files: outcome.changedInRun,
-        todo: [...outcome.assumptions.filter((a) => !a.confirmed).map((a) => `${a.question} → ${a.chosen}`), ...outcome.facts.unconfirmed.map((c) => c.text)],
+        decided: outcome.assumptions.filter((a) => !a.confirmed).map((a) => `${a.question} → ${a.chosen}`),
+        todo: outcome.facts.unconfirmed.map((c) => c.text),
       };
       return ['', view.finale(outcome.status), '', (columns: number) => view.resultCard(card, columns), ''];
     }

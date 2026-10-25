@@ -33,11 +33,12 @@ export const INTAKE_SCHEMA: Record<string, unknown> = {
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['question', 'chosen', 'alternatives'],
+        required: ['question', 'chosen', 'alternatives', 'needsUser'],
         properties: {
           question: { ...str, description: '무엇이 갈리는지 한 줄' },
           chosen: { ...str, description: '고른 해석. 구체적인 예시 값 포함' },
           alternatives: { ...strList, minItems: 1, maxItems: 3, description: '다른 해석들. 각각 예시 값 포함' },
+          needsUser: { type: 'boolean', description: '사용자가 꼭 정해야 하면 true. 틀리면 되돌리기 어렵거나(돈·데이터 삭제·보안·공개 API·DB 구조) 코드베이스 관례로 추천을 못 정할 때만. 나머지는 false' },
         },
       },
     },

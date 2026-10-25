@@ -374,8 +374,8 @@ export class MinimalLoopService {
   // ── 접수 ──────────────────────────────────────────────────
 
   /**
-   * 접수 → 해석이 갈리는 지점(가정)을 사용자에게 확인 → 다른 해석을 고르면 확정해서 한 번 더 접수.
-   * 물어볼 화면이 없으면 추천 해석으로 진행하고, 확인 안 된 가정으로 안내서에 남긴다.
+   * 접수 → 해석이 갈리는 지점 중 사용자가 꼭 정해야 하는 것만 확인 → 다른 해석을 고르면 확정해서 한 번 더 접수.
+   * 나머지와 물어볼 화면이 없을 때는 추천 해석으로 진행하고, 알아서 정한 해석으로 안내서에 남긴다.
    */
   private async intake(request: string, tally: RunTally, context: RunContextBlocks): Promise<{ dto: IntakeDto; order: WorkOrder; assumptions: SettledAssumption[] } | null> {
     const first = await this.intakeOnce(request, [], tally, context);
@@ -384,9 +384,10 @@ export class MinimalLoopService {
     const { user, progress } = this.deps;
     if (!user.interactive) return { ...first, assumptions: first.dto.settleAssumptions(null).map(toSettled) };
 
-    progress.step('요청이 두 가지 이상으로 읽히는 곳이 있어 확인합니다');
-    const picks: number[] = [];
-    for (const assumption of first.dto.assumptions) picks.push(await user.choose(assumption));
+    // 사용자가 꼭 정해야 하는 해석만 묻는다. 나머지는 추천대로 진행하고 안내서에 '알아서 정한 해석'으로 남긴다.
+    const picks: (number | null)[] = [];
+    if (first.dto.assumptions.some((a) => a.needsUser)) progress.step('꼭 정해 주셔야 하는 곳이 있어 확인합니다');
+    for (const assumption of first.dto.assumptions) picks.push(assumption.needsUser ? await user.choose(assumption) : null);
     const settled = first.dto.settleAssumptions(picks);
     if (!settled.some((s) => s.changed)) return { ...first, assumptions: settled.map(toSettled) };
 

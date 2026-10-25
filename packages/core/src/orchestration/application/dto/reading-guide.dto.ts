@@ -141,7 +141,7 @@ export class ReadingGuideDto {
     const unconfirmed = p.assumptions.filter((a) => !a.confirmed);
     const confirmed = p.assumptions.filter((a) => a.confirmed);
     if (unconfirmed.length > 0) {
-      lines.push('', '⚠ 확인 안 된 가정 (rauha가 추천 해석으로 진행했습니다. 다르면 다시 요청하세요)');
+      lines.push('', '알아서 정한 해석 (추천대로 진행했어요. 다르면 다시 요청해 주세요)');
       for (const a of unconfirmed) lines.push(`  - ${a.question} → ${a.chosen}`);
     }
     if (confirmed.length > 0) {

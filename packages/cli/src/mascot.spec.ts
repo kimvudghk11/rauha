@@ -214,6 +214,7 @@ describe('mascotView', () => {
         { path: 'src/money.ts', kind: 'modified' as const },
         { path: 'src/money.spec.ts', kind: 'added' as const },
       ],
+      decided: ['반올림은 내림'],
       todo: ['응답 필드 이름은 email이다 '.repeat(4)],
     };
     for (const columns of [40, 80, 120]) {
@@ -226,6 +227,8 @@ describe('mascotView', () => {
       expect(text).toContain('~ src/money.ts');
       expect(text).toContain('+ src/money.spec.ts');
       expect(text).toContain('확인할 것');
+      expect(text).toContain('알아서 정한 것 1개');
+      expect(text).toContain('반올림은 내림');
       expect(text).toContain('/guide');
       // '·'는 한글 글꼴 cmd에서 두 칸이라 박스 안에 쓰면 오른쪽 테두리가 밀린다.
       expect(text).not.toContain('·');
@@ -236,7 +239,7 @@ describe('mascotView', () => {
     const view = mascotView(24, 'v0', '[personal]')!;
     const files = Array.from({ length: 9 }, (_, i) => ({ path: `src/f${i}.ts`, kind: 'modified' as const }));
     const text = view
-      .resultCard({ status: 'stopped', title: 't', elapsed: '3초', stopMessage: '로그인이 필요해서 멈췄습니다.', files, todo: [] }, 80)
+      .resultCard({ status: 'stopped', title: 't', elapsed: '3초', stopMessage: '로그인이 필요해서 멈췄습니다.', files, decided: [], todo: [] }, 80)
       .split('\n')
       .map(visible)
       .join('\n');
