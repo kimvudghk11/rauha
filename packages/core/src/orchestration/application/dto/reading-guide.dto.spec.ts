@@ -65,9 +65,10 @@ describe('ReadingGuideDto', () => {
   });
 
   it('멈췄을 때 안내서는 이유와 되돌리는 방법을 담는다', () => {
-    const md = ReadingGuideDto.create({ ...base, status: 'stopped', stopReason: 'needs-senior', explanation: null }).toMarkdown();
+    const md = ReadingGuideDto.create({ ...base, status: 'stopped', stopReason: 'needs-support', explanation: null }).toMarkdown();
     expect(md).toContain('멈춤');
-    expect(md).toMatch(/주니어가 두 번 실패/);
+    expect(md).toContain('구현 시니어(sonnet)까지 실패했습니다');
+    expect(md).not.toContain('2단계에서 붙입니다');
     expect(md).toContain('git checkout -- src/domain/money.ts');
     expect(md).toContain('git clean -f -- src/domain/money.spec.ts');
   });

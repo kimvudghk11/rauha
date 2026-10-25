@@ -30,11 +30,11 @@ export interface SettledAssumption {
 }
 
 const STOP_MESSAGE: Readonly<Record<RunStopReason, string>> = {
-  'too-large': 'L급 작업입니다. 설계·시니어가 필요해서 1단계에서는 시작하지 않습니다. 작업을 더 작게 나눠 다시 요청해 주세요.',
-  'needs-senior': '주니어가 두 번 실패했습니다. 시니어 승격은 2단계에서 붙입니다. 아래 기록의 실패 요약을 참고하세요.',
-  'needs-support': '디버깅·설계 지원이 필요한 단계입니다. 1단계에서는 여기서 멈춥니다.',
+  'too-large': 'L급 작업입니다. 설계·시니어가 필요해서 아직 시작하지 않습니다. 작업을 더 작게 나눠 다시 요청해 주세요.',
+  'needs-senior': '구현 팀원이 sonnet으로 올라가야 하는데 이번 실행 범위에서 막혔습니다.',
+  'needs-support': '구현 시니어(sonnet)까지 실패했습니다. 디버깅·설계 자문은 다음 단계에서 붙입니다. 아래 기록의 실패 요약을 참고하세요.',
   halted: '상태 머신이 작업을 중단했습니다.',
-  'unsupported-stage': '1단계에서 다루지 않는 단계에 도달했습니다.',
+  'unsupported-stage': '지금 범위에서 다루지 않는 단계에 도달했습니다.',
   'intake-failed': '요청을 업무 지시서로 바꾸지 못했습니다. 요청을 더 구체적으로 적어 주세요.',
 };
 

@@ -114,6 +114,16 @@ describe('WorkOrder 파이프라인', () => {
   });
 });
 
+describe('WorkOrder 승격 여부', () => {
+  it('주니어 단계는 승격되지 않은 업무, 시니어 단계부터 승격된 업무다', () => {
+    const order = openAtGreen('S');
+    expect(order.isEscalated()).toBe(false);
+    order.recordGreen(fail);
+    order.recordGreen(fail);
+    expect(order.isEscalated()).toBe(true);
+  });
+});
+
 describe('WorkOrder 승격 사다리', () => {
   it('주니어 2회 실패 → 시니어 → 디버깅 → 설계 자문 → 중단', () => {
     const order = openAtGreen();

@@ -63,12 +63,14 @@ type Script = (call: MemberCall, ws: FakeWorkspace) => unknown;
 
 class FakeTeam implements TeamMemberPort {
   readonly calls: MemberRole[] = [];
+  readonly log: { role: MemberRole; tier: string; message: string }[] = [];
   constructor(
     private readonly ws: FakeWorkspace,
     private readonly scripts: Partial<Record<MemberRole, Script[]>>,
   ) {}
   async run(call: MemberCall): Promise<MemberResult> {
     this.calls.push(call.role);
+    this.log.push({ role: call.role, tier: call.setting.tier, message: call.userMessage });
     const queue = this.scripts[call.role] ?? [];
     const script = queue.length > 1 ? (queue.shift() as Script) : queue[0];
     return {
@@ -139,6 +141,10 @@ const implement: Script = (_c, ws) => {
   ws.files.set('src/money.ts', 'v2');
   return { ...report, explanation };
 };
+const implementWrong: Script = (_c, ws) => {
+  ws.files.set('src/money.ts', `bad-${Math.random()}`);
+  return { ...report, explanation };
+};
 
 function service(
   ws: FakeWorkspace,
@@ -197,6 +203,48 @@ describe('MinimalLoopService', () => {
     expect(steps.find(([m]) => m.startsWith('검증 묶음'))?.[1]).toBeUndefined();
   });
 
+  it('주니어가 두 번 실패하면 시니어(sonnet)가 실패 요약을 받아 이어서 하고 완료된다', async () => {
+    const ws = new FakeWorkspace();
+    const team = new FakeTeam(ws, { intake: [() => intake()], tester: [writeTest], implementer: [implementWrong, implementWrong, implement] });
+    const outcome = await service(ws, team, new FakeChecks(ws)).run('Money에 할인 추가');
+    const implementers = team.log.filter((c) => c.role === 'implementer');
+    expect(implementers.map((c) => c.tier)).toEqual(['haiku', 'haiku', 'sonnet']);
+    expect(implementers[2]!.message).toContain('<handoff>');
+    expect(implementers[2]!.message).toContain('<escalation>');
+    expect(implementers[2]!.message).toContain('<last_failure>');
+    expect(implementers[1]!.message).not.toContain('<escalation>');
+    expect(outcome.status).toBe('complete');
+    expect(outcome.escalated).toBe(true);
+    expect(outcome.finalTier).toBe('sonnet');
+  });
+
+  it('시니어도 실패하면 needs-support로 멈춘다', async () => {
+    const ws = new FakeWorkspace();
+    const team = new FakeTeam(ws, { intake: [() => intake()], tester: [writeTest], implementer: [implementWrong] });
+    const outcome = await service(ws, team, new FakeChecks(ws)).run('Money에 할인 추가');
+    expect(team.calls.filter((r) => r === 'implementer')).toHaveLength(3);
+    expect(outcome).toMatchObject({ status: 'stopped', stopReason: 'needs-support', escalated: true });
+  });
+
+  it('시니어 시도에서 잠긴 테스트를 고치면 쓰기 거부로 실패 처리한다', async () => {
+    const ws = new FakeWorkspace();
+    const touchLocked: Script = (_c, w) => {
+      w.files.set('src/money.spec.ts', 'weakened');
+      w.files.set('src/money.ts', 'v2');
+      return { ...report, explanation };
+    };
+    const team = new FakeTeam(ws, { intake: [() => intake()], tester: [writeTest], implementer: [implementWrong, implementWrong, touchLocked] });
+    const outcome = await service(ws, team, new FakeChecks(ws)).run('Money에 할인 추가');
+    expect(outcome.stopReason).toBe('needs-support');
+  });
+
+  it('승격이 없으면 escalated는 false이고 마지막 구현 모델은 haiku', async () => {
+    const ws = new FakeWorkspace();
+    const team = new FakeTeam(ws, { intake: [() => intake()], tester: [writeTest], implementer: [implement] });
+    const outcome = await service(ws, team, new FakeChecks(ws)).run('Money에 할인 추가');
+    expect(outcome).toMatchObject({ escalated: false, finalTier: 'haiku' });
+  });
+
   it('L급 접수는 팀원을 부르지 않고 멈춘다', async () => {
     const ws = new FakeWorkspace();
     const team = new FakeTeam(ws, { intake: [() => intake({ sensitive: true })] });
@@ -232,7 +280,7 @@ describe('MinimalLoopService', () => {
     expect(outcome.status).toBe('complete');
   });
 
-  it('잠긴 테스트를 바꾼 구현은 실패로 치고, 두 번 실패하면 needs-senior로 멈춘다', async () => {
+  it('잠긴 테스트를 바꾼 구현은 실패로 치고, 시니어까지 실패하면 needs-support로 멈춘다', async () => {
     const ws = new FakeWorkspace();
     const cheat: Script = (_c, w) => {
       w.files.set('src/money.ts', 'v2');
@@ -241,7 +289,7 @@ describe('MinimalLoopService', () => {
     };
     const team = new FakeTeam(ws, { intake: [() => intake()], tester: [writeTest], implementer: [cheat] });
     const outcome = await service(ws, team, new FakeChecks(ws)).run('할인');
-    expect(outcome).toMatchObject({ status: 'stopped', stopReason: 'needs-senior', implementerAttempts: 2 });
+    expect(outcome).toMatchObject({ status: 'stopped', stopReason: 'needs-support', implementerAttempts: 3 });
     expect(outcome.guide.toMarkdown()).toContain('되돌리려면');
   });
 

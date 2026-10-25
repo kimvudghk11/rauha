@@ -38,8 +38,15 @@ export interface RunOutcome {
   readonly costUsd: number;
   readonly durationMs: number;
   readonly usage: Readonly<Record<ModelTier, { calls: number; tokens: number }>>;
+  /** 구현 시니어가 한 번이라도 불렸는지 */
+  readonly escalated: boolean;
+  /** 마지막 구현 호출의 모델. 구현까지 못 갔으면 null */
+  readonly finalTier: ModelTier | null;
   readonly logDir: string;
 }
+
+const ESCALATION_NOTE =
+  '<escalation>\n앞의 구현 주니어(haiku)가 두 번 실패해서 승격된 시도입니다. <handoff>와 <last_failure>를 먼저 읽고, 앞 시도와 다른 접근을 하세요.\n</escalation>';
 
 export interface MinimalLoopDeps {
   readonly team: TeamMemberPort;
@@ -67,8 +74,12 @@ class RunTally {
   costUsd = 0;
   calls = 0;
   readonly attempts: Record<MemberRole, number> = { intake: 0, tester: 0, implementer: 0 };
+  readonly implementerTiers: ModelTier[] = [];
+  /** 승격된 업무에서 구현 팀원을 부른 적이 있는지(모델 고정 실험과 구분하려고 모델 이름이 아니라 업무 상태로 센다) */
+  escalated = false;
 
   add(call: MemberCall, result: MemberResult): number {
+    if (call.role === 'implementer') this.implementerTiers.push(call.setting.tier);
     const tier = this.usage[call.setting.tier];
     tier.calls += 1;
     tier.tokens += result.usage.inputTokens + result.usage.outputTokens + result.usage.cacheReadTokens;
@@ -105,7 +116,7 @@ export class MinimalLoopService {
     const brief = `<today>${this.deps.today()}</today>\n\n${dto.toBrief(order.difficulty.grade)}`;
     progress.step(`업무: [${order.difficulty.grade}] ${order.title}`);
 
-    const scope = RunScope.minimalLoop();
+    const scope = RunScope.ladder();
     let redFeedback: string | null = null;
     let lastFailure: string | null = null;
     let lockedTests: string[] = [];
@@ -126,7 +137,7 @@ export class MinimalLoopService {
         const message = [brief, '<task>위 수용 기준을 검사하는, 지금은 실패하는 테스트를 작성하세요.</task>', redFeedback ? `<previous_attempt>\n${redFeedback}\n</previous_attempt>` : '']
           .filter((s) => s !== '')
           .join('\n\n');
-        await this.call('tester', message, TESTER_REPORT_SCHEMA, order, tally);
+        await this.call('tester', message, TESTER_REPORT_SCHEMA, order, tally, decision.assignment.tier);
         const result = await this.judgeRed(order);
         await log.recordChecks(`red-${attempt}`, result.checks);
         lockedTests = result.testFiles;
@@ -143,11 +154,13 @@ export class MinimalLoopService {
         '<task>잠긴 테스트를 통과시키는 최소 구현을 하세요. 테스트 파일은 고칠 수 없습니다.</task>',
         handoff !== '' ? `<handoff>\n이전 시도의 실패 요약입니다.\n${handoff}\n</handoff>` : '',
         lastFailure !== null ? `<last_failure>\n지난 시도에서 rauha가 직접 본 실패 메시지입니다.\n${lastFailure}\n</last_failure>` : '',
+        order.isEscalated() ? ESCALATION_NOTE : '',
       ]
         .filter((s) => s !== '')
         .join('\n\n');
       const before = await workspace.snapshot();
-      const output = await this.call('implementer', message, IMPLEMENTER_REPORT_SCHEMA, order, tally);
+      tally.escalated ||= order.isEscalated();
+      const output = await this.call('implementer', message, IMPLEMENTER_REPORT_SCHEMA, order, tally, decision.assignment.tier);
       const changed = workspace.changesBetween(before, await workspace.snapshot()).map((c) => c.path);
       explanation = this.readExplanation(output) ?? explanation;
 
@@ -254,8 +267,16 @@ export class MinimalLoopService {
 
   // ── 팀원 호출 ─────────────────────────────────────────────
 
-  private async call(role: MemberRole, userMessage: string, outputSchema: Record<string, unknown>, order: WorkOrder | null, tally: RunTally): Promise<unknown> {
-    const setting = this.deps.roles.get(role);
+  /** tier: 상태 머신이 배정한 모델. 접수(팀장)는 배정이 없으므로 역할 기본값을 쓴다. */
+  private async call(
+    role: MemberRole,
+    userMessage: string,
+    outputSchema: Record<string, unknown>,
+    order: WorkOrder | null,
+    tally: RunTally,
+    tier?: ModelTier,
+  ): Promise<unknown> {
+    const setting = tier === undefined ? this.deps.roles.get(role) : this.deps.roles.forAssignment(role, tier);
     const writeRole = role === 'intake' ? 'lead' : role;
     const call: MemberCall = {
       role,
@@ -316,7 +337,10 @@ export class MinimalLoopService {
       costUsd: tally.costUsd,
       usage: tally.usage,
       attempts: tally.attempts,
+      implementerTiers: tally.implementerTiers,
     };
+    const escalated = tally.escalated;
+    const finalTier = tally.implementerTiers.at(-1) ?? null;
     const logDir = await this.deps.log.finish(summary, ReadingGuideDto.create({ ...guideProps, logDir: null }).toMarkdown());
     return {
       guide: ReadingGuideDto.create({ ...guideProps, logDir }),
@@ -328,6 +352,8 @@ export class MinimalLoopService {
       costUsd: tally.costUsd,
       durationMs,
       usage: tally.usage,
+      escalated,
+      finalTier,
       logDir,
     };
   }

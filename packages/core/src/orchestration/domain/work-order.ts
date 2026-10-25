@@ -112,6 +112,11 @@ export class WorkOrder {
     return this.state.haltReason;
   }
 
+  /** 구현이 주니어에서 시니어 이상으로 올라간 업무인지. 승격된 시도에는 다른 접근을 요구한다. */
+  isEscalated(): boolean {
+    return this.state.rung !== 'junior';
+  }
+
   isFinished(): boolean {
     return this.state.stage === 'done' || this.state.stage === 'halted';
   }
