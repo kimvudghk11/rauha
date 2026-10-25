@@ -1,4 +1,4 @@
-type CommandName = 'clear' | 'status' | 'usage' | 'guide' | 'help' | 'exit';
+type CommandName = 'clear' | 'status' | 'usage' | 'guide' | 'update' | 'help' | 'exit';
 
 export type ChatCommand = { readonly kind: CommandName } | { readonly kind: 'unknown'; readonly name: string };
 
@@ -13,6 +13,7 @@ const COMMANDS: readonly { readonly kind: CommandName; readonly help: string }[]
   { kind: 'status', help: '지금 세션 상태(대화 수, 이어 일할 파일)' },
   { kind: 'usage', help: '구독 사용률(세션 5시간 · 주간)과 이번 대화 호출 수' },
   { kind: 'guide', help: '지난 작업의 자세한 읽기 안내서' },
+  { kind: 'update', help: '최신 버전으로 갱신하고 rauha를 다시 띄워요 (지난 작업 기억은 남아요)' },
   { kind: 'help', help: '이 안내' },
   { kind: 'exit', help: '끝내기 (Ctrl+C 두 번도 됨)' },
 ];

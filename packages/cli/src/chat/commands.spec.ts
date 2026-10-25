@@ -12,6 +12,7 @@ describe('parseCommand', () => {
     expect(parseCommand('/usage')).toEqual({ kind: 'usage' });
     expect(parseCommand('/help')).toEqual({ kind: 'help' });
     expect(parseCommand('/exit')).toEqual({ kind: 'exit' });
+    expect(parseCommand('/update')).toEqual({ kind: 'update' });
   });
 
   it('알 수 없는 명령은 요청으로 보내지 않고 알 수 없는 명령으로 본다', () => {
@@ -27,8 +28,9 @@ describe('/guide', () => {
 
 describe('suggestCommands', () => {
   it('/만 치면 모든 명령을, 더 치면 앞이 맞는 명령만 설명과 함께 보여 준다', () => {
-    expect(suggestCommands('/').map((c) => c.name)).toEqual(['/clear', '/status', '/usage', '/guide', '/help', '/exit']);
-    expect(suggestCommands('/u')).toEqual([{ name: '/usage', help: expect.stringContaining('구독 사용률') }]);
+    expect(suggestCommands('/').map((c) => c.name)).toEqual(['/clear', '/status', '/usage', '/guide', '/update', '/help', '/exit']);
+    expect(suggestCommands('/us')).toEqual([{ name: '/usage', help: expect.stringContaining('구독 사용률') }]);
+    expect(suggestCommands('/up')).toEqual([{ name: '/update', help: expect.stringContaining('최신') }]);
   });
 
   it('명령이 아닌 글이나 띄어쓰기가 들어간 뒤에는 보여 주지 않는다', () => {

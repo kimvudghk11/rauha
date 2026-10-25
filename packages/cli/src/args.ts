@@ -3,6 +3,7 @@ export type Command =
   | { kind: 'version' }
   | { kind: 'whoami'; profile: string | null }
   | { kind: 'login'; profile: string | null }
+  | { kind: 'update'; profile: string | null }
   | { kind: 'bench'; profile: string | null; only: string | null; compare: boolean; quick: boolean }
   | { kind: 'chat'; profile: string | null; prompt: string | null; quick: boolean };
 
@@ -38,6 +39,7 @@ export function parseArgs(argv: readonly string[]): Command {
 
   if (positional[0] === 'whoami') return { kind: 'whoami', profile };
   if (positional[0] === 'login') return { kind: 'login', profile };
+  if (positional[0] === 'update') return { kind: 'update', profile };
   if (positional[0] === 'bench') return { kind: 'bench', profile, only, compare, quick };
   return { kind: 'chat', profile, prompt, quick };
 }

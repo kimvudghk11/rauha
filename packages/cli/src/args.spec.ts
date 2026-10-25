@@ -16,6 +16,13 @@ describe('parseArgs', () => {
   });
 });
 
+describe('parseArgs — update', () => {
+  it('update는 최신으로 갱신한 뒤 다시 띄우는 명령이다', () => {
+    expect(parseArgs(['update'])).toEqual({ kind: 'update', profile: null });
+    expect(parseArgs(['update', '--profile', 'work'])).toEqual({ kind: 'update', profile: 'work' });
+  });
+});
+
 describe('parseArgs — 1단계 명령', () => {
   it('login 과 --profile', () => {
     expect(parseArgs(['login'])).toEqual({ kind: 'login', profile: null });

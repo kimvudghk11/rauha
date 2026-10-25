@@ -1,0 +1,134 @@
+import { describe, expect, it, vi } from 'vitest';
+import { isRauhaRepo, relaunch, runUpdate, type Exec } from './update.js';
+
+interface Reply {
+  code?: number;
+  stdout?: string;
+  stderr?: string;
+}
+
+/** 명령 문장("git fetch --quiet")에 맞는 답을 돌려주는 가짜 실행기. 모르는 명령은 성공(빈 출력). */
+function fakeExec(replies: Record<string, Reply | Reply[]>) {
+  const calls: string[] = [];
+  const exec: Exec = async (command, args) => {
+    const key = [command, ...args].join(' ');
+    calls.push(key);
+    const reply = replies[key];
+    const next = Array.isArray(reply) ? (reply.shift() ?? {}) : (reply ?? {});
+    return { code: next.code ?? 0, stdout: next.stdout ?? '', stderr: next.stderr ?? '' };
+  };
+  return { exec, calls };
+}
+
+/** 테스트마다 새로 만든다: 답 목록은 호출할 때마다 하나씩 소모되어서 공유하면 다른 테스트에 번진다. */
+const base = (): Record<string, Reply | Reply[]> => ({
+  'git rev-parse --is-inside-work-tree': { stdout: 'true\n' },
+  'git status --porcelain --untracked-files=no': { stdout: '' },
+  'git rev-parse HEAD': [{ stdout: 'aaa\n' }, { stdout: 'bbb\n' }],
+});
+
+describe('runUpdate', () => {
+  it('새 커밋이 있고 바뀐 파일이 없으면 내려받고 빌드한다', async () => {
+    const { exec, calls } = fakeExec({ ...base(), 'git rev-parse HEAD': [{ stdout: 'aaa\n' }, { stdout: 'bbb\n' }], 'git rev-list --count HEAD..@{u}': { stdout: '3\n' }, 'git diff --name-only aaa bbb': { stdout: 'packages/cli/src/a.ts\n' } });
+    const log: string[] = [];
+    const result = await runUpdate('E:/rauha', exec, (l) => log.push(l));
+    expect(result).toMatchObject({ ok: true, pulled: 3, installed: false, built: true });
+    expect(calls).toEqual(expect.arrayContaining(['git fetch --quiet', 'git pull --ff-only', 'yarn build']));
+    expect(calls).not.toContain('yarn install');
+    expect(log.join('\n')).toContain('새 커밋 3개');
+  });
+
+  it('package.json이나 yarn.lock이 바뀌었으면 설치한 뒤 빌드한다', async () => {
+    const { exec, calls } = fakeExec({ ...base(), 'git rev-parse HEAD': [{ stdout: 'aaa\n' }, { stdout: 'bbb\n' }], 'git rev-list --count HEAD..@{u}': { stdout: '1\n' }, 'git diff --name-only aaa bbb': { stdout: 'yarn.lock\npackages/cli/src/a.ts\n' } });
+    const result = await runUpdate('E:/rauha', exec, () => {});
+    expect(result).toMatchObject({ ok: true, installed: true, built: true });
+    expect(calls.indexOf('yarn install')).toBeGreaterThan(calls.indexOf('git pull --ff-only'));
+    expect(calls.indexOf('yarn build')).toBeGreaterThan(calls.indexOf('yarn install'));
+  });
+
+  it('이미 최신이어도 빌드한다 (같은 폴더에서 고친 코드가 아직 빌드 전일 수 있다)', async () => {
+    const { exec, calls } = fakeExec({ ...base(), 'git rev-list --count HEAD..@{u}': { stdout: '0\n' } });
+    const log: string[] = [];
+    const result = await runUpdate('E:/rauha', exec, (l) => log.push(l));
+    expect(result).toMatchObject({ ok: true, pulled: 0, built: true });
+    expect(calls).not.toContain('git pull --ff-only');
+    expect(calls).toContain('yarn build');
+    expect(log.join('\n')).toContain('이미 최신');
+  });
+
+  it('바뀐 파일이 있으면 내려받지 않고 알린 뒤 빌드만 한다 (작업 중인 파일을 건드리지 않는다)', async () => {
+    const { exec, calls } = fakeExec({ ...base(), 'git status --porcelain --untracked-files=no': { stdout: ' M packages/cli/src/a.ts\n' }, 'git rev-list --count HEAD..@{u}': { stdout: '2\n' } });
+    const log: string[] = [];
+    const result = await runUpdate('E:/rauha', exec, (l) => log.push(l));
+    expect(result).toMatchObject({ ok: true, pulled: 0, built: true });
+    expect(calls).not.toContain('git pull --ff-only');
+    expect(log.join('\n')).toContain('바뀐 파일이 있어');
+  });
+
+  it('GitHub에 연결하지 못해도 알리고 빌드는 한다', async () => {
+    const { exec, calls } = fakeExec({ ...base(), 'git fetch --quiet': { code: 128, stderr: 'unable to access' } });
+    const log: string[] = [];
+    const result = await runUpdate('E:/rauha', exec, (l) => log.push(l));
+    expect(result.ok).toBe(true);
+    expect(calls).not.toContain('git pull --ff-only');
+    expect(calls).toContain('yarn build');
+    expect(log.join('\n')).toContain('연결하지 못');
+  });
+
+  it('git 저장소가 아니면 내려받기를 건너뛰고 빌드만 한다', async () => {
+    const { exec, calls } = fakeExec({ 'git rev-parse --is-inside-work-tree': { code: 128, stderr: 'not a git repository' } });
+    const result = await runUpdate('E:/rauha', exec, () => {});
+    expect(result).toMatchObject({ ok: true, pulled: 0, built: true });
+    expect(calls).toEqual(['git rev-parse --is-inside-work-tree', 'yarn build']);
+  });
+
+  it('빌드가 실패하면 실패로 끝내고 오류의 마지막 줄을 보여 준다 (그 상태로 다시 띄우지 않게)', async () => {
+    const { exec } = fakeExec({ ...base(), 'git rev-list --count HEAD..@{u}': { stdout: '0\n' }, 'yarn build': { code: 2, stdout: 'a\nb\nerror TS2322: 형식이 맞지 않습니다\n' } });
+    const log: string[] = [];
+    const result = await runUpdate('E:/rauha', exec, (l) => log.push(l));
+    expect(result).toMatchObject({ ok: false, built: false });
+    expect(log.join('\n')).toContain('TS2322');
+    expect(log.join('\n')).toContain('빌드에 실패');
+  });
+
+  it('설치가 실패하면 빌드하지 않고 실패로 끝낸다', async () => {
+    const { exec, calls } = fakeExec({ ...base(), 'git rev-parse HEAD': [{ stdout: 'aaa\n' }, { stdout: 'bbb\n' }], 'git rev-list --count HEAD..@{u}': { stdout: '1\n' }, 'git diff --name-only aaa bbb': { stdout: 'package.json\n' }, 'yarn install': { code: 1, stderr: '네트워크 오류' } });
+    const result = await runUpdate('E:/rauha', exec, () => {});
+    expect(result.ok).toBe(false);
+    expect(calls).not.toContain('yarn build');
+  });
+});
+
+describe('isRauhaRepo', () => {
+  it('루트 package.json의 이름이 rauha-monorepo일 때만 갱신 대상이다', () => {
+    expect(isRauhaRepo(() => JSON.stringify({ name: 'rauha-monorepo' }))).toBe(true);
+    expect(isRauhaRepo(() => JSON.stringify({ name: 'other' }))).toBe(false);
+    expect(isRauhaRepo(() => 'not json')).toBe(false);
+    expect(
+      isRauhaRepo(() => {
+        throw new Error('ENOENT');
+      }),
+    ).toBe(false);
+  });
+});
+
+describe('relaunch', () => {
+  it('같은 node와 같은 실행 파일·인자로 터미널을 이어받아 다시 띄우고, 끝난 종료 코드를 돌려준다', async () => {
+    const calls: { command: string; args: readonly string[]; options: Record<string, unknown> }[] = [];
+    const spawn = ((command: string, args: readonly string[], options: Record<string, unknown>) => {
+      calls.push({ command, args, options });
+      return { on: (event: string, cb: (code: number | null) => void) => (event === 'exit' ? setTimeout(() => cb(3), 0) : undefined) };
+    }) as never;
+    const code = await relaunch(spawn, 'C:/node.exe', ['--no-warnings'], 'E:/rauha/packages/cli/dist/main.js', ['--profile', 'work']);
+    expect(code).toBe(3);
+    expect(calls[0]).toMatchObject({ command: 'C:/node.exe', args: ['--no-warnings', 'E:/rauha/packages/cli/dist/main.js', '--profile', 'work'], options: { stdio: 'inherit' } });
+  });
+
+  it('다시 띄우지 못하면 오류를 던지지 않고 1을 돌려준다', async () => {
+    const spawn = (() => {
+      throw new Error('ENOENT');
+    }) as never;
+    expect(await relaunch(spawn, 'node', [], 'main.js', [])).toBe(1);
+    vi.useRealTimers();
+  });
+});

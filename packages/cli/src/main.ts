@@ -12,6 +12,7 @@ import { runChat } from './chat/run-chat.js';
 import { LiveLine } from './live-line.js';
 import { mascotView } from './mascot.js';
 import { rememberRun, runOnce } from './run.js';
+import { isRauhaRepo, nodeExec, relaunch, repoRoot, runUpdate } from './update.js';
 
 const VERSION = '0.0.0';
 
@@ -23,6 +24,8 @@ const HELP = `rauha — 터미널에서 팀장과 대화하는 클로드 팀
   rauha -p "<요청>" --quick    리뷰·사실 점검 없이 검증 통과로 끝냄 (bench에도 쓸 수 있음)
   rauha whoami                현재 프로필과 Claude Code 설정 폴더 확인
   rauha login                 이 프로필의 Claude Code 로그인 (브라우저 인증)
+  rauha update                최신 버전으로 갱신(새 커밋 내려받기·설치·빌드)하고 바로 다시 실행
+                              (대화 중에는 /update)
   rauha bench [--only <id>] [--compare]
                               연습용 프로젝트에서 고정 요청 묶음 실행 (rauha 저장소 루트)
                               --compare: 요청마다 사다리(haiku부터)와 구현 sonnet 고정을 비교
@@ -101,6 +104,19 @@ async function run(argv: readonly string[]): Promise<number> {
     }
     case 'login':
       return login(command.profile);
+    case 'update': {
+      if (!isRauhaRepo()) {
+        log('rauha가 저장소에서 실행 중이 아니라 갱신할 수 없어요. 저장소에서 yarn rauha update를 실행해 주세요.');
+        return 1;
+      }
+      log('최신 버전으로 갱신해요…');
+      const result = await runUpdate(repoRoot(), nodeExec(), log);
+      if (!result.ok) return 1;
+      log('다시 실행할게요.\n');
+      // 방금 빌드한 코드로 뜨도록 새 프로세스로 띄운다. 'update'만 빼고 나머지 인자는 그대로 넘긴다.
+      const rest = argv.filter((arg, i) => !(arg === 'update' && argv.indexOf('update') === i));
+      return relaunch(spawn, process.execPath, process.execArgv, process.argv[1]!, rest);
+    }
     case 'bench': {
       const { profile } = await resolveProfile(command.profile);
       const report = await runBench({ repoRoot: workDir, profile, home: homedir(), only: command.only, compare: command.compare, quick: command.quick, log });

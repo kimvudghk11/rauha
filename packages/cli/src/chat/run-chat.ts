@@ -1,6 +1,6 @@
 import { render } from 'ink';
 import React from 'react';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { ChatSession, GitWorkspace, readPlanUsage, type PermissionAsker, type PlanUsage, type Profile, type UserPort } from '@rauha/core';
 import { FACT_ANSWERED, FACT_OPTIONS, PERMISSION_ANSWERED, PERMISSION_OPTIONS, toFactAnswer, toPermissionAnswer } from '../ask.js';
@@ -13,6 +13,7 @@ import { ChatStore } from './chat-store.js';
 import { HELP_TEXT, parseCommand } from './commands.js';
 import { parkingStream } from './cursor-park.js';
 import { describeTurn } from './describe-turn.js';
+import { isRauhaRepo, nodeExec, relaunch, repoRoot, runUpdate } from '../update.js';
 import { startRefreshing } from './status-refresh.js';
 import { statusLine, usageLines } from './usage-view.js';
 
@@ -103,6 +104,8 @@ export async function runChat(options: ChatOptions): Promise<number> {
   const memory = openMemory(ctx);
   /** 마지막 작업의 읽기 안내서. 결과 카드 대신 자세히 볼 때 /guide로 연다. */
   let lastGuide: string | null = null;
+  /** /update로 갱신을 마쳐 화면을 닫은 뒤 다시 띄워야 하는지 */
+  let restartAfterExit = false;
   const session = ChatSession.start({
     newLoop: (carried) => createLoop(ctx, prompts, team, carried),
     team,
@@ -165,6 +168,22 @@ export async function runChat(options: ChatOptions): Promise<number> {
           await usageTimer.now();
           store.printLines(usageLines(plan, session.usage(), new Date(), undefined, view?.gauge));
           return;
+        case 'update': {
+          if (!isRauhaRepo()) {
+            store.print('  rauha가 저장소에서 실행 중이 아니라 갱신할 수 없어요. 저장소에서 yarn rauha update를 실행해 주세요.');
+            return;
+          }
+          store.setBusy(true);
+          store.print('\n  최신 버전으로 갱신해요…');
+          const result = await runUpdate(repoRoot(), nodeExec(), (line) => store.print(line));
+          store.setBusy(false);
+          if (!result.ok) return;
+          // 방금 빌드한 코드로 뜨도록, 이 화면을 닫고 같은 터미널에서 새 프로세스로 다시 띄운다(지난 작업 기억은 파일에 있어 남는다).
+          store.print('  다시 띄울게요.');
+          restartAfterExit = true;
+          app.unmount();
+          return;
+        }
         case 'guide':
           store.print(lastGuide !== null ? `\n${lastGuide}\n` : '  아직 끝난 작업이 없어요.');
           return;
@@ -209,5 +228,6 @@ export async function runChat(options: ChatOptions): Promise<number> {
   await app.waitUntilExit();
   usageTimer.stop();
   memory.close();
+  if (restartAfterExit) return relaunch(spawn, process.execPath, process.execArgv, process.argv[1]!, process.argv.slice(2));
   return 0;
 }
