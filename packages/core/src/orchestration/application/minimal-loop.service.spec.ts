@@ -562,6 +562,19 @@ describe('MinimalLoopService — 사실 기반 3단 작업', () => {
     expect(outcome.status).toBe('complete');
   });
 
+  it('업무 지시서에 적힌 그대로 질문 → 해석 형태로 인용한 정한 해석도 근거로 인정한다', async () => {
+    const ws = new FakeWorkspace();
+    const assumption = { question: '버림 대상', chosen: '할인 후 금액에서 원 미만 버림 (999원 → 899원)', alternatives: ['할인액을 먼저 버림'] };
+    const cite: Script = (_c, w) => {
+      w.files.set('src/money.ts', CODE);
+      const decision = { what: 'floor를 할인 후 금액에 씀', why: '정한 해석', rejected: null, evidence: [{ ...blank, kind: 'user', text: '버림 대상 → 할인 후 금액에서 원 미만 버림 (999원 → 899원)' }] };
+      return { ...report, explanation: { ...explanation, decisions: [decision] } };
+    };
+    const team = new FakeTeam(ws, { intake: [() => intake({ assumptions: [assumption] })], tester: [writeTest], implementer: [cite], reviewer: [pass] });
+    const outcome = await run(team, ws);
+    expect(outcome.facts.checked.find((c) => c.kind === 'decision')?.isGuess).toBe(false);
+  });
+
   it('--quick이면 리뷰 없이 검증 통과로 완료한다', async () => {
     const ws = new FakeWorkspace();
     const team = new FakeTeam(ws, { intake: [() => intake()], tester: [writeTest], implementer: [implementCode] });

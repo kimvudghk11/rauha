@@ -308,7 +308,8 @@ export class MinimalLoopService {
       files,
       passedTests: state.passed,
       fetched: p.tally.fetched,
-      userStatements: [...p.assumptions.map((a) => a.chosen), ...state.corrections],
+      // 업무 지시서에는 "질문 → 해석"으로 적혀 있어서 팀원은 그 형태로 인용한다.
+      userStatements: [...p.assumptions.map((a) => `${a.question} → ${a.chosen}`), ...state.corrections],
       records: [],
     };
     let implementerCheck = FactCheck.of(implementerClaims, sources).withConfirmed(state.confirmed);
