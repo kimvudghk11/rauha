@@ -157,6 +157,17 @@ describe('ChatApp', () => {
     expect(spots.at(-1)).toEqual({ up: 3, column: 4 });
   });
 
+  it('상태 줄이 창보다 길어도 한 줄로 잘라서, 입력창 위치와 커서 자리가 틀어지지 않는다', async () => {
+    const store = new ChatStore();
+    store.setStatus(`[personal] · 세션 ${'█'.repeat(60)} 83%`);
+    const { stdout, lastFrame } = app(store);
+    await resize(stdout, 40, 20);
+    const lines = visible(lastScreen(lastFrame() ?? '')).split('\n');
+    // 접히면 막대 조각이 다음 줄에 따로 남는다.
+    expect(lines.filter((l) => l.includes('█'))).toHaveLength(1);
+    expect(lines.at(-1)).toContain('세션');
+  });
+
   it('긴 입력은 입력창 안에서 줄을 바꿔 다 보여 준다', async () => {
     const { stdin, lastFrame } = app();
     await tick();

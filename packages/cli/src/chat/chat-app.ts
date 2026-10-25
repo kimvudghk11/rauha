@@ -254,7 +254,8 @@ export function ChatApp({ store, banner, view, onSubmit, onInterrupt, cursor }: 
       prompt?.kind === 'menu' ? h(MenuPrompt, { key: prompt.screen, store, prompt, view }) : null,
       prompt?.kind === 'text' ? h(TextPrompt, { key: prompt.label, store, prompt, cursor: cursor ?? null, below }) : null,
       prompt === null ? h(InputBox, { busy: store.busy, history: store.history, onSubmit: submit, cursor: cursor ?? null, below }) : null,
-      store.status !== '' ? h(Text, { dimColor: true }, ` ${store.status}`) : null,
+      // 한 줄로 자른다: 접히면 줄 수가 늘어 입력창 위치와 커서 자리가 틀어진다.
+      store.status !== '' ? h(Text, { dimColor: true, wrap: 'truncate-end' }, ` ${store.status}`) : null,
     ),
   );
 }

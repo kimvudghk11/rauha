@@ -12,6 +12,7 @@ import { ChatStore } from './chat-store.js';
 import { HELP_TEXT, parseCommand } from './commands.js';
 import { parkingStream } from './cursor-park.js';
 import { describeTurn } from './describe-turn.js';
+import { startRefreshing } from './status-refresh.js';
 import { statusLine, usageLines } from './usage-view.js';
 
 export interface ChatOptions {
@@ -26,6 +27,8 @@ export interface ChatOptions {
 const columns = () => process.stderr.columns ?? 80;
 /** 쉬는 중 Ctrl+C를 두 번 눌러 끝낼 때 두 번째를 기다리는 시간 */
 const EXIT_WINDOW_MS = 2000;
+/** 상태 줄의 사용률을 다시 읽는 간격 */
+const USAGE_REFRESH_MS = 60_000;
 
 /** 지금 브랜치 이름. git이 없거나 실패하면 null. */
 async function currentBranch(cwd: string): Promise<string | null> {
@@ -143,8 +146,8 @@ export async function runChat(options: ChatOptions): Promise<number> {
           return;
         }
         case 'usage':
-          await refreshStatus();
-          for (const line of usageLines(plan, session.usage(), new Date())) store.print(line);
+          await usageTimer.now();
+          for (const line of usageLines(plan, session.usage(), new Date(), undefined, view?.gauge)) store.print(line);
           return;
         case 'guide':
           store.print(lastGuide !== null ? `\n${lastGuide}\n` : '  아직 끝난 작업이 없어요.');
@@ -173,21 +176,22 @@ export async function runChat(options: ChatOptions): Promise<number> {
       store.print(`rauha: ${(error as Error).message}`);
     } finally {
       store.setBusy(false);
-      void refreshStatus();
+      void usageTimer.now();
     }
   }
 
-  // 상태 줄: 시작할 때와 입력 하나가 끝날 때마다 사용률을 새로 읽는다(모델을 부르지 않는다).
+  // 상태 줄: 시작할 때, 입력 하나가 끝날 때, 그리고 입력이 없어도 1분마다 사용률을 새로 읽는다(모델을 부르지 않는다).
+  // 세션 한도가 풀린 뒤에도 옛 퍼센트가 남아 있지 않게 하려고. 읽기에 실패하면 마지막으로 읽은 값을 그대로 둔다.
   const agentEnv = { ...definedEnv(process.env), ...profile.agentEnv(home) };
   let plan: PlanUsage | null = null;
-  const refreshStatus = async () => {
+  const usageTimer = startRefreshing(async () => {
     const [usage, branch] = await Promise.all([readPlanUsage(agentEnv), currentBranch(workDir)]);
-    plan = usage;
-    store.setStatus(statusLine(profile.badge(), plan, branch));
-  };
-  void refreshStatus();
+    plan = usage ?? plan;
+    store.setStatus(statusLine(profile.badge(), plan, branch, view?.gauge));
+  }, USAGE_REFRESH_MS);
 
   await app.waitUntilExit();
+  usageTimer.stop();
   memory.close();
   return 0;
 }
