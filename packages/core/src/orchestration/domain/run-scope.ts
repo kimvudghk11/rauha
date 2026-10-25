@@ -1,4 +1,4 @@
-import type { Assignment, TeamRole } from './team.js';
+import type { Assignment, ModelTier, TeamRole } from './team.js';
 import type { Stage, WorkOrder } from './work-order.js';
 
 export type StopReason = 'too-large' | 'needs-senior' | 'needs-support' | 'halted' | 'unsupported-stage';
@@ -8,24 +8,29 @@ export type ScopeDecision =
   | { readonly kind: 'complete' }
   | { readonly kind: 'stop'; readonly reason: StopReason };
 
+const RED_GREEN = new Map<Stage, TeamRole>([
+  ['red', 'tester'],
+  ['green', 'implementer'],
+]);
+
 /**
  * 이번 실행이 어디까지 다루는지. 1단계(최소 루프)는 Haiku 테스트 팀원과
  * Haiku 구현 주니어만 부르고, review 단계에 닿으면 완료로 본다.
+ * 2단계(사다리)는 상태 머신이 sonnet으로 올린 팀원도 부르고, 디버깅·자문이 필요해지면 멈춘다.
  */
 export class RunScope {
   private constructor(
     private readonly supported: ReadonlyMap<Stage, TeamRole>,
+    private readonly tiers: ReadonlySet<ModelTier>,
     private readonly completeAt: Stage,
   ) {}
 
   static minimalLoop(): RunScope {
-    return new RunScope(
-      new Map<Stage, TeamRole>([
-        ['red', 'tester'],
-        ['green', 'implementer'],
-      ]),
-      'review',
-    );
+    return new RunScope(RED_GREEN, new Set(['haiku']), 'review');
+  }
+
+  static ladder(): RunScope {
+    return new RunScope(RED_GREEN, new Set(['haiku', 'sonnet']), 'review');
   }
 
   decide(order: WorkOrder): ScopeDecision {
@@ -39,7 +44,7 @@ export class RunScope {
     if (assignment === null || role === undefined || assignment.role !== role) {
       return { kind: 'stop', reason: 'unsupported-stage' };
     }
-    if (assignment.tier !== 'haiku') return { kind: 'stop', reason: 'needs-senior' };
+    if (!this.tiers.has(assignment.tier)) return { kind: 'stop', reason: 'needs-senior' };
     return { kind: 'continue', assignment };
   }
 }

@@ -56,3 +56,44 @@ describe('RunScope.minimalLoop', () => {
     expect(scope.decide(order)).toEqual({ kind: 'stop', reason: 'unsupported-stage' });
   });
 });
+
+describe('RunScope.ladder', () => {
+  const ladder = RunScope.ladder();
+
+  it('구현 주니어가 두 번 실패하면 sonnet 구현 시니어를 부른다', () => {
+    const order = openAtRed();
+    order.recordRed(red);
+    order.recordGreen(fail);
+    order.recordGreen(fail);
+    expect(ladder.decide(order)).toEqual({ kind: 'continue', assignment: { role: 'implementer', tier: 'sonnet' } });
+  });
+
+  it('테스트 팀원이 무효 Red를 두 번 내면 sonnet 테스트 팀원을 부른다', () => {
+    const order = openAtRed();
+    order.recordRed(invalid);
+    order.recordRed(invalid);
+    expect(ladder.decide(order)).toEqual({ kind: 'continue', assignment: { role: 'tester', tier: 'sonnet' } });
+  });
+
+  it('구현 시니어까지 실패하면 디버깅 지원이 필요해 멈춘다', () => {
+    const order = openAtRed();
+    order.recordRed(red);
+    order.recordGreen(fail);
+    order.recordGreen(fail);
+    order.recordGreen(fail);
+    expect(ladder.decide(order)).toEqual({ kind: 'stop', reason: 'needs-support' });
+  });
+
+  it('시니어가 통과시키면 review 단계에서 완료', () => {
+    const order = openAtRed();
+    order.recordRed(red);
+    order.recordGreen(fail);
+    order.recordGreen(fail);
+    order.recordGreen(green);
+    expect(ladder.decide(order)).toEqual({ kind: 'complete' });
+  });
+
+  it('L급은 여전히 시작하지 않는다', () => {
+    expect(ladder.decide(openAtRed('L'))).toEqual({ kind: 'stop', reason: 'too-large' });
+  });
+});
