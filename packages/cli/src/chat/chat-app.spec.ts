@@ -12,10 +12,21 @@ afterEach(() => {
 });
 
 function app(store = new ChatStore(), onSubmit = vi.fn()) {
-  const r = render(React.createElement(ChatApp, { store, banner: 'rauha v0.0.0 시작 박스', view: null, onSubmit }));
+  const r = render(React.createElement(ChatApp, { store, banner: (columns: number) => `rauha v0.0.0 시작 박스 ${columns}칸`, view: null, onSubmit }));
   mounted.push(r);
   return { ...r, store, onSubmit };
 }
+
+/** 가짜 터미널 크기를 바꾸고 resize를 알린 뒤, 다시 그릴 때까지 기다린다. */
+async function resize(stdout: NodeJS.EventEmitter, columns: number, rows: number) {
+  Object.defineProperty(stdout, 'columns', { value: columns, configurable: true });
+  Object.defineProperty(stdout, 'rows', { value: rows, configurable: true });
+  stdout.emit('resize');
+  await new Promise((resolve) => setTimeout(resolve, 300));
+}
+
+/** 마지막으로 다시 그린 화면(마지막 배너부터 끝까지) */
+const lastScreen = (frame: string) => frame.slice(frame.lastIndexOf('rauha v0.0.0'));
 
 describe('ChatApp', () => {
   it('처음에는 배너와 입력창을 그린다', () => {
@@ -76,6 +87,46 @@ describe('ChatApp', () => {
     const box = visible(lastFrame()).split('\n').filter((l) => l.includes('▁') || l.includes('▕') || l.includes('▔'));
     expect(box.length).toBeGreaterThan(0);
     for (const line of box) expect([...line.trimEnd()].length).toBeLessThanOrEqual(76);
+  });
+
+  it('입력창은 화면 맨 아래에 붙는다 (위 출력과 입력창 사이를 빈 줄로 채운다)', async () => {
+    const { stdout, lastFrame } = app();
+    await resize(stdout, 100, 20);
+    const lines = visible(lastScreen(lastFrame() ?? '')).split('\n');
+    // 마지막 줄 다음에 커서가 한 줄 더 내려가므로 화면 높이보다 한 줄 적게 그린다.
+    expect(lines.length).toBe(19);
+    expect(lines.at(-1)).toContain('▔');
+  });
+
+  it('출력이 화면보다 길어지면 빈 줄 없이 출력 바로 아래에 입력창이 온다', async () => {
+    const store = new ChatStore();
+    const { stdout, lastFrame } = app(store);
+    for (let i = 0; i < 30; i++) store.print(`줄 ${i}`);
+    await resize(stdout, 100, 20);
+    const lines = visible(lastScreen(lastFrame() ?? '')).split('\n');
+    expect(lines.indexOf('줄 29') + 1).toBe(lines.findIndex((l) => l.includes('▁')) - 1);
+  });
+
+  it('창 크기가 바뀌면 화면을 지우고 지난 출력을 새 너비로 다시 그린다', async () => {
+    const store = new ChatStore();
+    const { stdout, lastFrame } = app(store);
+    store.print('지난 출력');
+    await tick();
+    await resize(stdout, 60, 20);
+    expect((stdout as unknown as { frames: string[] }).frames.some((f) => f.includes('\x1b[2J\x1b[3J'))).toBe(true);
+    const screen = visible(lastScreen(lastFrame() ?? ''));
+    expect(screen).toContain('시작 박스 60칸');
+    expect(screen).toContain('지난 출력');
+  });
+
+  it('긴 고정 줄은 창 너비에 맞춰 미리 접는다 (줄 수를 정확히 세려고)', async () => {
+    const store = new ChatStore();
+    const { stdout, lastFrame } = app(store);
+    store.print('가'.repeat(40));
+    await resize(stdout, 30, 20);
+    const lines = visible(lastScreen(lastFrame() ?? '')).split('\n').filter((l) => l.includes('가'));
+    expect(lines.length).toBe(3);
+    for (const line of lines) expect(line.length).toBeLessThanOrEqual(14);
   });
 
   it('고정 줄은 출력된 순서대로 남는다', async () => {

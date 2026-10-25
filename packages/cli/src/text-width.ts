@@ -12,6 +12,33 @@ export function displayWidth(text: string): number {
   return width;
 }
 
+/** 색 코드가 섞인 글을 터미널 줄 단위로 접는다. 색 코드는 칸을 차지하지 않고 쪼개지 않는다. */
+export function fitLines(text: string, width: number): string[] {
+  const lines: string[] = [];
+  for (const source of text.split('\n')) {
+    let current = '';
+    let used = 0;
+    for (const token of source.split(/(\x1b\[[0-9;]*m)/)) {
+      if (token.startsWith('\x1b[')) {
+        current += token;
+        continue;
+      }
+      for (const ch of token) {
+        const w = displayWidth(ch);
+        if (used + w > width && used > 0) {
+          lines.push(current);
+          current = '';
+          used = 0;
+        }
+        current += ch;
+        used += w;
+      }
+    }
+    lines.push(current);
+  }
+  return lines;
+}
+
 /** 너비를 넘는 줄을 접는다. 위험한 명령은 줄이지 않고 전부 보여 줘야 해서 '...' 대신 접는다. */
 export function wrapText(text: string, width: number): string[] {
   const lines: string[] = [];

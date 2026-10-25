@@ -100,7 +100,7 @@ export async function runChat(options: ChatOptions): Promise<number> {
   const app = render(
     React.createElement(ChatApp, {
       store,
-      banner: view?.banner(workDir, columns()) ?? `${profile.badge()} ${workDir}`,
+      banner: (width: number) => view?.banner(workDir, width) ?? `${profile.badge()} ${workDir}`,
       view,
       onSubmit: (text: string) => void handle(text),
     }),
