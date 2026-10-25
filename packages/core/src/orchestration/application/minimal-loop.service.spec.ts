@@ -78,15 +78,19 @@ class FakeTeam implements TeamMemberPort {
   constructor(
     private readonly ws: FakeWorkspace,
     private readonly scripts: Partial<Record<MemberRole, Script[]>>,
+    /** 이 역할을 부르면 구독 사용 한도 오류를 낸다 */
+    private readonly limitOn: MemberRole | null = null,
   ) {}
   async run(call: MemberCall): Promise<MemberResult> {
     this.calls.push(call.role);
     this.log.push({ role: call.role, tier: call.setting.tier, message: call.userMessage });
     const queue = this.scripts[call.role] ?? [];
     const script = queue.length > 1 ? (queue.shift() as Script) : queue[0];
+    const limited = call.role === this.limitOn ? "You've hit your session limit · resets 5:40pm" : null;
     return {
-      output: script ? script(call, this.ws) : null,
-      error: null,
+      output: script && limited === null ? script(call, this.ws) : null,
+      error: limited,
+      limited,
       usage: { model: call.setting.tier, durationMs: 10, costUsd: 0.001, turns: 3, inputTokens: 100, outputTokens: 50, cacheReadTokens: 0, denials: [], endReason: 'success' },
       fetched: [],
     };
@@ -263,6 +267,25 @@ describe('MinimalLoopService', () => {
     const team = new FakeTeam(ws, { intake: [() => intake()], tester: [writeTest], implementer: [implement] });
     const outcome = await service(ws, team, new FakeChecks(ws)).run('Money에 할인 추가');
     expect(outcome).toMatchObject({ escalated: false, finalTier: 'haiku' });
+  });
+
+  it('구독 사용 한도에 걸리면 더 부르지 않고 바로 멈춘다', async () => {
+    const ws = new FakeWorkspace();
+    const steps: string[] = [];
+    const team = new FakeTeam(ws, { intake: [() => intake()], tester: [writeTest] }, 'tester');
+    const outcome = await service(ws, team, new FakeChecks(ws), new FakeLog(), new FakeUser(false), { step: (m) => steps.push(m) }).run('Money에 할인 추가');
+    expect(team.calls).toEqual(['intake', 'tester']);
+    expect(outcome).toMatchObject({ status: 'stopped', stopReason: 'usage-limit' });
+    expect(steps.some((s) => s.includes('resets 5:40pm'))).toBe(true);
+    expect(outcome.guide.toMarkdown()).toContain('사용 한도');
+  });
+
+  it('접수에서 한도에 걸려도 다시 접수하지 않고 멈춘다', async () => {
+    const ws = new FakeWorkspace();
+    const team = new FakeTeam(ws, { intake: [() => intake()] }, 'intake');
+    const outcome = await service(ws, team, new FakeChecks(ws)).run('할인');
+    expect(team.calls).toEqual(['intake']);
+    expect(outcome.stopReason).toBe('usage-limit');
   });
 
   it('L급 접수는 팀원을 부르지 않고 멈춘다', async () => {

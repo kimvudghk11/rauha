@@ -4,6 +4,7 @@ import type { MemberCall, MemberResult, MemberUsage, TeamMemberPort } from '../a
 import type { PromptLibrary } from './prompt-library.js';
 import { createFetchLog } from './fetch-log.js';
 import { createToolGuard, type PermissionAsker } from './tool-guard.js';
+import { usageLimitMessage } from './usage-limit.js';
 
 export interface AgentSdkTeamMemberOptions {
   /** 작업 폴더. 팀원은 이 안에서만 일한다. */
@@ -61,11 +62,13 @@ export class AgentSdkTeamMember implements TeamMemberPort {
       }
     } catch (error) {
       const detail = stderr.join('').trim().split('\n').slice(-5).join('\n');
+      const message = `${(error as Error).message}${detail ? `\n${detail}` : ''}`;
       return {
         output: null,
-        error: `${(error as Error).message}${detail ? `\n${detail}` : ''}`,
+        error: message,
         usage: emptyUsage(model, Date.now() - started),
         fetched: fetchLog.entries(),
+        limited: usageLimitMessage(message),
       };
     }
 
@@ -73,7 +76,8 @@ export class AgentSdkTeamMember implements TeamMemberPort {
     if (result === null) return { output: null, error: '결과 메시지를 받지 못했습니다.', usage: emptyUsage(model, Date.now() - started), fetched };
     const usage = toUsage(model, result);
     if (result.subtype !== 'success') {
-      return { output: null, error: `${result.subtype}: ${result.errors.join(' / ')}`, usage, fetched };
+      const error = `${result.subtype}: ${result.errors.join(' / ')}`;
+      return { output: null, error, usage, fetched, limited: usageLimitMessage(error) };
     }
     return { output: result.structured_output ?? null, error: result.structured_output === undefined ? '구조화 출력이 없습니다.' : null, usage, fetched };
   }

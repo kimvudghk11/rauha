@@ -146,8 +146,11 @@ export async function runBench(props: {
   let promptHash = '';
 
   const variants: readonly BenchVariant[] = props.compare ? ['ladder', 'sonnet'] : ['ladder'];
+  let limited = false;
   for (const req of requests) {
     for (const variant of variants) {
+      // 구독 한도에 걸린 뒤의 실행은 전부 같은 오류라 측정이 되지 않는다.
+      if (limited) continue;
       const copy = benchCopyDir(stamp(startedAt), props.compare ? `${req.id}-${variant}` : req.id);
       await freshSandbox(sandbox, copy, join(props.repoRoot, 'node_modules'));
       props.log(`── ${req.id}${props.compare ? ` [${VARIANT_LABEL[variant]}]` : ''}: ${req.request}`);
@@ -165,6 +168,10 @@ export async function runBench(props: {
         promptHash = hash;
         rows.push(toRow(req.id, variant, outcome));
         props.log(`   → ${outcome.status === 'complete' ? '완료' : `멈춤(${outcome.stopReason})`} · ${outcome.logDir}`);
+        if (outcome.stopReason === 'usage-limit') {
+          limited = true;
+          props.log('   → 구독 사용 한도에 걸려 남은 요청은 돌리지 않습니다.');
+        }
       } catch (error) {
         props.log(`   → 오류: ${(error as Error).message}`);
         rows.push({

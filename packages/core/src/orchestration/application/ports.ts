@@ -39,6 +39,8 @@ export interface MemberResult {
   readonly usage: MemberUsage;
   /** 이번 호출에서 팀원이 WebFetch로 실제로 연 주소. web 근거 확인에 쓴다. */
   readonly fetched: readonly FetchedPage[];
+  /** 구독 사용 한도에 걸렸으면 그 문장(풀리는 시각 포함). 아니면 null이나 없음. */
+  readonly limited?: string | null;
 }
 
 export interface TeamMemberPort {

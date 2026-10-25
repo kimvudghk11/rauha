@@ -61,6 +61,15 @@ export interface FactsSummary {
   readonly reviewMissing: boolean;
 }
 
+/** 한도에 걸린 뒤에는 몇 번을 다시 불러도 같은 오류라서, 흐름을 끊고 바로 멈추는 데 쓴다. */
+class UsageLimitReached extends Error {}
+
+/** 멈췄을 때 안내서에 쓸 만큼만 들고 있는 진행 상황 */
+interface RunProgress {
+  title: string;
+  assumptions: readonly SettledAssumption[];
+}
+
 /** 리뷰 단계를 오가며 쌓이는 기록. 판정은 FactCheck·ReviewFindings가 한다. */
 class ReviewState {
   rounds = 0;
@@ -139,11 +148,20 @@ export class MinimalLoopService {
   constructor(private readonly deps: MinimalLoopDeps) {}
 
   async run(request: string): Promise<RunOutcome> {
-    const { workspace, checks, log, progress } = this.deps;
     const started = this.deps.now();
-    WorkspaceState.of(await workspace.dirtyFiles()).assertReady(this.deps.requireClean);
-
+    WorkspaceState.of(await this.deps.workspace.dirtyFiles()).assertReady(this.deps.requireClean);
     const tally = new RunTally();
+    const current: RunProgress = { title: request.slice(0, 60), assumptions: [] };
+    try {
+      return await this.execute(request, tally, started, current);
+    } catch (error) {
+      if (!(error instanceof UsageLimitReached)) throw error;
+      return this.finish({ tally, started, title: current.title, status: 'stopped', stopReason: 'usage-limit', assumptions: current.assumptions });
+    }
+  }
+
+  private async execute(request: string, tally: RunTally, started: number, current: RunProgress): Promise<RunOutcome> {
+    const { workspace, checks, log, progress } = this.deps;
     progress.step('기준선 검사와 팀장 접수를 함께 시작합니다');
     const [baselineResults, intake] = await Promise.all([checks.runSuite(), this.intake(request, tally)]);
     const baseline = Verification.of(baselineResults);
@@ -153,6 +171,8 @@ export class MinimalLoopService {
       return this.finish({ tally, started, title: request.slice(0, 60), status: 'stopped', stopReason: 'intake-failed', assumptions: [] });
     }
     const { dto, order, assumptions } = intake;
+    current.title = order.title;
+    current.assumptions = assumptions;
     const brief = `<today>${this.deps.today()}</today>\n\n${dto.toBrief(order.difficulty.grade)}`;
     progress.step(`업무: [${order.difficulty.grade}] ${order.title}`);
 
@@ -413,6 +433,10 @@ export class MinimalLoopService {
     const result = await this.deps.team.run(call);
     const attempt = tally.add(call, result);
     await this.deps.log.recordCall(role, attempt, call, result);
+    if (result.limited) {
+      this.deps.progress.step(`Claude 사용 한도에 걸렸습니다: ${result.limited}`);
+      throw new UsageLimitReached(result.limited);
+    }
     if (result.error !== null) this.deps.progress.step(`${ROLE_LABEL[role]} 오류: ${result.error}`);
     return result.output;
   }
