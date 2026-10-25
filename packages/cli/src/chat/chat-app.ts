@@ -49,7 +49,10 @@ function withCursor(state: InputState): React.ReactNode {
   return h(Text, null, chars.slice(0, at).join(''), h(Text, { inverse: true }, chars[at] ?? ' '), chars.slice(at + 1).join(''));
 }
 
-function WorkingLine({ working, view }: { working: Working; view: MascotView | null }) {
+/** 이 높이보다 낮은 창에서는 작은 Delfi(4줄) 대신 한 줄짜리 작업 중 표시를 쓴다. */
+const MIN_ROWS_FOR_MINI_DELFI = 16;
+
+function WorkingLine({ working, view, rows }: { working: Working; view: MascotView | null; rows: number }) {
   const [frame, setFrame] = useState(0);
   useEffect(() => {
     const timer = setInterval(() => setFrame((f) => f + 1), 120);
@@ -57,20 +60,26 @@ function WorkingLine({ working, view }: { working: Working; view: MascotView | n
   }, []);
   const spinner = SPINNER[frame % SPINNER.length]!;
   const elapsed = formatElapsed(Date.now() - working.startedAt);
-  return h(Text, null, view?.workingDelfi(spinner, working.text, working.role, elapsed) ?? `  ${spinner} ${working.text} ${elapsed}`);
+  const small = rows > 0 && rows < MIN_ROWS_FOR_MINI_DELFI;
+  const drawn = small ? view?.working(spinner, working.text, working.role, elapsed) : view?.workingDelfi(spinner, working.text, working.role, elapsed);
+  return h(Text, null, drawn ?? `  ${spinner} ${working.text} ${elapsed}`);
 }
 
-function MenuPrompt({ store, prompt, view }: { store: ChatStore; prompt: Extract<Prompt, { kind: 'menu' }>; view: MascotView | null }) {
+function MenuPrompt({ store, prompt, view, rows }: { store: ChatStore; prompt: Extract<Prompt, { kind: 'menu' }>; view: MascotView | null; rows: number }) {
   const [index, setIndex] = useState(0);
   useInput((input, key) => {
     const next = menuKey(index, { name: key.upArrow ? 'up' : key.downArrow ? 'down' : key.return ? 'return' : key.escape ? 'escape' : input, sequence: input, ctrl: key.ctrl }, prompt.options.length);
     if (next.index >= 0 && next.index !== index) setIndex(next.index);
     if (next.done) store.answer(next.index);
   });
+  // 질문 화면이 창 높이 이상이면 Ink가 다시 그릴 때마다 화면을 지우고 지난 출력 전부를 다시 찍는다.
+  // 위 여백 1 + 화면 + 빈 줄 1 + 선택지 + 상태 줄 1이 창 높이 미만이어야 하므로, 넘치면 짧은 화면으로 바꾼다.
+  const height = (text: string) => text.split('\n').length + prompt.options.length + 3;
+  const screenText = rows > 0 && prompt.compactScreen !== undefined && height(prompt.screen) >= rows ? prompt.compactScreen : prompt.screen;
   return h(
     Box,
     { flexDirection: 'column', marginTop: 1 },
-    h(Text, null, prompt.screen),
+    h(Text, null, screenText),
     h(Text, null, ' '),
     ...menuLines(prompt.options, index, view?.highlight).map((line, i) => h(Text, { key: i }, line)),
   );
@@ -250,8 +259,9 @@ export function ChatApp({ store, banner, view, onSubmit, onInterrupt, cursor }: 
     h(
       Box,
       { flexDirection: 'column', justifyContent: 'flex-end', minHeight: fill },
-      store.working !== null ? h(WorkingLine, { working: store.working, view }) : null,
-      prompt?.kind === 'menu' ? h(MenuPrompt, { key: prompt.screen, store, prompt, view }) : null,
+      // 질문이 떠 있는 동안은 일이 멈춰 기다리는 중이라 작업 중 줄을 감춘다(돌아가는 스피너가 화면을 계속 다시 그리게 하지 않는다).
+      store.working !== null && prompt === null ? h(WorkingLine, { working: store.working, view, rows: screen.rows }) : null,
+      prompt?.kind === 'menu' ? h(MenuPrompt, { key: prompt.screen, store, prompt, view, rows: screen.rows }) : null,
       prompt?.kind === 'text' ? h(TextPrompt, { key: prompt.label, store, prompt, cursor: cursor ?? null, below }) : null,
       prompt === null ? h(InputBox, { busy: store.busy, history: store.history, onSubmit: submit, cursor: cursor ?? null, below }) : null,
       // 한 줄로 자른다: 접히면 줄 수가 늘어 입력창 위치와 커서 자리가 틀어진다.

@@ -2,6 +2,7 @@ import React from 'react';
 import { render } from 'ink-testing-library';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ChatApp } from './chat-app.js';
+import { mascotView } from '../mascot.js';
 import { ChatStore } from './chat-store.js';
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 30));
@@ -242,6 +243,70 @@ describe('ChatApp', () => {
     stdin.write('\r');
     await tick();
     expect(onSubmit).toHaveBeenCalledWith('/status');
+  });
+
+  it('한 번에 낸 여러 줄의 빈 줄도 그대로 그린다 (세어 둔 줄 수와 실제가 같아야 입력창이 맨 아래에 붙는다)', async () => {
+    const store = new ChatStore();
+    const { lastFrame } = app(store);
+    store.printLines(['윗줄', '', '아랫줄']);
+    await tick();
+    const lines = visible(lastFrame()).split('\n');
+    expect(lines.indexOf('아랫줄') - lines.indexOf('윗줄')).toBe(2);
+  });
+
+  it('줄마다 따로 내도 빈 줄이 사라지지 않게 한 덩어리로 낸다 (Ink는 빈 줄뿐인 고정 출력을 버린다)', async () => {
+    const store = new ChatStore();
+    const { lastFrame } = app(store);
+    // 이전: 줄마다 따로 그려져서 빈 줄 하나짜리 덩어리가 통째로 버려졌다.
+    store.printLines(['\n> 질문', '', '  답']);
+    await tick();
+    const lines = visible(lastFrame()).split('\n');
+    expect(lines.indexOf('  답') - lines.indexOf('> 질문')).toBe(2);
+  });
+
+  it('질문이 떠 있는 동안에는 작업 중 줄을 감춘다 (키가 눌릴 때마다가 아니라 0.12초마다 다시 그리면 화면이 넘칠 때 전체를 계속 다시 찍는다)', async () => {
+    const store = new ChatStore();
+    const { lastFrame } = app(store);
+    store.startWorking('접수 중…', 'intake', Date.now());
+    await tick();
+    expect(visible(lastFrame())).toContain('접수 중…');
+    void store.ask({ kind: 'menu', screen: '허락?', options: ['허락', '거절'] });
+    await tick();
+    expect(visible(lastFrame())).not.toContain('접수 중…');
+    expect(visible(lastFrame())).toContain('허락?');
+  });
+
+  it('질문 화면이 창보다 높으면 짧은 질문 화면으로 바꿔 그린다', async () => {
+    const store = new ChatStore();
+    const { stdout, lastFrame } = app(store);
+    await resize(stdout, 80, 16);
+    void store.ask({ kind: 'menu', screen: Array.from({ length: 30 }, (_, i) => 'LONG' + i).join('\n'), compactScreen: 'COMPACT', options: ['허락', '거절'] });
+    await tick();
+    expect(visible(lastFrame())).toContain('COMPACT');
+    expect(visible(lastFrame())).not.toContain('LONG1');
+  });
+
+  it('창이 충분히 높으면 원래 질문 화면을 그린다', async () => {
+    const store = new ChatStore();
+    const { stdout, lastFrame } = app(store);
+    await resize(stdout, 80, 40);
+    void store.ask({ kind: 'menu', screen: 'FULL', compactScreen: 'COMPACT', options: ['허락', '거절'] });
+    await tick();
+    expect(visible(lastFrame())).toContain('FULL');
+    expect(visible(lastFrame())).not.toContain('COMPACT');
+  });
+
+  it('낮은 창에서는 작은 Delfi 대신 한 줄짜리 작업 중 표시를 쓴다', async () => {
+    const store = new ChatStore();
+    const view = mascotView(24, 'v0', '[personal]');
+    const r = render(React.createElement(ChatApp, { store, banner: () => '배너', view, onSubmit: vi.fn() }));
+    mounted.push(r);
+    await resize(r.stdout, 80, 12);
+    store.startWorking('접수 중…', 'intake', Date.now());
+    await tick();
+    const screen = visible(r.lastFrame());
+    expect(screen).toContain('접수 중…');
+    expect(screen).not.toMatch(/[▀▄]/);
   });
 
   it('고정 줄은 출력된 순서대로 남는다', async () => {

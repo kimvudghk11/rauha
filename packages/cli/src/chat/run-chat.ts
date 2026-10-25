@@ -55,7 +55,8 @@ export async function runChat(options: ChatOptions): Promise<number> {
 
   const ask: PermissionAsker = async (request) => {
     const screen = view?.permission(request, columns()) ?? `⚠ 위험 동작 허락? ${request.reason}\n  ${request.detail}`;
-    const index = (await store.ask({ kind: 'menu', screen, options: PERMISSION_OPTIONS })) as number;
+    const compactScreen = view?.permission(request, columns(), true);
+    const index = (await store.ask({ kind: 'menu', screen, compactScreen, options: PERMISSION_OPTIONS })) as number;
     const note = index === 3 ? ((await store.ask({ kind: 'text', label: '팀원에게 전할 이유' })) as string) : null;
     store.print(`  → ${PERMISSION_ANSWERED[index < 0 ? 2 : index]}`);
     return toPermissionAnswer(index, note);
@@ -69,7 +70,8 @@ export async function runChat(options: ChatOptions): Promise<number> {
     },
     confirmFact: async (claim) => {
       const screen = view?.factCheck(claim.text, columns()) ?? `? 근거를 확인하지 못했어요. 맞나요?\n  ${claim.text}`;
-      const index = (await store.ask({ kind: 'menu', screen, options: FACT_OPTIONS })) as number;
+      const compactScreen = view?.factCheck(claim.text, columns(), true);
+      const index = (await store.ask({ kind: 'menu', screen, compactScreen, options: FACT_OPTIONS })) as number;
       const correction = index === 1 ? ((await store.ask({ kind: 'text', label: '바로잡을 내용' })) as string) : null;
       store.print(`  → ${FACT_ANSWERED[index < 0 ? 2 : index]}`);
       return toFactAnswer(index, correction);
@@ -77,7 +79,8 @@ export async function runChat(options: ChatOptions): Promise<number> {
     pickPast: async (candidates) => {
       const screen = view?.pastPick(columns()) ?? '? 혹시 이 작업을 말씀하시는 건가요?';
       const options = [...candidates.map((c) => `${c.title}  (${c.at.slice(0, 16).replace('T', ' ')})`), '아니요, 새 작업이에요'];
-      const index = (await store.ask({ kind: 'menu', screen, options })) as number;
+      const compactScreen = view?.pastPick(columns(), true);
+      const index = (await store.ask({ kind: 'menu', screen, compactScreen, options })) as number;
       return index >= 0 && index < candidates.length ? candidates[index]!.id : null;
     },
   };
@@ -147,7 +150,7 @@ export async function runChat(options: ChatOptions): Promise<number> {
         }
         case 'usage':
           await usageTimer.now();
-          for (const line of usageLines(plan, session.usage(), new Date(), undefined, view?.gauge)) store.print(line);
+          store.printLines(usageLines(plan, session.usage(), new Date(), undefined, view?.gauge));
           return;
         case 'guide':
           store.print(lastGuide !== null ? `\n${lastGuide}\n` : '  아직 끝난 작업이 없어요.');
@@ -170,7 +173,7 @@ export async function runChat(options: ChatOptions): Promise<number> {
       const turn = await session.handle(text);
       if (turn.kind === 'work') lastGuide = turn.outcome.guide.toMarkdown();
       finishWorking();
-      for (const line of describeTurn(turn, view)) store.print(line);
+      store.printLines(describeTurn(turn, view));
     } catch (error) {
       finishWorking();
       store.print(`rauha: ${(error as Error).message}`);

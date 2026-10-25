@@ -175,6 +175,19 @@ describe('mascotView', () => {
     }
   });
 
+  it('낮은 창을 위한 짧은 질문 화면은 Delfi 없이 상자만 담고, 줄 수가 훨씬 적다', () => {
+    const view = mascotView(24, 'v0', '[personal]')!;
+    const request = { role: 'implementer', tool: 'Bash', detail: 'rm -rf dist', reason: '지웁니다' } as const;
+    const full = view.permission(request, 80).split('\n');
+    const compact = view.permission(request, 80, true).split('\n');
+    expect(compact.length).toBeLessThan(full.length - 5);
+    expect(compact.map(visible).join('\n')).not.toMatch(/[▀▄]/);
+    expect(compact.map(visible).join('\n')).toContain('rm -rf dist');
+    expect(compact.map(visible).join('\n')).toContain('위험할 수 있는 동작');
+    expect(view.factCheck('필드는 email', 80, true).split('\n').length).toBeLessThan(view.factCheck('필드는 email', 80).split('\n').length - 5);
+    expect(view.pastPick(80, true).split('\n')).toHaveLength(1);
+  });
+
   it('작업 중 줄은 팀원 색 스피너와 경과 시간을, 끝난 줄은 ◆와 걸린 시간을 보여 준다', () => {
     const view = mascotView(24, 'v0', '[personal]')!;
     expect(visible(view.working('▘', '팀장 접수 작업 중…', 'intake', '12초'))).toBe('  ▘ 팀장 접수 작업 중… 12초');

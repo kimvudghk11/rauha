@@ -241,13 +241,13 @@ export interface MascotView {
   done(message: string, role: MemberRole, elapsed: string): string;
   finale(status: 'complete' | 'stopped'): string;
   /** Claude Code 허락 화면처럼: 물음표 Delfi + 누가·어떤 도구로·무엇을·왜 하는지 담은 박스 */
-  permission(request: PermissionRequest, columns: number): string;
+  permission(request: PermissionRequest, columns: number, compact?: boolean): string;
   /** 코드에 들어갔는데 근거를 확인하지 못한 사실을 보여 주는 화면 */
-  factCheck(claim: string, columns: number): string;
+  factCheck(claim: string, columns: number, compact?: boolean): string;
   /** 작업이 끝났을 때 결과 요약 카드: 상태·바뀐 파일·확인할 것. 자세한 안내서는 /guide로. */
   resultCard(card: ResultCard, columns: number): string;
   /** "아까 그 기능" 후보를 고르게 하기 전에 보여 주는 화면 */
-  pastPick(columns: number): string;
+  pastPick(columns: number, compact?: boolean): string;
   /** 사용률 막대. 채운 부분은 사용률에 따라 색이 달라지고 빈 부분은 흐리다. */
   gauge(percent: number, cells: number): string;
   /** 선택 목록에서 고른 줄 색칠 */
@@ -295,17 +295,22 @@ export function mascotView(depth: number, version: string, badge: string): Masco
       status === 'complete'
         ? say('done', ['끝났어요! 아래 읽기 안내서부터 봐 주세요.'])
         : say('stuck', ['여기서 멈췄어요. 이유는 아래 안내서에 적어 뒀어요.']),
-    permission: (request, columns) => {
+    // compact: 낮은 창용. Delfi 없이 한 줄 안내와 상자만 둔다(화면이 창보다 높으면 Ink가 매번 전체를 다시 찍는다).
+    permission: (request, columns, compact) => {
       const inner = Math.min(columns - 1, MAX_PERMISSION_WIDTH) - 4;
       const command = wrapText(request.detail, inner - 2).map((line) => `  \x1b[1m${line}${RESET}`);
       const reason = wrapText(request.reason, inner - 2).map((line) => `  ${dim(line)}`);
       const header = `\x1b[1m${fg(ROLE_COLOR[request.role], ROLE_NAME[request.role])}  ${dim(request.tool)}`;
-      return [say('ask', ['위험할 수 있는 동작이라 직접 허락받을게요.']), '', ...box([header, '', ...command, ...reason], COLORS['B']!, depth)].join('\n');
+      const intro = '위험할 수 있는 동작이라 직접 허락받을게요.';
+      const head = compact ? [`  ${fg(COLORS['Y']!, '?')} ${intro}`] : [say('ask', [intro]), ''];
+      return [...head, ...box([header, '', ...command, ...reason], COLORS['B']!, depth)].join('\n');
     },
-    factCheck: (claim, columns) => {
+    factCheck: (claim, columns, compact) => {
       const inner = Math.min(columns - 1, MAX_PERMISSION_WIDTH) - 4;
       const lines = wrapText(claim, inner - 2).map((line) => `  \x1b[1m${line}${RESET}`);
-      return [say('ask', ['근거를 확인하지 못했어요. 맞는지 알려 주세요.']), '', ...box([dim('코드에 들어간 사실'), '', ...lines], COLORS['B']!, depth)].join('\n');
+      const intro = '근거를 확인하지 못했어요. 맞는지 알려 주세요.';
+      const head = compact ? [`  ${fg(COLORS['Y']!, '?')} ${intro}`] : [say('ask', [intro]), ''];
+      return [...head, ...box([dim('코드에 들어간 사실'), '', ...lines], COLORS['B']!, depth)].join('\n');
     },
     resultCard: (card, columns) => {
       const inner = Math.min(columns - 1, MAX_PERMISSION_WIDTH) - 4;
@@ -333,7 +338,7 @@ export function mascotView(depth: number, version: string, badge: string): Masco
       lines[0] = `${head}${' '.repeat(Math.max(0, inner - displayWidth(head)))}`;
       return box(lines, COLORS['B']!, depth).join('\n');
     },
-    pastPick: () => say('ask', ['혹시 이 작업을 말씀하시는 건가요?']),
+    pastPick: (_columns, compact) => (compact ? `  ${fg(COLORS['Y']!, '?')} 혹시 이 작업을 말씀하시는 건가요?` : say('ask', ['혹시 이 작업을 말씀하시는 건가요?'])),
     gauge: (percent, cells) => {
       const { filled, track } = gaugeParts(percent, cells);
       return `${fg(GAUGE_COLOR[gaugeLevel(percent)], filled)}${fg(GAUGE_TRACK_COLOR, track)}`;

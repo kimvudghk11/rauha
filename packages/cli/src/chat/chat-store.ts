@@ -2,7 +2,7 @@ import type { MemberRole } from '@rauha/core';
 
 /** 화면에 띄우는 질문. 메뉴는 고른 번호(-1 = Esc), 글은 입력한 문자열로 답한다. */
 export type Prompt =
-  | { readonly kind: 'menu'; readonly screen: string; readonly options: readonly string[] }
+  | { readonly kind: 'menu'; readonly screen: string; readonly options: readonly string[]; readonly compactScreen?: string | undefined }
   | { readonly kind: 'text'; readonly label: string };
 
 /** 화면에 고정할 글. 창 너비에 따라 달라지는 것(박스)은 너비를 받아 만드는 함수로 두어 창을 바꾸면 다시 만든다. */
@@ -60,7 +60,16 @@ export class ChatStore {
   }
 
   print(text: Printable): void {
-    this.printed = [...this.printed, text];
+    this.printLines([text]);
+  }
+
+  /**
+   * 여러 줄을 한 번에 고정한다. 줄마다 따로 내면 Ink가 줄마다 즉시 다시 그리는데(React 18 일괄 처리가 없다),
+   * 빈 줄 하나짜리 덩어리는 통째로 버려서 결과 출력의 빈 줄이 사라지고 줄 수를 틀리게 센다.
+   */
+  printLines(texts: readonly Printable[]): void {
+    if (texts.length === 0) return;
+    this.printed = [...this.printed, ...texts];
     this.changed();
   }
 

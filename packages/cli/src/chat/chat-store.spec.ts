@@ -34,6 +34,17 @@ describe('ChatStore', () => {
     expect(store.history).toEqual(['첫 요청', '둘째']);
   });
 
+  it('여러 줄을 한 번에 내면 구독자에게 한 번만 알린다 (줄마다 따로 그리면 빈 줄이 버려진다)', () => {
+    const store = new ChatStore();
+    let notified = 0;
+    store.subscribe(() => (notified += 1));
+    store.printLines(['가', '', '나']);
+    expect(notified).toBe(1);
+    expect(store.lines).toEqual(['가', '', '나']);
+    store.printLines([]);
+    expect(notified).toBe(1);
+  });
+
   it('상태 줄을 바꾸면 구독자에게 알린다', () => {
     const store = new ChatStore();
     let notified = 0;
