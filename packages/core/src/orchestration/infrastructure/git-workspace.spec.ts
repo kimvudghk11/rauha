@@ -22,6 +22,18 @@ function repo(): string {
   return dir;
 }
 
+describe('GitWorkspace.readFile', () => {
+  it('작업 폴더 안의 파일만 읽고, 밖이거나 없는 파일은 null', async () => {
+    const dir = repo();
+    writeFileSync(join(dir, 'secret.txt'), 'outside');
+    const ws = new GitWorkspace(join(dir, 'src'));
+    expect(await ws.readFile('a.ts')).toBe('a1');
+    expect(await ws.readFile('../secret.txt')).toBeNull();
+    expect(await ws.readFile(join(dir, 'secret.txt'))).toBeNull();
+    expect(await ws.readFile('missing.ts')).toBeNull();
+  });
+});
+
 describe('GitWorkspace', () => {
   it('git 저장소가 아니면 dirtyFiles는 null', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'rauha-nogit-'));

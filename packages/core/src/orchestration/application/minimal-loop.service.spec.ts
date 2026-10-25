@@ -45,6 +45,9 @@ class FakeWorkspace implements WorkspacePort {
   async listFiles() {
     return [...this.files.keys()];
   }
+  async readFile(path: string) {
+    return this.files.get(path) ?? null;
+  }
 }
 
 class FakeUser implements UserPort {
@@ -77,6 +80,7 @@ class FakeTeam implements TeamMemberPort {
       output: script ? script(call, this.ws) : null,
       error: null,
       usage: { model: call.setting.tier, durationMs: 10, costUsd: 0.001, turns: 3, inputTokens: 100, outputTokens: 50, cacheReadTokens: 0, denials: [], endReason: 'success' },
+      fetched: [],
     };
   }
 }
@@ -89,7 +93,13 @@ class FakeChecks implements ChecksPort {
   async runTests(files: readonly string[]): Promise<TestsResult> {
     const implemented = this.ws.files.get('src/money.ts') === 'v2';
     const run = implemented ? TestRun.of({ passed: 2, failed: 0 }) : TestRun.of({ passed: 0, failed: 2, failedNames: ['discount'] });
-    return { run, ids: [...run.failedNames], digest: implemented ? '' : 'discount: expected 9000', command: `vitest ${files.join(' ')}` };
+    return {
+      run,
+      ids: [...run.failedNames],
+      passed: implemented ? ['Money discount 10% 할인', 'Money discount 범위 밖 할인율'] : [],
+      digest: implemented ? '' : 'discount: expected 9000',
+      command: `vitest ${files.join(' ')}`,
+    };
   }
   async runSuite() {
     return this.suite();

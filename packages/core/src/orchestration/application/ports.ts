@@ -25,11 +25,19 @@ export interface MemberUsage {
   readonly endReason: string;
 }
 
+export interface FetchedPage {
+  readonly url: string;
+  /** 가져온 본문(앞부분). 남기지 못했으면 null */
+  readonly body: string | null;
+}
+
 export interface MemberResult {
   /** 구조화 출력. 실패하면 null. */
   readonly output: unknown;
   readonly error: string | null;
   readonly usage: MemberUsage;
+  /** 이번 호출에서 팀원이 WebFetch로 실제로 연 주소. web 근거 확인에 쓴다. */
+  readonly fetched: readonly FetchedPage[];
 }
 
 export interface TeamMemberPort {
@@ -51,6 +59,8 @@ export interface WorkspacePort {
   dirtyFiles(): Promise<string[] | null>;
   /** 프로젝트 파일 목록(추적 중 + 새 파일, 실행 폴더 기준). 접수 팀장이 훑는 시간을 줄인다. */
   listFiles(): Promise<string[]>;
+  /** 근거 확인용 파일 읽기(실행 폴더 기준). 밖이거나 없으면 null. */
+  readFile(path: string): Promise<string | null>;
   snapshot(): Promise<WorkspaceSnapshot>;
   changesBetween(before: WorkspaceSnapshot, after: WorkspaceSnapshot): FileChange[];
   changesSinceHead(): Promise<FileChange[]>;
@@ -59,6 +69,8 @@ export interface WorkspacePort {
 export interface TestsResult {
   readonly run: TestRun;
   readonly ids: readonly string[];
+  /** 통과한 테스트의 전체 이름. test 근거 확인에 쓴다. */
+  readonly passed: readonly string[];
   readonly digest: string;
   readonly command: string;
 }

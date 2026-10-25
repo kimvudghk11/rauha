@@ -1,6 +1,8 @@
 import { execFile } from 'node:child_process';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
+import { relativeToRoot } from '../../shared/path-pattern.js';
 import type { FileChange, WorkspacePort, WorkspaceSnapshot } from '../application/ports.js';
 
 const run = promisify(execFile);
@@ -55,6 +57,17 @@ export class GitWorkspace implements WorkspacePort {
   async listFiles(): Promise<string[]> {
     const out = await this.git(['ls-files', '-z', '--cached', '--others', '--exclude-standard', '--', '.'], false);
     return [...new Set(out.split('\0').filter((p) => p !== '' && !IGNORED.test(p)))].sort().slice(0, MAX_LISTED_FILES);
+  }
+
+  /** 근거 확인용. 작업 폴더 밖이나 없는 파일은 null. */
+  async readFile(path: string): Promise<string | null> {
+    const rel = relativeToRoot(this.root, path);
+    if (rel === null) return null;
+    try {
+      return await readFile(join(this.root, rel), 'utf8');
+    } catch {
+      return null;
+    }
   }
 
   async snapshot(): Promise<WorkspaceSnapshot> {

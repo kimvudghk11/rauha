@@ -27,6 +27,16 @@ describe('VitestReportDto', () => {
     expect(dto.failureIds()).toEqual(['Money discount 10%']);
   });
 
+  it('통과한 테스트의 전체 이름을 돌려준다', () => {
+    const dto = VitestReportDto.from({
+      testResults: [
+        { name: '/p/a.spec.ts', status: 'failed', message: '', assertionResults: [assertion('Money discount 10%', 'passed'), assertion('Money add', 'failed', ['x'])] },
+        { name: '/p/b.spec.ts', status: 'passed', message: '', assertionResults: [assertion('Cart total', 'passed')] },
+      ],
+    });
+    expect(dto.passedNames()).toEqual(['Money discount 10%', 'Cart total']);
+  });
+
   it('실행 중 TypeError는 올바른 Red로 본다', () => {
     const dto = VitestReportDto.from({
       testResults: [

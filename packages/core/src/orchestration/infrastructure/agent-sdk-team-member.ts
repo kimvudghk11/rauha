@@ -2,6 +2,7 @@ import { query, type SDKResultMessage } from '@anthropic-ai/claude-agent-sdk';
 import { MODEL_ID } from '../domain/team.js';
 import type { MemberCall, MemberResult, MemberUsage, TeamMemberPort } from '../application/ports.js';
 import type { PromptLibrary } from './prompt-library.js';
+import { createFetchLog } from './fetch-log.js';
 import { createToolGuard, type PermissionAsker } from './tool-guard.js';
 
 export interface AgentSdkTeamMemberOptions {
@@ -27,6 +28,7 @@ export class AgentSdkTeamMember implements TeamMemberPort {
     const model = MODEL_ID[call.setting.tier];
     const started = Date.now();
     const stderr: string[] = [];
+    const fetchLog = createFetchLog();
     let result: SDKResultMessage | null = null;
     try {
       const messages = query({
@@ -46,6 +48,7 @@ export class AgentSdkTeamMember implements TeamMemberPort {
           outputFormat: { type: 'json_schema', schema: call.outputSchema },
           hooks: {
             PreToolUse: [{ hooks: [createToolGuard({ root: this.options.cwd, role: call.role, canWrite: call.canWrite, ask: this.options.ask, remembered: this.remembered })] }],
+            PostToolUse: [{ hooks: [fetchLog.hook] }],
           },
           stderr: (data) => {
             stderr.push(data);
@@ -58,15 +61,21 @@ export class AgentSdkTeamMember implements TeamMemberPort {
       }
     } catch (error) {
       const detail = stderr.join('').trim().split('\n').slice(-5).join('\n');
-      return { output: null, error: `${(error as Error).message}${detail ? `\n${detail}` : ''}`, usage: emptyUsage(model, Date.now() - started) };
+      return {
+        output: null,
+        error: `${(error as Error).message}${detail ? `\n${detail}` : ''}`,
+        usage: emptyUsage(model, Date.now() - started),
+        fetched: fetchLog.entries(),
+      };
     }
 
-    if (result === null) return { output: null, error: '결과 메시지를 받지 못했습니다.', usage: emptyUsage(model, Date.now() - started) };
+    const fetched = fetchLog.entries();
+    if (result === null) return { output: null, error: '결과 메시지를 받지 못했습니다.', usage: emptyUsage(model, Date.now() - started), fetched };
     const usage = toUsage(model, result);
     if (result.subtype !== 'success') {
-      return { output: null, error: `${result.subtype}: ${result.errors.join(' / ')}`, usage };
+      return { output: null, error: `${result.subtype}: ${result.errors.join(' / ')}`, usage, fetched };
     }
-    return { output: result.structured_output ?? null, error: result.structured_output === undefined ? '구조화 출력이 없습니다.' : null, usage };
+    return { output: result.structured_output ?? null, error: result.structured_output === undefined ? '구조화 출력이 없습니다.' : null, usage, fetched };
   }
 }
 

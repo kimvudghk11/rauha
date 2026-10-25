@@ -124,7 +124,7 @@ export class NodeChecks implements ChecksPort {
     const run = testsOutcome(report, result.code);
     const reportDigest = report?.failureDigest() ?? '';
     const digest = run.failed === 0 ? '' : reportDigest !== '' ? reportDigest : tail(result.output, 12);
-    return { run, ids: [...run.failedNames], digest, command: this.display(command, outFile) };
+    return { run, ids: [...run.failedNames], passed: report?.passedNames() ?? [], digest, command: this.display(command, outFile) };
   }
 
   async runSuite(): Promise<CheckResult[]> {

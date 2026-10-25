@@ -50,6 +50,10 @@ export class VitestReportDto {
     return TestRun.of({ passed, failed, failureKind: failed > 0 ? this.failureKind() : null, failedNames: this.failureIds() });
   }
 
+  passedNames(): string[] {
+    return this.files.flatMap((f) => [...f.passed]);
+  }
+
   /** 기준선과 비교할 실패 식별자. assertion은 전체 이름, 로드 실패는 파일 경로. */
   failureIds(): string[] {
     return this.files.flatMap((f) => [...(f.loadFailure !== null ? [f.name] : []), ...f.failed.map((a) => a.name)]);
