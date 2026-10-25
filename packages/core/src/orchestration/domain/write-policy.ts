@@ -28,7 +28,9 @@ export class WritePolicy {
       case 'architect':
         return matchesPattern('docs/adr/**', p);
       case 'tester':
-        return !testsLocked && WritePolicy.isTestFile(p);
+        // 잠기기 전에는 범위 안 소스에 빈 시그니처(스텁)를 만들 수 있다. import 에러 없이
+        // 올바른 Red를 만들기 위해서다. 구현까지 해 버리면 Red가 실패 0개라 무효가 된다.
+        return !testsLocked && (WritePolicy.isTestFile(p) || this.inScope(p));
       case 'implementer':
       case 'reviewer':
         return !WritePolicy.isTestFile(p) && this.inScope(p);

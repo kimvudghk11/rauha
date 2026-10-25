@@ -194,3 +194,12 @@ describe('WorkOrder 쓰기 권한', () => {
     expect(() => order.assertDiffAllowed('implementer', ['tests\\login.spec.ts'])).toThrow(DomainError);
   });
 });
+
+describe('WorkOrder 쓰기 권한 미리 묻기', () => {
+  it('팀원이 쓰기 전에 그 경로를 쓸 수 있는지 묻는다', () => {
+    const order = openAtGreen();
+    expect(order.allowsWrite('implementer', 'src/auth/login.ts')).toBe(true);
+    expect(order.allowsWrite('implementer', 'src/auth/login.spec.ts')).toBe(false);
+    expect(order.allowsWrite('tester', 'src/auth/login.spec.ts')).toBe(false);
+  });
+});

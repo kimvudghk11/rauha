@@ -1,5 +1,5 @@
 import { DomainError } from '../../shared/domain-error.js';
-import { expandHome } from '../../shared/path-pattern.js';
+import { expandHome, toPosixPath } from '../../shared/path-pattern.js';
 
 export type SyncTarget = 'aws' | 'none';
 
@@ -30,6 +30,11 @@ export class Profile {
   /** Agent SDK(Claude Code)를 띄울 때 넘길 환경 변수. 토큰은 rauha가 직접 다루지 않는다. */
   agentEnv(home: string): Record<string, string> {
     return { CLAUDE_CONFIG_DIR: this.claudeConfigDir(home) };
+  }
+
+  /** 실행 기록 폴더. work 프로필 기록이 PC 밖으로 나가지 않도록 프로필 폴더 아래에 둔다. */
+  runsDir(home: string): string {
+    return `${toPosixPath(home)}/.rauha/profiles/${this.name}/runs`;
   }
 
   canSync(): boolean {

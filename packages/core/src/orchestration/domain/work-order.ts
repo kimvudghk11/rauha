@@ -246,6 +246,11 @@ export class WorkOrder {
     }
   }
 
+  /** 팀원이 쓰기 전에(도구 호출 단계에서) 그 경로를 쓸 수 있는지. */
+  allowsWrite(role: TeamRole, path: string): boolean {
+    return WritePolicy.forScope(this.state.scope).allows(role, path, this.state.testsLocked);
+  }
+
   /** 팀원이 낸 diff를 검사한다. 거부된 경로가 있으면 DomainError. */
   assertDiffAllowed(role: TeamRole, changedPaths: readonly string[]): void {
     WritePolicy.forScope(this.state.scope).assertDiff(role, changedPaths, this.state.testsLocked);

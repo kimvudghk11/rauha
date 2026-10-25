@@ -33,6 +33,14 @@ export class TestRun {
     return this.failed === 0 && this.passed > 0;
   }
 
+  /** 올바른 Red가 아니면 테스트 팀원에게 다시 맡길 때 붙일 설명. 올바른 Red면 null. */
+  redProblem(): string | null {
+    if (this.isValidRed()) return null;
+    if (this.failed === 0 && this.passed === 0) return '실행된 테스트가 없습니다. 테스트 파일이 실제로 테스트를 담고 있는지 확인하세요.';
+    if (this.failed === 0) return '테스트가 모두 통과했습니다. 아직 없는 동작을 검사해야 Red가 됩니다(구현까지 하지 마세요).';
+    return `assertion이 아닌 이유(${this.failureKind})로 실패했습니다. 테스트가 로드·실행되도록 고치세요.`;
+  }
+
   /** 테스트가 실행은 됐고, 기대값이 달라서 실패했는지. */
   isValidRed(): boolean {
     return this.failed > 0 && this.failureKind === 'assertion';
