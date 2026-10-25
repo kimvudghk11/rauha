@@ -176,7 +176,7 @@ export const ANSWER_SCHEMA: Record<string, unknown> = {
     claims: {
       type: 'array',
       minItems: 1,
-      maxItems: 6,
+      maxItems: 10,
       items: { type: 'object', additionalProperties: false, required: ['text', 'evidence'], properties: { text: str, evidence: evidenceList(4) } },
     },
   },

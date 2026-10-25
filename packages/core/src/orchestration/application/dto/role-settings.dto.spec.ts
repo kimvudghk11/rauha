@@ -48,6 +48,13 @@ describe('RoleSettingsDto', () => {
     expect(roles.get('answerer').tools).not.toContain('Write');
   });
 
+  it('답변 팀원은 공식 문서를 찾아 읽을 수 있고, 여러 페이지를 볼 만큼 턴과 노력을 갖는다', () => {
+    const answerer = RoleSettingsDto.defaults().get('answerer');
+    expect(answerer.tools).toEqual(expect.arrayContaining(['WebSearch', 'WebFetch']));
+    expect(answerer.effort).toBe('medium');
+    expect(answerer.maxTurns).toBeGreaterThanOrEqual(25);
+  });
+
   it('형식이 틀린 환경 변수는 거부한다', () => {
     expect(() => RoleSettingsDto.defaults().withEnv({ RAUHA_ROLE_TESTER: 'gpt:fast' })).toThrow(DomainError);
   });

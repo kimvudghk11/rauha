@@ -44,8 +44,8 @@ export class RoleSettingsDto {
       reviewer: { tier: 'sonnet', effort: 'medium', maxTurns: 25, maxBudgetUsd: 1, tools: READ_TOOLS },
       // 라우터는 입력 종류만 가른다. 도구 없이 짧게.
       router: { tier: 'haiku', effort: 'low', maxTurns: 2, maxBudgetUsd: 0.05, tools: [] },
-      // 질문에는 코드를 읽고 답하되 파일은 쓰지 않는다.
-      answerer: { tier: 'sonnet', effort: 'low', maxTurns: 15, maxBudgetUsd: 0.5, tools: READ_TOOLS },
+      // 질문에는 코드나 공식 문서를 읽고 답하되 파일은 쓰지 않는다. 일반 기술 질문은 문서 여러 장을 열어 봐야 해서 턴·예산을 넉넉히.
+      answerer: { tier: 'sonnet', effort: 'medium', maxTurns: 25, maxBudgetUsd: 1, tools: READ_TOOLS },
     });
   }
 
