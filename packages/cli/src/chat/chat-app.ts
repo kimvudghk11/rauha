@@ -1,4 +1,4 @@
-import { Box, Static, Text, useInput } from 'ink';
+import { Box, Static, Text, useInput, useStdout } from 'ink';
 import React, { useEffect, useReducer, useState } from 'react';
 import { formatElapsed } from '../live-line.js';
 import type { MascotView } from '../mascot.js';
@@ -14,6 +14,8 @@ const SPINNER = ['▖', '▘', '▝', '▗'] as const;
 /** 1/8 블록 테두리. 선 문자(╭─╮)는 한글 글꼴 cmd에서 가로선이 사라질 때가 있다. */
 const BLOCK_BORDER = { topLeft: ' ', top: '▁', topRight: ' ', left: '▕', right: '▏', bottomLeft: ' ', bottom: '▔', bottomRight: ' ' };
 const SKY = '#8FD3F7';
+/** 입력창 최대 너비. 창 너비를 다 쓰면 창을 조금만 줄여도 cmd가 줄을 접어 지난 테두리가 남는다. */
+const MAX_INPUT_WIDTH = 76;
 
 export interface ChatAppProps {
   readonly store: ChatStore;
@@ -76,6 +78,8 @@ function TextPrompt({ store, prompt }: { store: ChatStore; prompt: Extract<Promp
 
 function InputBox({ busy, onSubmit }: { busy: boolean; onSubmit: (text: string) => void }) {
   const [state, setState] = useState<InputState>({ text: '', cursor: 0 });
+  const { stdout } = useStdout();
+  const width = Math.min(stdout.columns ?? 80, MAX_INPUT_WIDTH);
   useInput(
     (input, key) => {
       const result = editInput(state, input, key);
@@ -86,7 +90,7 @@ function InputBox({ busy, onSubmit }: { busy: boolean; onSubmit: (text: string) 
   );
   return h(
     Box,
-    { borderStyle: BLOCK_BORDER, borderColor: SKY, paddingX: 1, marginTop: 1 },
+    { borderStyle: BLOCK_BORDER, borderColor: SKY, paddingX: 1, marginTop: 1, width },
     busy ? h(Text, { dimColor: true }, '팀원이 일하는 중이에요… (끝나면 다시 입력할 수 있어요)') : h(Box, null, h(Text, { color: SKY }, '> '), withCursor(state)),
   );
 }

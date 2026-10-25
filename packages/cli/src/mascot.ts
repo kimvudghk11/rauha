@@ -110,9 +110,10 @@ export function toAnsi(px: Pixels, depth: number): string[] {
     for (let x = 0; x < px[y]!.length; x += 1) {
       const top = px[y]![x] ?? null;
       const bottom = px[y + 1]?.[x] ?? null;
-      if (top !== null && bottom !== null) line += `\x1b[${color(top, depth, 38)};${color(bottom, depth, 48)}m▀`;
-      else if (top !== null) line += `\x1b[49;${color(top, depth, 38)}m▀`;
-      else if (bottom !== null) line += `\x1b[49;${color(bottom, depth, 38)}m▄`;
+      // 글자색·배경색 코드는 따로 쓴다. 한 코드에 묶으면 Ink(대화 화면)가 다시 쓸 때 배경색을 닫지 않는다.
+      if (top !== null && bottom !== null) line += `\x1b[${color(top, depth, 38)}m\x1b[${color(bottom, depth, 48)}m▀`;
+      else if (top !== null) line += `\x1b[49m\x1b[${color(top, depth, 38)}m▀`;
+      else if (bottom !== null) line += `\x1b[49m\x1b[${color(bottom, depth, 38)}m▄`;
       else line += `${RESET} `;
     }
     lines.push(line + RESET);

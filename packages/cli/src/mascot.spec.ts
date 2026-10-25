@@ -13,7 +13,9 @@ describe('Delfi 그림', () => {
   it('위아래 모두 비면 공백, 위만 색이면 ▀, 아래만 색이면 ▄, 둘 다면 위는 글자색 아래는 배경색', () => {
     const [line] = toAnsi([[null, '#FF0000', null, '#FF0000'], [null, null, '#00FF00', '#00FF00']], 24);
     expect(visible(line!)).toBe(' ▀▄▀');
-    expect(line).toContain('\x1b[38;2;255;0;0;48;2;0;255;0m▀');
+    // 글자색과 배경색은 코드를 따로 쓴다. 한 코드에 묶으면 Ink가 다시 쓸 때 배경색을 닫지 않는다.
+    expect(line).toContain('\x1b[38;2;255;0;0m\x1b[48;2;0;255;0m▀');
+    expect(line).not.toMatch(/38;2;[\d;]*;48;2/);
   });
 
   it('256색 터미널에서는 가장 가까운 xterm 색 번호를 쓴다', () => {

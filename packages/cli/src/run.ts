@@ -14,6 +14,7 @@ import {
   type Profile,
   type ProgressPort,
   type RunOutcome,
+  type TeamMemberPort,
   type UserPort,
 } from '@rauha/core';
 import type { Asker } from './ask.js';
@@ -78,29 +79,44 @@ export async function rememberRun(outcome: RunOutcome, request: string, ctx: Pic
   }
 }
 
-/** 어댑터를 조립해서 최소 루프를 한 번 돌린다. */
-export async function runOnce(request: string, ctx: RunContext): Promise<RunResult> {
-  const prompts = await PromptLibrary.load(process.env['RAUHA_PROMPTS_DIR'] ?? PromptLibrary.defaultDir());
+export function loadPrompts(): Promise<PromptLibrary> {
+  return PromptLibrary.load(process.env['RAUHA_PROMPTS_DIR'] ?? PromptLibrary.defaultDir());
+}
+
+/** 팀원(Agent SDK). 대화 세션에서는 하나를 계속 써서 '이번 실행 동안 계속 허락'이 세션 내내 이어진다. */
+export function createTeam(ctx: Pick<RunContext, 'root' | 'profile' | 'home' | 'ask'>, prompts: PromptLibrary): AgentSdkTeamMember {
+  return new AgentSdkTeamMember({ cwd: ctx.root, env: { ...definedEnv(process.env), ...ctx.profile.agentEnv(ctx.home) }, prompts, ask: ctx.ask });
+}
+
+/** 역할별 모델·상한. RAUHA_ROLE_* 환경 변수와 이번 실행의 덮어쓰기(bench 비교)를 반영한다. */
+export function roleSettings(roleEnv?: Readonly<Record<string, string>>): RoleSettingsDto {
+  return RoleSettingsDto.defaults().withEnv({ ...process.env, ...roleEnv });
+}
+
+/** 요청 하나를 돌릴 최소 루프 조립. -p와 대화 세션이 같이 쓴다. */
+export function createLoop(ctx: RunContext, prompts: PromptLibrary, team: TeamMemberPort, carried?: ReadonlyMap<string, string>): MinimalLoopService {
   const runId = randomUUID();
-  const service = new MinimalLoopService({
-    team: new AgentSdkTeamMember({
-      cwd: ctx.root,
-      env: { ...definedEnv(process.env), ...ctx.profile.agentEnv(ctx.home) },
-      prompts,
-      ask: ctx.ask,
-    }),
+  return new MinimalLoopService({
+    team,
     workspace: new GitWorkspace(ctx.root),
     checks: new NodeChecks(ctx.root),
     log: new FileRunLog(ctx.profile.runsDir(ctx.home), runId, new Date(), prompts.hash),
     progress: ctx.progress,
     user: ctx.user,
-    roles: RoleSettingsDto.defaults().withEnv({ ...process.env, ...ctx.roleEnv }),
+    roles: roleSettings(ctx.roleEnv),
     newId: () => runId,
     now: () => Date.now(),
     today: () => localDate(new Date()),
     badge: ctx.profile.badge(),
     requireClean: ctx.requireClean,
     threePass: ctx.threePass ?? true,
+    ...(carried !== undefined ? { carried } : {}),
   });
+}
+
+/** 어댑터를 조립해서 최소 루프를 한 번 돌린다. */
+export async function runOnce(request: string, ctx: RunContext): Promise<RunResult> {
+  const prompts = await loadPrompts();
+  const service = createLoop(ctx, prompts, createTeam(ctx, prompts));
   return { outcome: await service.run(request), promptHash: prompts.hash };
 }

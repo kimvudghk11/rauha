@@ -71,6 +71,13 @@ describe('ChatApp', () => {
     expect(await answer).toBe('build만 지워');
   });
 
+  it('입력창은 76칸을 넘지 않는다 (창을 조금 줄여도 접히지 않게)', () => {
+    const { lastFrame } = app();
+    const box = visible(lastFrame()).split('\n').filter((l) => l.includes('▁') || l.includes('▕') || l.includes('▔'));
+    expect(box.length).toBeGreaterThan(0);
+    for (const line of box) expect([...line.trimEnd()].length).toBeLessThanOrEqual(76);
+  });
+
   it('고정 줄은 출력된 순서대로 남는다', async () => {
     const store = new ChatStore();
     const { lastFrame } = app(store);

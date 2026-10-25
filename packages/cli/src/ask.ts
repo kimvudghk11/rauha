@@ -66,8 +66,8 @@ async function select(options: readonly string[], highlight?: (text: string) => 
   });
 }
 
-const PERMISSION_OPTIONS = ['허락', '이번 실행 동안 이 명령은 계속 허락', '거절', '거절하고 이유 알려 주기'] as const;
-const ANSWERED = ['허락했어요.', '이번 실행 동안 계속 허락해요.', '거절했어요.', '거절하고 이유를 전했어요.'] as const;
+export const PERMISSION_OPTIONS = ['허락', '이번 실행 동안 이 명령은 계속 허락', '거절', '거절하고 이유 알려 주기'] as const;
+export const PERMISSION_ANSWERED = ['허락했어요.', '이번 실행 동안 계속 허락해요.', '거절했어요.', '거절하고 이유를 전했어요.'] as const;
 
 /** 고른 번호(-1 = 취소) → 허락 답. 이유는 4번을 골랐을 때만 쓴다. */
 export function toPermissionAnswer(index: number, note: string | null): PermissionAnswer {
@@ -102,14 +102,14 @@ export function terminalAsker(screen: AskScreen): Asker {
         const index = await select(PERMISSION_OPTIONS, screen.view?.highlight);
         const note = index === 3 ? await prompt('  팀원에게 전할 이유: ') : null;
         const answer = toPermissionAnswer(index, note);
-        process.stderr.write(`  → ${ANSWERED[index < 0 ? 2 : index]}\n\n`);
+        process.stderr.write(`  → ${PERMISSION_ANSWERED[index < 0 ? 2 : index]}\n\n`);
         return answer;
       }),
     );
 }
 
-const FACT_OPTIONS = ['맞아요', '틀려요 (바로잡을 내용 입력)', '모르겠어요 (추측으로 남김)'] as const;
-const FACT_ANSWERED = ['맞다고 기록했어요.', '정정을 넣어 다시 고칠게요.', '추측으로 남겨 둘게요.'] as const;
+export const FACT_OPTIONS = ['맞아요', '틀려요 (바로잡을 내용 입력)', '모르겠어요 (추측으로 남김)'] as const;
+export const FACT_ANSWERED = ['맞다고 기록했어요.', '정정을 넣어 다시 고칠게요.', '추측으로 남겨 둘게요.'] as const;
 
 /** 고른 번호(-1 = Esc) → 추측 확인 답. 모르는데 맞다/틀리다를 고르면 그것도 추측이라 Esc는 '모르겠어요'. */
 export function toFactAnswer(index: number, correction: string | null): FactAnswer {
