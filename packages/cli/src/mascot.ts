@@ -195,6 +195,8 @@ export interface MascotView {
   permission(request: PermissionRequest, columns: number): string;
   /** 코드에 들어갔는데 근거를 확인하지 못한 사실을 보여 주는 화면 */
   factCheck(claim: string, columns: number): string;
+  /** "아까 그 기능" 후보를 고르게 하기 전에 보여 주는 화면 */
+  pastPick(columns: number): string;
   /** 선택 목록에서 고른 줄 색칠 */
   highlight(text: string): string;
 }
@@ -235,6 +237,7 @@ export function mascotView(depth: number, version: string, badge: string): Masco
       const lines = wrapText(claim, inner - 2).map((line) => `  \x1b[1m${line}${RESET}`);
       return [say('ask', ['근거를 확인하지 못했어요. 맞는지 알려 주세요.']), '', ...box([dim('코드에 들어간 사실'), '', ...lines], COLORS['B']!, depth)].join('\n');
     },
+    pastPick: () => say('ask', ['혹시 이 작업을 말씀하시는 건가요?']),
     highlight: (text) => `\x1b[1m${fg(COLORS['B']!, text)}`,
   };
 }

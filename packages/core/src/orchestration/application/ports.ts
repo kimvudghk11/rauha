@@ -101,6 +101,16 @@ export interface UserPort {
   choose(assumption: Assumption): Promise<number>;
   /** 코드에 들어갔는데 근거가 확인되지 않은 사실이 맞는지 묻는다. */
   confirmFact(claim: CheckedClaim): Promise<FactAnswer>;
+  /** "아까 그 기능"의 후보 중 하나를 고르게 한다. null = 새 작업. */
+  pickPast(candidates: readonly PastCandidate[]): Promise<string | null>;
+}
+
+/** 기억에서 찾은 지난 작업 후보 */
+export interface PastCandidate {
+  readonly id: string;
+  readonly title: string;
+  /** ISO 시각 */
+  readonly at: string;
 }
 
 export interface ProgressPort {

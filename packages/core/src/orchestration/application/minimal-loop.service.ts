@@ -62,8 +62,22 @@ export interface RunOutcome {
   readonly changedInRun: readonly FileChange[];
   /** 끝난 뒤 스냅숏(HEAD 대비 바뀐 파일 → 내용 값). 대화 세션이 다음 요청의 carried로 쓴다. */
   readonly snapshotAfter: ReadonlyMap<string, string>;
+  /** 잠근 테스트 파일(기억에 남길 재료) */
+  readonly lockedTests: readonly string[];
+  readonly assumptions: readonly SettledAssumption[];
+  readonly explanation: ExplanationDto | null;
   readonly logDir: string;
 }
+
+/** 대화 세션이 접수 팀장에게 함께 넘기는 맥락 */
+export interface RunContextBlocks {
+  /** 이번 세션의 앞 대화 요약. /clear 뒤나 -p면 null */
+  readonly conversation: string | null;
+  /** 사용자가 "아까 그 기능"으로 고른 지난 작업의 기억 묶음. 없으면 null */
+  readonly pastWork: string | null;
+}
+
+const NO_CONTEXT: RunContextBlocks = { conversation: null, pastWork: null };
 
 
 /** 한도에 걸린 뒤에는 몇 번을 다시 불러도 같은 오류라서, 흐름을 끊고 바로 멈추는 데 쓴다. */
@@ -75,6 +89,7 @@ interface RunProgress {
   assumptions: readonly SettledAssumption[];
   /** 요청 시작 스냅숏. 바뀐 파일은 HEAD가 아니라 이것과 비교한다(세션에서 앞 요청이 남긴 변경을 빼려고). */
   readonly start: WorkspaceSnapshot;
+  lockedTests: readonly string[];
 }
 
 /** 리뷰 단계를 오가며 쌓이는 기록. 판정은 FactCheck·ReviewFindings가 한다. */
@@ -156,31 +171,31 @@ class RunTally {
 export class MinimalLoopService {
   constructor(private readonly deps: MinimalLoopDeps) {}
 
-  async run(request: string): Promise<RunOutcome> {
+  async run(request: string, context: RunContextBlocks = NO_CONTEXT): Promise<RunOutcome> {
     const started = this.deps.now();
     const { workspace } = this.deps;
     const dirty = await workspace.dirtyFiles();
     const start = dirty === null ? { files: new Map<string, string>() } : await workspace.snapshot();
     WorkspaceState.of(dirty, this.deps.carried, start.files).assertReady(this.deps.requireClean);
     const tally = new RunTally();
-    const current: RunProgress = { title: request.slice(0, 60), assumptions: [], start };
+    const current: RunProgress = { title: request.slice(0, 60), assumptions: [], start, lockedTests: [] };
     try {
-      return await this.execute(request, tally, started, current);
+      return await this.execute(request, tally, started, current, context);
     } catch (error) {
       if (!(error instanceof UsageLimitReached)) throw error;
-      return this.finish({ tally, started, start: current.start, title: current.title, status: 'stopped', stopReason: 'usage-limit', assumptions: current.assumptions });
+      return this.finish({ tally, started, start: current.start, lockedTests: current.lockedTests, title: current.title, status: 'stopped', stopReason: 'usage-limit', assumptions: current.assumptions });
     }
   }
 
-  private async execute(request: string, tally: RunTally, started: number, current: RunProgress): Promise<RunOutcome> {
+  private async execute(request: string, tally: RunTally, started: number, current: RunProgress, context: RunContextBlocks): Promise<RunOutcome> {
     const { workspace, checks, log, progress } = this.deps;
     progress.step('기준선 검사와 팀장 접수를 함께 시작합니다');
-    const [baselineResults, intake] = await Promise.all([checks.runSuite(), this.intake(request, tally)]);
+    const [baselineResults, intake] = await Promise.all([checks.runSuite(), this.intake(request, tally, context)]);
     const baseline = Verification.of(baselineResults);
     await log.recordChecks('baseline', baselineResults);
 
     if (intake === null) {
-      return this.finish({ tally, started, start: current.start, title: request.slice(0, 60), status: 'stopped', stopReason: 'intake-failed', assumptions: [] });
+      return this.finish({ tally, started, start: current.start, lockedTests: current.lockedTests, title: request.slice(0, 60), status: 'stopped', stopReason: 'intake-failed', assumptions: [] });
     }
     const { dto, order, assumptions } = intake;
     current.title = order.title;
@@ -199,10 +214,10 @@ export class MinimalLoopService {
     for (let step = 0; step < MAX_STEPS; step += 1) {
       const decision = scope.decide(order);
       if (decision.kind === 'complete') {
-        return this.finish({ tally, started, start: current.start, title: order.title, status: 'complete', stopReason: null, verdict, explanation, assumptions, facts: review.summary() });
+        return this.finish({ tally, started, start: current.start, lockedTests: current.lockedTests, title: order.title, status: 'complete', stopReason: null, verdict, explanation, assumptions, facts: review.summary() });
       }
       if (decision.kind === 'stop') {
-        return this.finish({ tally, started, start: current.start, title: order.title, status: 'stopped', stopReason: decision.reason, verdict, explanation, assumptions, facts: review.summary() });
+        return this.finish({ tally, started, start: current.start, lockedTests: current.lockedTests, title: order.title, status: 'stopped', stopReason: decision.reason, verdict, explanation, assumptions, facts: review.summary() });
       }
 
       if (decision.assignment.role === 'reviewer') {
@@ -220,6 +235,7 @@ export class MinimalLoopService {
         const result = await this.judgeRed(order, current.start);
         await log.recordChecks(`red-${attempt}`, result.checks);
         lockedTests = result.testFiles;
+        current.lockedTests = lockedTests;
         redFeedback = result.feedback;
         continue;
       }
@@ -265,7 +281,7 @@ export class MinimalLoopService {
       order.recordGreen(verdict.toTestRun(locked.run), verdict.toFailureNote());
       lastFailure = verdict.failureDetail();
     }
-    return this.finish({ tally, started, start: current.start, title: order.title, status: 'stopped', stopReason: 'halted', verdict, explanation, assumptions, facts: review.summary() });
+    return this.finish({ tally, started, start: current.start, lockedTests: current.lockedTests, title: order.title, status: 'stopped', stopReason: 'halted', verdict, explanation, assumptions, facts: review.summary() });
   }
 
   // ── 재검증과 사실 점검 ────────────────────────────────────
@@ -349,8 +365,8 @@ export class MinimalLoopService {
    * 접수 → 해석이 갈리는 지점(가정)을 사용자에게 확인 → 다른 해석을 고르면 확정해서 한 번 더 접수.
    * 물어볼 화면이 없으면 추천 해석으로 진행하고, 확인 안 된 가정으로 안내서에 남긴다.
    */
-  private async intake(request: string, tally: RunTally): Promise<{ dto: IntakeDto; order: WorkOrder; assumptions: SettledAssumption[] } | null> {
-    const first = await this.intakeOnce(request, [], tally);
+  private async intake(request: string, tally: RunTally, context: RunContextBlocks): Promise<{ dto: IntakeDto; order: WorkOrder; assumptions: SettledAssumption[] } | null> {
+    const first = await this.intakeOnce(request, [], tally, context);
     if (first === null || first.dto.assumptions.length === 0) return first === null ? null : { ...first, assumptions: [] };
 
     const { user, progress } = this.deps;
@@ -362,17 +378,28 @@ export class MinimalLoopService {
     const settled = first.dto.settleAssumptions(picks);
     if (!settled.some((s) => s.changed)) return { ...first, assumptions: settled.map(toSettled) };
 
-    const second = await this.intakeOnce(request, settled, tally);
+    const second = await this.intakeOnce(request, settled, tally, context);
     if (second === null) return null;
     return { ...second, assumptions: [...settled.map(toSettled), ...second.dto.settleAssumptions(null).map(toSettled)] };
   }
 
-  private async intakeOnce(request: string, clarifications: readonly SettledAssumptionChoice[], tally: RunTally): Promise<{ dto: IntakeDto; order: WorkOrder } | null> {
+  private async intakeOnce(
+    request: string,
+    clarifications: readonly SettledAssumptionChoice[],
+    tally: RunTally,
+    context: RunContextBlocks,
+  ): Promise<{ dto: IntakeDto; order: WorkOrder } | null> {
     const files = await this.deps.workspace.listFiles();
     let feedback: string | null = null;
     for (let attempt = 1; attempt <= INTAKE_ATTEMPTS; attempt += 1) {
       const message = [
         `<today>${this.deps.today()}</today>`,
+        context.conversation !== null
+          ? `<conversation>\n이번 세션의 앞 대화입니다. 요청이 이걸 가리키면 이어서 해석하세요.\n${context.conversation}\n</conversation>`
+          : '',
+        context.pastWork !== null
+          ? `<past_work>\n사용자가 이어서 고치려고 고른 지난 작업입니다. 바꾼 파일·결정·정한 해석을 존중하세요.\n${context.pastWork}\n</past_work>`
+          : '',
         `<request>\n${request}\n</request>`,
         `<project_files>\n${files.join('\n')}\n</project_files>`,
         clarifications.length > 0
@@ -472,6 +499,7 @@ export class MinimalLoopService {
     tally: RunTally;
     started: number;
     start: WorkspaceSnapshot;
+    lockedTests: readonly string[];
     title: string;
     status: 'complete' | 'stopped';
     stopReason: RunStopReason | null;
@@ -527,6 +555,9 @@ export class MinimalLoopService {
       facts,
       changedInRun,
       snapshotAfter: after.files,
+      lockedTests: props.lockedTests,
+      assumptions: props.assumptions,
+      explanation: props.explanation ?? null,
       logDir,
     };
   }

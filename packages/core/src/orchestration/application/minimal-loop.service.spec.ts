@@ -64,6 +64,9 @@ class FakeUser implements UserPort {
     this.asked.push(assumption.question);
     return this.answers.shift() ?? 0;
   }
+  async pickPast() {
+    return null;
+  }
   async confirmFact(claim: CheckedClaim): Promise<FactAnswer> {
     this.factsAsked.push(claim.text);
     return this.factAnswers.shift() ?? { kind: 'correct' };

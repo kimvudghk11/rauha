@@ -138,6 +138,17 @@ export function terminalUser(screen: Pick<AskScreen, 'view' | 'live'> = { view: 
         process.stderr.write(`  → ${FACT_ANSWERED[index < 0 ? 2 : index]}\n\n`);
         return toFactAnswer(index, correction);
       }),
+    pickPast: (candidates) =>
+      pausing(screen.live, async () => {
+        const shown = screen.view?.pastPick(process.stderr.columns ?? 80) ?? '? 혹시 이 작업을 말씀하시는 건가요?';
+        process.stderr.write(`
+${shown}
+
+`);
+        const options = [...candidates.map((c) => `${c.title}  (${c.at.slice(0, 16).replace('T', ' ')})`), '아니요, 새 작업이에요'];
+        const index = await select(options, screen.view?.highlight);
+        return index >= 0 && index < candidates.length ? candidates[index]!.id : null;
+      }),
   };
 }
 
@@ -149,4 +160,4 @@ export function parseChoice(answer: string, count: number): number {
 }
 
 /** bench처럼 물어볼 화면이 없는 실행. */
-export const noUser: UserPort = { interactive: false, choose: async () => 0, confirmFact: async () => ({ kind: 'unsure' }) };
+export const noUser: UserPort = { interactive: false, choose: async () => 0, confirmFact: async () => ({ kind: 'unsure' }), pickPast: async () => null };
