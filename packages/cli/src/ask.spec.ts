@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseChoice, toPermissionAnswer } from './ask.js';
+import { parseChoice, toFactAnswer, toPermissionAnswer } from './ask.js';
 
 describe('toPermissionAnswer', () => {
   it('1 허락, 2 이번 실행 동안 계속 허락, 3 거절, 4 이유를 붙여 거절', () => {
@@ -30,5 +30,18 @@ describe('parseChoice', () => {
     expect(parseChoice('4', 3)).toBe(0);
     expect(parseChoice('0', 3)).toBe(0);
     expect(parseChoice('두번째', 3)).toBe(0);
+  });
+});
+
+describe('toFactAnswer', () => {
+  it('1 맞아요, 2 틀려요(정정), 3 모르겠어요', () => {
+    expect(toFactAnswer(0, null)).toEqual({ kind: 'correct' });
+    expect(toFactAnswer(1, ' 필드 이름은 mail ')).toEqual({ kind: 'wrong', correction: '필드 이름은 mail' });
+    expect(toFactAnswer(2, null)).toEqual({ kind: 'unsure' });
+  });
+
+  it('정정을 비우면 틀렸다는 사실만 전하고, Esc는 모르겠어요로 본다', () => {
+    expect(toFactAnswer(1, '  ')).toEqual({ kind: 'wrong', correction: '(사용자가 틀렸다고 함, 바로잡을 내용은 없음)' });
+    expect(toFactAnswer(-1, null)).toEqual({ kind: 'unsure' });
   });
 });

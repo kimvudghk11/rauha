@@ -193,6 +193,8 @@ export interface MascotView {
   finale(status: 'complete' | 'stopped'): string;
   /** Claude Code 허락 화면처럼: 물음표 Delfi + 누가·어떤 도구로·무엇을·왜 하는지 담은 박스 */
   permission(request: PermissionRequest, columns: number): string;
+  /** 코드에 들어갔는데 근거를 확인하지 못한 사실을 보여 주는 화면 */
+  factCheck(claim: string, columns: number): string;
   /** 선택 목록에서 고른 줄 색칠 */
   highlight(text: string): string;
 }
@@ -227,6 +229,11 @@ export function mascotView(depth: number, version: string, badge: string): Masco
       const reason = wrapText(request.reason, inner - 2).map((line) => `  ${dim(line)}`);
       const header = `\x1b[1m${fg(ROLE_COLOR[request.role], ROLE_NAME[request.role])}  ${dim(request.tool)}`;
       return [say('ask', ['위험할 수 있는 동작이라 직접 허락받을게요.']), '', ...box([header, '', ...command, ...reason], COLORS['B']!, depth)].join('\n');
+    },
+    factCheck: (claim, columns) => {
+      const inner = Math.min(columns, MAX_PERMISSION_WIDTH) - 4;
+      const lines = wrapText(claim, inner - 2).map((line) => `  \x1b[1m${line}${RESET}`);
+      return [say('ask', ['근거를 확인하지 못했어요. 맞는지 알려 주세요.']), '', ...box([dim('코드에 들어간 사실'), '', ...lines], COLORS['B']!, depth)].join('\n');
     },
     highlight: (text) => `\x1b[1m${fg(COLORS['B']!, text)}`,
   };

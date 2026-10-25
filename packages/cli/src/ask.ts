@@ -1,6 +1,6 @@
 import { emitKeypressEvents } from 'node:readline';
 import { createInterface } from 'node:readline/promises';
-import type { Assumption, PermissionAnswer, PermissionAsker, UserPort } from '@rauha/core';
+import type { Assumption, FactAnswer, PermissionAnswer, PermissionAsker, UserPort } from '@rauha/core';
 import type { LiveLine } from './live-line.js';
 import type { MascotView } from './mascot.js';
 import { menuKey, menuLines, type Key } from './menu.js';
@@ -108,22 +108,35 @@ export function terminalAsker(screen: AskScreen): Asker {
     );
 }
 
-/** 해석이 갈리는 지점을 터미널에서 고르게 한다. Enter = 추천 해석. */
-export function terminalUser(live: LiveLine | null = null): UserPort {
+const FACT_OPTIONS = ['맞아요', '틀려요 (바로잡을 내용 입력)', '모르겠어요 (추측으로 남김)'] as const;
+const FACT_ANSWERED = ['맞다고 기록했어요.', '정정을 넣어 다시 고칠게요.', '추측으로 남겨 둘게요.'] as const;
+
+/** 고른 번호(-1 = Esc) → 추측 확인 답. 모르는데 맞다/틀리다를 고르면 그것도 추측이라 Esc는 '모르겠어요'. */
+export function toFactAnswer(index: number, correction: string | null): FactAnswer {
+  if (index === 0) return { kind: 'correct' };
+  if (index === 1) return { kind: 'wrong', correction: correction?.trim() || '(사용자가 틀렸다고 함, 바로잡을 내용은 없음)' };
+  return { kind: 'unsure' };
+}
+
+/** 해석이 갈리는 지점과 코드에 들어간 추측을 터미널에서 확인받는다. */
+export function terminalUser(screen: Pick<AskScreen, 'view' | 'live'> = { view: null, live: null }): UserPort {
   if (!interactive()) return noUser;
   return {
     interactive: true,
     choose: (assumption: Assumption) =>
-      pausing(live, async () => {
+      pausing(screen.live, async () => {
         const options = [assumption.chosen, ...assumption.alternatives];
         const lines = options.map((o, i) => `  ${i + 1}) ${o}${i === 0 ? '  (추천)' : ''}`).join('\n');
         return parseChoice(await prompt(`\n? ${assumption.question}\n${lines}\n  번호 [1]: `), options.length);
       }),
     confirmFact: (claim) =>
-      pausing(live, async () => {
-        const wrong = /^n(o)?$/i.test((await prompt(`\n? 근거를 확인하지 못했어요. 맞나요?\n  ${claim.text}\n  [Y/n] `)).trim());
-        if (!wrong) return { correct: true } as const;
-        return { correct: false, correction: (await prompt('  바로잡을 내용: ')).trim() || '(사용자가 틀렸다고 함)' } as const;
+      pausing(screen.live, async () => {
+        const shown = screen.view?.factCheck(claim.text, process.stderr.columns ?? 80) ?? `? 근거를 확인하지 못했어요. 맞나요?\n  ${claim.text}`;
+        process.stderr.write(`\n${shown}\n\n`);
+        const index = await select(FACT_OPTIONS, screen.view?.highlight);
+        const correction = index === 1 ? await prompt('  바로잡을 내용: ') : null;
+        process.stderr.write(`  → ${FACT_ANSWERED[index < 0 ? 2 : index]}\n\n`);
+        return toFactAnswer(index, correction);
       }),
   };
 }
@@ -136,4 +149,4 @@ export function parseChoice(answer: string, count: number): number {
 }
 
 /** bench처럼 물어볼 화면이 없는 실행. */
-export const noUser: UserPort = { interactive: false, choose: async () => 0, confirmFact: async () => ({ correct: true }) };
+export const noUser: UserPort = { interactive: false, choose: async () => 0, confirmFact: async () => ({ kind: 'unsure' }) };

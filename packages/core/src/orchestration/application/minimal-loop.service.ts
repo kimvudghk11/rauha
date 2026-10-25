@@ -9,7 +9,9 @@ import { WorkspaceState } from '../domain/workspace-state.js';
 import { WritePolicy } from '../domain/write-policy.js';
 import { MemberReportDto, type ExplanationDto } from './dto/explanation.dto.js';
 import { IntakeDto, type SettledAssumptionChoice } from './dto/intake.dto.js';
-import { ReadingGuideDto, type RunStopReason, type SettledAssumption } from './dto/reading-guide.dto.js';
+import { ReadingGuideDto, type FactsSummary, type RunStopReason, type SettledAssumption } from './dto/reading-guide.dto.js';
+
+export type { FactsSummary };
 import { ReviewReportDto } from './dto/review-report.dto.js';
 import type { MemberRole, RoleSettingsDto } from './dto/role-settings.dto.js';
 import { IMPLEMENTER_REPORT_SCHEMA, INTAKE_SCHEMA, REVIEWER_REPORT_SCHEMA, TESTER_REPORT_SCHEMA } from './dto/schemas.js';
@@ -48,18 +50,6 @@ export interface RunOutcome {
   readonly logDir: string;
 }
 
-/** 사실 점검 결과. 3단 작업이 아니면(--quick) 비어 있다. */
-export interface FactsSummary {
-  /** 구현 보고의 결정·외부 사실과 확인 결과(마지막 리뷰 기준) */
-  readonly checked: readonly CheckedClaim[];
-  /** 근거 없는 리뷰 지적 */
-  readonly reviewerGuesses: readonly CheckedClaim[];
-  /** 코드에 들어간 추측인데 물어볼 화면이 없어 확인받지 못한 것 */
-  readonly unconfirmed: readonly CheckedClaim[];
-  readonly reviewRounds: number;
-  /** 리뷰어 보고를 읽지 못한 리뷰가 있었는지 */
-  readonly reviewMissing: boolean;
-}
 
 /** 한도에 걸린 뒤에는 몇 번을 다시 불러도 같은 오류라서, 흐름을 끊고 바로 멈추는 데 쓴다. */
 class UsageLimitReached extends Error {}
@@ -304,8 +294,8 @@ export class MinimalLoopService {
     if (user.interactive) {
       for (const guess of implementerCheck.guesses('fact')) {
         const answer = await user.confirmFact(guess);
-        if (answer.correct) state.confirmed.push(guess.text);
-        else corrections.push(answer.correction);
+        if (answer.kind === 'correct') state.confirmed.push(guess.text);
+        if (answer.kind === 'wrong') corrections.push(answer.correction);
       }
       implementerCheck = implementerCheck.withConfirmed(state.confirmed);
     }
@@ -478,6 +468,7 @@ export class MinimalLoopService {
       verdict: props.verdict ?? null,
       changes: await this.deps.workspace.changesSinceHead(),
       assumptions: props.assumptions,
+      facts,
     };
     const summary = {
       title: props.title,

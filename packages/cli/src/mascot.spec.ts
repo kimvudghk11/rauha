@@ -141,6 +141,15 @@ describe('mascotView', () => {
     expect(visible(view.done('팀장 접수(sonnet) 작업 중…', 'intake', '34초'))).toBe('  ◆ 팀장 접수(sonnet) 34초');
   });
 
+  it('추측 확인 화면은 주장과 확인하지 못했다는 말을 박스에 담는다', () => {
+    const view = mascotView(24, 'v0', '[personal]')!;
+    const lines = view.factCheck('응답 필드 이름은 email이다', 80).split('\n').map(visible);
+    const boxed = lines.slice(lines.findIndex((l) => /^ ▁+ $/.test(l)));
+    expect(new Set(boxed.map(displayWidth)).size).toBe(1);
+    expect(boxed.join('\n')).toContain('응답 필드 이름은 email이다');
+    expect(lines.join('\n')).toContain('근거를 확인하지 못했어요');
+  });
+
   it('끝 인사는 결과에 따라 다르다', () => {
     const view = mascotView(24, 'v0', '[personal]')!;
     expect(visible(view.finale('complete'))).not.toBe(visible(view.finale('stopped')));

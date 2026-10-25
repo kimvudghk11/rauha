@@ -1,4 +1,5 @@
 import { toPosixPath } from '../../../shared/path-pattern.js';
+import type { CheckedClaim, Evidence } from '../../domain/fact-check.js';
 import type { StopReason } from '../../domain/run-scope.js';
 import type { ModelTier } from '../../domain/team.js';
 import type { CheckVerdict, VerificationVerdict } from '../../domain/verification.js';
@@ -21,6 +22,34 @@ export interface ReadingGuideProps {
   readonly logDir: string | null;
   /** 해석이 갈린 지점과 실제로 따른 해석. confirmed = 사용자가 직접 확인했는지. */
   readonly assumptions: readonly SettledAssumption[];
+  /** 사실 점검 결과. 3단 작업이 아니면 없음. */
+  readonly facts?: FactsSummary;
+}
+
+/** 사실 점검 결과. 3단 작업이 아니면(--quick) 비어 있다. */
+export interface FactsSummary {
+  /** 구현 보고의 결정·외부 사실과 확인 결과(마지막 리뷰 기준) */
+  readonly checked: readonly CheckedClaim[];
+  /** 근거 없는 리뷰 지적 */
+  readonly reviewerGuesses: readonly CheckedClaim[];
+  /** 코드에 들어간 추측인데 물어볼 화면이 없어 확인받지 못한 것 */
+  readonly unconfirmed: readonly CheckedClaim[];
+  readonly reviewRounds: number;
+  /** 리뷰어 보고를 읽지 못한 리뷰가 있었는지 */
+  readonly reviewMissing: boolean;
+}
+
+function evidenceLabel(e: Evidence): string {
+  switch (e.kind) {
+    case 'code':
+      return e.line !== null ? `${e.path}:${e.line}` : e.path;
+    case 'test':
+      return `테스트 "${e.name}"`;
+    case 'web':
+      return e.url;
+    case 'user':
+      return e.text === '사용자가 맞다고 확인함' ? '사용자가 확인' : '정한 해석';
+  }
 }
 
 export interface SettledAssumption {
@@ -92,7 +121,9 @@ export class ReadingGuideDto {
       .filter(([, n]) => n > 0)
       .map(([tier, n]) => `${tier} ${n}회`)
       .join(', ');
-    const state = p.status === 'complete' ? '완료(리뷰 전)' : '멈춤';
+    const facts = p.facts ?? null;
+    const reviewed = facts !== null && facts.reviewRounds > 0;
+    const state = p.status === 'complete' ? (reviewed ? `완료(리뷰 ${facts.reviewRounds}회)` : '완료(리뷰 전)') : '멈춤';
     const lines: string[] = [
       `${p.badge} ${p.title} · ${state} · ${formatDuration(p.durationMs)} · ${tiers} · 추정 $${p.costUsd.toFixed(3)}`,
     ];
@@ -109,10 +140,17 @@ export class ReadingGuideDto {
       for (const a of confirmed) lines.push(`  - ${a.question} → ${a.chosen} (직접 확인함)`);
     }
 
+    // 코드에 들어갔는데 확인 못 한 사실도 맨 위에: 코드를 믿기 전에 사용자가 직접 확인해야 한다.
+    if (facts !== null && facts.unconfirmed.length > 0) {
+      lines.push('', '⚠ 확인 필요 (코드에 들어간 추측, 물어볼 화면이 없었음)');
+      for (const c of facts.unconfirmed) lines.push(`  - ${c.text}`);
+    }
+
     if (p.status === 'stopped' && p.stopReason !== null) {
       lines.push('', `멈춘 이유: ${STOP_MESSAGE[p.stopReason]}`);
     }
 
+    const verifiedBy = new Map((facts?.checked ?? []).filter((c) => !c.isGuess).map((c) => [c.text, c.verified[0] as Evidence]));
     const e = p.explanation;
     if (e !== null) {
       lines.push('', '읽는 순서');
@@ -122,11 +160,28 @@ export class ReadingGuideDto {
       });
       lines.push('', '결정과 이유');
       for (const d of e.decisions) {
-        lines.push(`  - ${sentence(d.what)} ${d.why}${d.rejected !== null ? ` (버린 안: ${d.rejected.replace(/\.\s*$/, '')})` : ''}`);
+        const evidence = verifiedBy.get(`${d.what} — ${d.why}`);
+        lines.push(
+          `  - ${sentence(d.what)} ${d.why}${d.rejected !== null ? ` (버린 안: ${d.rejected.replace(/\.\s*$/, '')})` : ''}${evidence !== undefined ? ` (근거: ${evidenceLabel(evidence)})` : ''}`,
+        );
       }
       lines.push('', '직접 해 볼 것');
       for (const check of e.manualChecks) lines.push(`  - ${check}`);
       if (e.untested.length > 0) lines.push(`  - 자동 테스트가 못 잡는 부분: ${e.untested.join(', ')}`);
+    }
+
+    if (facts !== null) {
+      const pending = new Set(facts.unconfirmed.map((c) => c.text));
+      const guesses = facts.checked.filter((c) => c.isGuess && !pending.has(c.text));
+      if (guesses.length > 0) {
+        lines.push('', '⚠ 추측 (근거 확인 안 됨)');
+        for (const c of guesses) lines.push(`  - ${c.text}`);
+      }
+      if (facts.reviewerGuesses.length > 0) {
+        lines.push('', '리뷰어 추측 (근거 없는 지적이라 반영하지 않음)');
+        for (const c of facts.reviewerGuesses) lines.push(`  - ${c.text}`);
+      }
+      if (facts.reviewMissing) lines.push('', '리뷰어 보고를 읽지 못한 리뷰가 있었습니다. 그 리뷰는 지적 없음으로 처리했습니다.');
     }
 
     if (p.verdict !== null) {

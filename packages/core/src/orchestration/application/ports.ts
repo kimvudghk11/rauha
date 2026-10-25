@@ -91,7 +91,8 @@ export interface RunLogPort {
   finish(summary: Record<string, unknown>, guideMarkdown: string): Promise<string>;
 }
 
-export type FactAnswer = { readonly correct: true } | { readonly correct: false; readonly correction: string };
+/** correct: 맞음(사실로 처리), wrong: 틀림(정정을 넣어 2차 구현), unsure: 모름(추측으로 남김) */
+export type FactAnswer = { readonly kind: 'correct' } | { readonly kind: 'wrong'; readonly correction: string } | { readonly kind: 'unsure' };
 
 /** 사용자에게 해석과 추측을 확인받는다. 물어볼 화면이 없으면 interactive가 false이고 아무것도 묻지 않는다. */
 export interface UserPort {

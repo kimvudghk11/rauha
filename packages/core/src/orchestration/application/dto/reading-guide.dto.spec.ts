@@ -90,3 +90,44 @@ describe('ReadingGuideDto — 가정', () => {
     expect(lines[3]).toBe('  - 원 미만 처리 → 할인 후 금액을 버림');
   });
 });
+
+describe('ReadingGuideDto — 근거와 추측', () => {
+  const decisionText = 'discount를 Money 메서드로 둠 — add·multiply와 같은 자리';
+  const facts = {
+    checked: [
+      { kind: 'decision' as const, text: decisionText, evidence: [], verified: [{ kind: 'code' as const, path: 'src/domain/money.ts', line: 12, quote: 'add(other: Money): Money' }], isGuess: false },
+      { kind: 'fact' as const, text: '할인율은 정수만 받는다', evidence: [], verified: [], isGuess: true },
+      { kind: 'fact' as const, text: '응답 필드 이름은 email이다', evidence: [], verified: [], isGuess: true },
+    ],
+    reviewerGuesses: [{ kind: 'review' as const, text: '함수 이름이 어색하다', evidence: [], verified: [], isGuess: true }],
+    unconfirmed: [{ kind: 'fact' as const, text: '응답 필드 이름은 email이다', evidence: [], verified: [], isGuess: true }],
+    reviewRounds: 2,
+    reviewMissing: false,
+  };
+
+  it('확인된 근거는 결정 옆에, 추측은 따로 모아 보여 준다', () => {
+    const md = ReadingGuideDto.create({ ...base, facts }).toMarkdown();
+    expect(md).toContain('(근거: src/domain/money.ts:12)');
+    const guesses = md.slice(md.indexOf('⚠ 추측'));
+    expect(guesses).toContain('할인율은 정수만 받는다');
+  });
+
+  it('확인 필요는 맨 위에, 리뷰어 추측은 따로 보여 준다', () => {
+    const md = ReadingGuideDto.create({ ...base, facts }).toMarkdown();
+    const lines = md.split('\n');
+    expect(lines.findIndex((l) => l.startsWith('⚠ 확인 필요'))).toBeLessThan(lines.findIndex((l) => l.startsWith('읽는 순서')));
+    expect(md).toContain('리뷰어 추측');
+    expect(md).toContain('함수 이름이 어색하다');
+    // 확인 필요에 나온 추측은 추측 절에 다시 나오지 않는다
+    expect(md.split('응답 필드 이름은 email이다')).toHaveLength(2);
+  });
+
+  it('리뷰를 받았으면 머리줄에 리뷰 횟수를 쓴다', () => {
+    expect(ReadingGuideDto.create({ ...base, facts }).toMarkdown().split('\n')[0]).toContain('완료(리뷰 2회)');
+    expect(ReadingGuideDto.create(base).toMarkdown().split('\n')[0]).toContain('완료(리뷰 전)');
+  });
+
+  it('리뷰어 보고를 읽지 못했으면 알린다', () => {
+    expect(ReadingGuideDto.create({ ...base, facts: { ...facts, reviewMissing: true } }).toMarkdown()).toContain('리뷰어 보고를 읽지 못한');
+  });
+});

@@ -66,7 +66,7 @@ class FakeUser implements UserPort {
   }
   async confirmFact(claim: CheckedClaim): Promise<FactAnswer> {
     this.factsAsked.push(claim.text);
-    return this.factAnswers.shift() ?? { correct: true };
+    return this.factAnswers.shift() ?? { kind: 'correct' };
   }
 }
 
@@ -510,7 +510,7 @@ describe('MinimalLoopService — 사실 기반 3단 작업', () => {
 
   it('코드에 들어간 추측은 사용자에게 묻고, 틀렸다고 하면 정정을 넣어 2차 구현한다', async () => {
     const ws = new FakeWorkspace();
-    const user = new FakeUser(true, [], [{ correct: false, correction: '응답 필드 이름은 mail이다' }]);
+    const user = new FakeUser(true, [], [{ kind: 'wrong', correction: '응답 필드 이름은 mail이다' }]);
     const team = new FakeTeam(ws, { intake: [() => intake()], tester: [writeTest], implementer: [implementWithGuess, implementFixed], reviewer: [pass, pass] });
     const outcome = await run(team, ws, user);
     expect(user.factsAsked).toEqual(['응답 필드 이름은 email이다']);
@@ -521,11 +521,21 @@ describe('MinimalLoopService — 사실 기반 3단 작업', () => {
 
   it('사용자가 맞다고 한 추측은 다시 묻지 않고 사실로 남는다', async () => {
     const ws = new FakeWorkspace();
-    const user = new FakeUser(true, [], [{ correct: true }]);
+    const user = new FakeUser(true, [], [{ kind: 'correct' }]);
     const team = new FakeTeam(ws, { intake: [() => intake()], tester: [writeTest], implementer: [implementWithGuess], reviewer: [pass] });
     const outcome = await run(team, ws, user);
     expect(user.factsAsked).toHaveLength(1);
     expect(outcome.facts.checked.find((c) => c.kind === 'fact')?.isGuess).toBe(false);
+    expect(outcome.facts.unconfirmed).toEqual([]);
+  });
+
+  it('모르겠다고 하면 추측으로 남기고 2차 구현하지 않는다', async () => {
+    const ws = new FakeWorkspace();
+    const user = new FakeUser(true, [], [{ kind: 'unsure' }]);
+    const team = new FakeTeam(ws, { intake: [() => intake()], tester: [writeTest], implementer: [implementWithGuess], reviewer: [pass] });
+    const outcome = await run(team, ws, user);
+    expect(team.calls.filter((r) => r === 'implementer')).toHaveLength(1);
+    expect(outcome.facts.checked.find((c) => c.kind === 'fact')?.isGuess).toBe(true);
     expect(outcome.facts.unconfirmed).toEqual([]);
   });
 

@@ -17,7 +17,8 @@ const HELP = `rauha — 터미널에서 팀장과 대화하는 클로드 팀
 
 사용법
   rauha                       대화 모드 (아직 구현 전)
-  rauha -p "<요청>"            한 번 실행: 접수 → 테스트 → 구현 → 검증 → 읽기 안내서
+  rauha -p "<요청>"            한 번 실행: 접수 → 테스트 → 구현 → 검증 → 리뷰·사실 점검 → 읽기 안내서
+  rauha -p "<요청>" --quick    리뷰·사실 점검 없이 검증 통과로 끝냄 (bench에도 쓸 수 있음)
   rauha whoami                현재 프로필과 Claude Code 설정 폴더 확인
   rauha login                 이 프로필의 Claude Code 로그인 (브라우저 인증)
   rauha bench [--only <id>] [--compare]
@@ -100,7 +101,7 @@ async function run(argv: readonly string[]): Promise<number> {
       return login(command.profile);
     case 'bench': {
       const { profile } = await resolveProfile(command.profile);
-      const report = await runBench({ repoRoot: workDir, profile, home: homedir(), only: command.only, compare: command.compare, log });
+      const report = await runBench({ repoRoot: workDir, profile, home: homedir(), only: command.only, compare: command.compare, quick: command.quick, log });
       process.stdout.write(`${report}\n`);
       return 0;
     }
@@ -135,9 +136,10 @@ async function run(argv: readonly string[]): Promise<number> {
         profile,
         home: homedir(),
         ask: terminalAsker({ view, live, log: say }),
-        user: terminalUser(live),
+        user: terminalUser({ view, live }),
         progress: { step },
         requireClean: true,
+        threePass: !command.quick,
       }).finally(() => live?.stop());
       if (view) log(`\n${view.finale(outcome.status)}`);
       process.stdout.write(`\n${process.stdout.isTTY ? outcome.guide.toTerminal(workDir) : outcome.guide.toMarkdown()}\n`);

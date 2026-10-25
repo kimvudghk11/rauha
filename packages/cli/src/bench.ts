@@ -128,6 +128,8 @@ export async function runBench(props: {
   only: string | null;
   /** 요청마다 사다리와 sonnet 고정을 한 번씩 돌려 비교한다 */
   compare: boolean;
+  /** 리뷰·사실 점검 없이 돌린다(1단계 숫자와 비교용) */
+  quick: boolean;
   log: (line: string) => void;
 }): Promise<string> {
   const sandbox = join(props.repoRoot, 'examples', 'sandbox');
@@ -164,6 +166,7 @@ export async function runBench(props: {
           progress: { step: (m) => props.log(`   ${m}`) },
           requireClean: true,
           roleEnv: VARIANT_ENV[variant],
+          threePass: !props.quick,
         });
         promptHash = hash;
         rows.push(toRow(req.id, variant, outcome));
