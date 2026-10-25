@@ -29,6 +29,7 @@ export class ChatStore {
   private waiting: Pending[] = [];
   private isBusy = false;
   private statusText = '';
+  private sent: string[] = [];
   private readonly listeners = new Set<() => void>();
 
   get lines(): readonly Printable[] {
@@ -94,6 +95,24 @@ export class ChatStore {
     this.waiting = rest;
     head.resolve(value);
     this.changed();
+  }
+
+  /** 작업을 멈출 때 기다리던 질문을 모두 닫는다. 메뉴는 Esc와 같은 -1(허락이면 거절), 글은 빈 글. */
+  cancelPrompts(): void {
+    const pending = this.waiting;
+    this.waiting = [];
+    for (const p of pending) p.resolve(p.prompt.kind === 'menu' ? -1 : '');
+    this.changed();
+  }
+
+  /** 보낸 입력(위 화살표로 다시 부른다). 바로 앞과 같으면 한 번만. */
+  get history(): readonly string[] {
+    return this.sent;
+  }
+
+  remember(text: string): void {
+    if (this.sent.at(-1) === text) return;
+    this.sent = [...this.sent, text];
   }
 
   private changed(): void {

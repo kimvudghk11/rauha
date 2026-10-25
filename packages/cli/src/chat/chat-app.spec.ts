@@ -176,6 +176,63 @@ describe('ChatApp', () => {
     expect(visible(lastScreen(lastFrame() ?? ''))).toContain('카드 60칸');
   });
 
+  it('Ctrl+C는 바로 끝내지 않고 onInterrupt로 알린다', async () => {
+    const onInterrupt = vi.fn();
+    const r = render(React.createElement(ChatApp, { store: new ChatStore(), banner: () => '배너', view: null, onSubmit: vi.fn(), onInterrupt }));
+    mounted.push(r);
+    await tick();
+    r.stdin.write('\x03');
+    await tick();
+    expect(onInterrupt).toHaveBeenCalledTimes(1);
+  });
+
+  it('위 화살표로 앞서 보낸 입력을 다시 불러오고, 아래로 내리면 쓰던 글로 돌아온다', async () => {
+    const store = new ChatStore();
+    store.remember('첫 요청');
+    store.remember('둘째 요청');
+    const { stdin, lastFrame } = app(store);
+    await tick();
+    stdin.write('쓰던');
+    await tick();
+    stdin.write('\u001B[A');
+    await tick();
+    expect(visible(lastFrame())).toContain('> 둘째 요청');
+    stdin.write('\u001B[A');
+    await tick();
+    expect(visible(lastFrame())).toContain('> 첫 요청');
+    stdin.write('\u001B[B');
+    await tick();
+    stdin.write('\u001B[B');
+    await tick();
+    expect(visible(lastFrame())).toContain('> 쓰던');
+  });
+
+  it("'/'를 치면 명령 후보가 설명과 함께 뜨고, Tab으로 고른 명령을 채운다", async () => {
+    const { stdin, lastFrame, onSubmit } = app();
+    await tick();
+    stdin.write('/u');
+    await tick();
+    expect(visible(lastFrame())).toContain('/usage');
+    expect(visible(lastFrame())).toContain('구독 사용률');
+    stdin.write('\t');
+    await tick();
+    stdin.write('\r');
+    await tick();
+    expect(onSubmit).toHaveBeenCalledWith('/usage');
+  });
+
+  it('명령 후보가 떠 있을 때 Enter는 고른 명령을 보낸다', async () => {
+    const { stdin, onSubmit } = app();
+    await tick();
+    stdin.write('/');
+    await tick();
+    stdin.write('\u001B[B');
+    await tick();
+    stdin.write('\r');
+    await tick();
+    expect(onSubmit).toHaveBeenCalledWith('/status');
+  });
+
   it('고정 줄은 출력된 순서대로 남는다', async () => {
     const store = new ChatStore();
     const { lastFrame } = app(store);

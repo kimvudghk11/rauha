@@ -1,6 +1,6 @@
 import { query, type SDKResultMessage } from '@anthropic-ai/claude-agent-sdk';
 import { MODEL_ID } from '../domain/team.js';
-import type { MemberCall, MemberResult, MemberUsage, TeamMemberPort } from '../application/ports.js';
+import type { AccountBlock, MemberCall, MemberResult, MemberUsage, TeamMemberPort } from '../application/ports.js';
 import type { PromptLibrary } from './prompt-library.js';
 import { createFetchLog } from './fetch-log.js';
 import { createToolGuard, type PermissionAsker } from './tool-guard.js';
@@ -22,20 +22,37 @@ export interface AgentSdkTeamMemberOptions {
 export class AgentSdkTeamMember implements TeamMemberPort {
   /** 이번 실행 동안 사용자가 계속 허락한 동작. 이 객체는 실행 한 번에 하나라서 여기 둔다. */
   private readonly remembered = new Set<string>();
+  /** 지금 돌고 있는 호출들. cancel이 한꺼번에 멈춘다. */
+  private readonly running = new Set<AbortController>();
+  private cancelled = false;
 
   constructor(private readonly options: AgentSdkTeamMemberOptions) {}
+
+  /** 돌고 있는 호출을 모두 멈추고, resume 전까지 새 호출도 바로 '멈춤'으로 돌려준다(서비스가 흐름을 끊는다). */
+  cancel(): void {
+    this.cancelled = true;
+    for (const controller of this.running) controller.abort();
+  }
+
+  resume(): void {
+    this.cancelled = false;
+  }
 
   async run(call: MemberCall): Promise<MemberResult> {
     const model = MODEL_ID[call.setting.tier];
     const started = Date.now();
     const stderr: string[] = [];
     const fetchLog = createFetchLog();
+    if (this.cancelled) return { output: null, error: CANCELLED.message, usage: emptyUsage(model, 0), fetched: [], blocked: CANCELLED };
+    const controller = new AbortController();
+    this.running.add(controller);
     let result: SDKResultMessage | null = null;
     try {
       const messages = query({
         prompt: call.userMessage,
         options: {
           model,
+          abortController: controller,
           cwd: this.options.cwd,
           env: this.options.env,
           systemPrompt: this.options.prompts.system(call.role),
@@ -68,11 +85,14 @@ export class AgentSdkTeamMember implements TeamMemberPort {
         error: message,
         usage: emptyUsage(model, Date.now() - started),
         fetched: fetchLog.entries(),
-        blocked: accountBlock(message),
+        blocked: controller.signal.aborted ? CANCELLED : accountBlock(message),
       };
+    } finally {
+      this.running.delete(controller);
     }
 
     const fetched = fetchLog.entries();
+    if (controller.signal.aborted) return { output: null, error: CANCELLED.message, usage: emptyUsage(model, Date.now() - started), fetched, blocked: CANCELLED };
     if (result === null) return { output: null, error: '결과 메시지를 받지 못했습니다.', usage: emptyUsage(model, Date.now() - started), fetched };
     const usage = toUsage(model, result);
     if (result.subtype !== 'success') {
@@ -82,6 +102,8 @@ export class AgentSdkTeamMember implements TeamMemberPort {
     return { output: result.structured_output ?? null, error: result.structured_output === undefined ? '구조화 출력이 없습니다.' : null, usage, fetched };
   }
 }
+
+const CANCELLED: AccountBlock = { reason: 'cancelled', message: '사용자가 작업을 멈췄습니다.' };
 
 function emptyUsage(model: string, durationMs: number): MemberUsage {
   return { model, durationMs, costUsd: 0, turns: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, denials: [], endReason: 'error' };

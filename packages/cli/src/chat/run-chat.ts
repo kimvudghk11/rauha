@@ -24,6 +24,8 @@ export interface ChatOptions {
 }
 
 const columns = () => process.stderr.columns ?? 80;
+/** 쉬는 중 Ctrl+C를 두 번 눌러 끝낼 때 두 번째를 기다리는 시간 */
+const EXIT_WINDOW_MS = 2000;
 
 /** 지금 브랜치 이름. git이 없거나 실패하면 null. */
 async function currentBranch(cwd: string): Promise<string | null> {
@@ -103,10 +105,29 @@ export async function runChat(options: ChatOptions): Promise<number> {
       banner: (width: number) => view?.banner(workDir, width) ?? `${profile.badge()} ${workDir}`,
       view,
       onSubmit: (text: string) => void handle(text),
+      onInterrupt: () => interrupt(),
       cursor: screen.park,
     }),
-    { stdout: screen.stream, exitOnCtrlC: true },
+    { stdout: screen.stream, exitOnCtrlC: false },
   );
+
+  // Ctrl+C: 일하는 중이면 그 작업만 멈춘다(팀원 호출을 끊고 기다리던 질문은 거절로 닫는다).
+  // 쉬는 중이면 2초 안에 한 번 더 눌러야 끝난다.
+  let lastInterrupt = 0;
+  function interrupt(): void {
+    if (store.busy) {
+      team.cancel();
+      store.cancelPrompts();
+      store.print('  멈추는 중이에요…');
+      return;
+    }
+    if (Date.now() - lastInterrupt < EXIT_WINDOW_MS) {
+      app.unmount();
+      return;
+    }
+    lastInterrupt = Date.now();
+    store.print('  한 번 더 Ctrl+C를 누르면 끝나요.');
+  }
 
   async function handle(text: string): Promise<void> {
     const command = parseCommand(text);
@@ -140,6 +161,7 @@ export async function runChat(options: ChatOptions): Promise<number> {
       }
     }
     store.print(`\n> ${text}`);
+    team.resume();
     store.setBusy(true);
     try {
       const turn = await session.handle(text);

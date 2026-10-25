@@ -43,9 +43,12 @@ export interface MemberResult {
   readonly blocked?: AccountBlock | null;
 }
 
-/** 팀원 호출을 막은 계정 문제. usage-limit의 message에는 풀리는 시각이 들어 있다. */
+/**
+ * 다시 불러도 소용없어 흐름을 바로 끊어야 하는 이유: 계정 문제(사용 한도, 로그인 안 됨)나 사용자가 직접 멈춤.
+ * usage-limit의 message에는 풀리는 시각이 들어 있다.
+ */
 export interface AccountBlock {
-  readonly reason: 'usage-limit' | 'login';
+  readonly reason: 'usage-limit' | 'login' | 'cancelled';
   readonly message: string;
 }
 

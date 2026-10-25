@@ -33,6 +33,10 @@ describe('describeTurn', () => {
     expect(describeTurn({ kind: 'blocked', reason: 'usage-limit', message: "You've hit your session limit · resets 9:40pm" }, null).join('\n')).toContain('resets 9:40pm');
   });
 
+  it('직접 멈췄으면 멈췄다고만 짧게 알린다', () => {
+    expect(describeTurn({ kind: 'blocked', reason: 'cancelled', message: 'x' }, null).join('\n')).toContain('멈췄어요');
+  });
+
   it('로그인이 안 됐으면 로그인하는 명령을 알려 준다', () => {
     expect(describeTurn({ kind: 'blocked', reason: 'login', message: 'x' }, null).join('\n')).toContain('rauha login');
   });

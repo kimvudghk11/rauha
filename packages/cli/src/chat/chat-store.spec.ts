@@ -16,6 +16,24 @@ describe('ChatStore', () => {
     expect(store.prompt).toBeNull();
   });
 
+  it('멈추면 기다리던 질문을 모두 거절(-1)이나 빈 글로 닫는다', async () => {
+    const store = new ChatStore();
+    const menu = store.ask({ kind: 'menu', screen: '허락?', options: ['허락', '거절'] });
+    const text = store.ask({ kind: 'text', label: '이유' });
+    store.cancelPrompts();
+    expect(await menu).toBe(-1);
+    expect(await text).toBe('');
+    expect(store.prompt).toBeNull();
+  });
+
+  it('보낸 입력을 기억해 둔다 (위 화살표로 다시 부르려고)', () => {
+    const store = new ChatStore();
+    store.remember('첫 요청');
+    store.remember('첫 요청');
+    store.remember('둘째');
+    expect(store.history).toEqual(['첫 요청', '둘째']);
+  });
+
   it('상태 줄을 바꾸면 구독자에게 알린다', () => {
     const store = new ChatStore();
     let notified = 0;

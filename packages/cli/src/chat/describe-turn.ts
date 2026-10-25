@@ -55,6 +55,7 @@ export function describeTurn(turn: TurnOutcome, view: MascotView | null): Printa
       ];
     }
     case 'blocked':
+      if (turn.reason === 'cancelled') return ['', '  멈췄어요.', ''];
       if (turn.reason === 'login') return ['', 'Claude에 로그인되어 있지 않아요. /exit로 나가서 rauha login을 실행한 뒤 다시 와 주세요.', ''];
       return ['', `Claude 구독 사용 한도에 걸렸어요: ${turn.message}`, '한도가 풀린 뒤 다시 입력해 주세요.', ''];
   }

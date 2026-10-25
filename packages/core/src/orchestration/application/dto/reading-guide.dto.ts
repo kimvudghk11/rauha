@@ -6,7 +6,7 @@ import type { CheckVerdict, VerificationVerdict } from '../../domain/verificatio
 import type { FileChange } from '../ports.js';
 import type { ExplanationDto } from './explanation.dto.js';
 
-export type RunStopReason = StopReason | 'intake-failed' | 'usage-limit' | 'login-required';
+export type RunStopReason = StopReason | 'intake-failed' | 'usage-limit' | 'login-required' | 'cancelled';
 
 export interface ReadingGuideProps {
   readonly badge: string;
@@ -67,6 +67,7 @@ const STOP_MESSAGE: Readonly<Record<RunStopReason, string>> = {
   halted: '상태 머신이 작업을 중단했습니다.',
   'usage-limit': 'Claude 구독 사용 한도에 걸려 멈췄습니다. 진행 표시에 나온 시각에 한도가 풀리면 다시 요청해 주세요.',
   'login-required': '이 프로필의 Claude 로그인이 필요해서 멈췄습니다. 터미널에서 `rauha login`을 실행한 뒤 다시 요청해 주세요.',
+  cancelled: '직접 멈췄습니다. 바뀐 파일은 그대로 남아 있으니, 아래 목록을 보고 되돌리거나 이어서 요청해 주세요.',
   'unsupported-stage': '지금 범위에서 다루지 않는 단계에 도달했습니다.',
   'intake-failed': '요청을 업무 지시서로 바꾸지 못했습니다. 요청을 더 구체적으로 적어 주세요.',
 };

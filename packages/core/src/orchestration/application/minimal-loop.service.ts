@@ -88,8 +88,12 @@ class AccountBlocked extends Error {
   }
 }
 
-const BLOCK_STOP: Readonly<Record<AccountBlock['reason'], RunStopReason>> = { 'usage-limit': 'usage-limit', login: 'login-required' };
-const BLOCK_STEP: Readonly<Record<AccountBlock['reason'], string>> = { 'usage-limit': 'Claude 사용 한도에 걸렸습니다', login: 'Claude 로그인이 필요합니다' };
+const BLOCK_STOP: Readonly<Record<AccountBlock['reason'], RunStopReason>> = { 'usage-limit': 'usage-limit', login: 'login-required', cancelled: 'cancelled' };
+const BLOCK_STEP: Readonly<Record<AccountBlock['reason'], string>> = {
+  'usage-limit': 'Claude 사용 한도에 걸렸습니다',
+  login: 'Claude 로그인이 필요합니다',
+  cancelled: '작업을 멈췄습니다',
+};
 
 /** 멈췄을 때 안내서에 쓸 만큼만 들고 있는 진행 상황 */
 interface RunProgress {

@@ -83,7 +83,7 @@ class FakeTeam implements TeamMemberPort {
     private readonly scripts: Partial<Record<MemberRole, Script[]>>,
     /** 이 역할을 부르면 구독 사용 한도(또는 로그인 필요) 오류를 낸다 */
     private readonly limitOn: MemberRole | null = null,
-    private readonly blockReason: 'usage-limit' | 'login' = 'usage-limit',
+    private readonly blockReason: 'usage-limit' | 'login' | 'cancelled' = 'usage-limit',
   ) {}
   async run(call: MemberCall): Promise<MemberResult> {
     this.calls.push(call.role);
@@ -313,6 +313,15 @@ describe('MinimalLoopService', () => {
     expect(team.calls).toEqual(['intake']);
     expect(outcome).toMatchObject({ status: 'stopped', stopReason: 'login-required' });
     expect(outcome.guide.toMarkdown()).toContain('rauha login');
+  });
+
+  it('사용자가 멈추면 다시 부르지 않고 바로 멈춘다', async () => {
+    const ws = new FakeWorkspace();
+    const team = new FakeTeam(ws, { intake: [() => intake()], tester: [writeTest] }, 'tester', 'cancelled');
+    const outcome = await service(ws, team, new FakeChecks(ws)).run('Money에 할인 추가');
+    expect(team.calls).toEqual(['intake', 'tester']);
+    expect(outcome).toMatchObject({ status: 'stopped', stopReason: 'cancelled' });
+    expect(outcome.guide.stopMessage()).toContain('직접 멈췄');
   });
 
   it('접수에서 한도에 걸려도 다시 접수하지 않고 멈춘다', async () => {
