@@ -1,0 +1,334 @@
+import { DomainError } from '../../shared/domain-error.js';
+import type { ModelTier } from '../domain/team.js';
+import { TestRun } from '../domain/test-run.js';
+import { RunScope } from '../domain/run-scope.js';
+import { Verification, type VerificationVerdict } from '../domain/verification.js';
+import type { WorkOrder } from '../domain/work-order.js';
+import { WorkspaceState } from '../domain/workspace-state.js';
+import { WritePolicy } from '../domain/write-policy.js';
+import { MemberReportDto, type ExplanationDto } from './dto/explanation.dto.js';
+import { IntakeDto, type SettledAssumptionChoice } from './dto/intake.dto.js';
+import { ReadingGuideDto, type RunStopReason, type SettledAssumption } from './dto/reading-guide.dto.js';
+import type { MemberRole, RoleSettingsDto } from './dto/role-settings.dto.js';
+import { IMPLEMENTER_REPORT_SCHEMA, INTAKE_SCHEMA, TESTER_REPORT_SCHEMA } from './dto/schemas.js';
+import type {
+  ChecksPort,
+  MemberCall,
+  MemberResult,
+  ProgressPort,
+  RunLogPort,
+  TeamMemberPort,
+  UserPort,
+  WorkspacePort,
+} from './ports.js';
+
+const INTAKE_ATTEMPTS = 2;
+/** 상태 머신이 멈추게 되어 있지만, 무한 반복을 막는 마지막 안전장치. */
+const MAX_STEPS = 12;
+const toSettled = ({ question, chosen, confirmed }: SettledAssumptionChoice): SettledAssumption => ({ question, chosen, confirmed });
+const ROLE_LABEL: Readonly<Record<MemberRole, string>> = { intake: '팀장 접수', tester: '테스트 팀원', implementer: '구현 팀원' };
+
+export interface RunOutcome {
+  readonly guide: ReadingGuideDto;
+  readonly status: 'complete' | 'stopped';
+  readonly stopReason: RunStopReason | null;
+  readonly title: string;
+  readonly calls: number;
+  readonly implementerAttempts: number;
+  readonly costUsd: number;
+  readonly durationMs: number;
+  readonly usage: Readonly<Record<ModelTier, { calls: number; tokens: number }>>;
+  readonly logDir: string;
+}
+
+export interface MinimalLoopDeps {
+  readonly team: TeamMemberPort;
+  readonly workspace: WorkspacePort;
+  readonly checks: ChecksPort;
+  readonly log: RunLogPort;
+  readonly progress: ProgressPort;
+  readonly user: UserPort;
+  readonly roles: RoleSettingsDto;
+  readonly newId: () => string;
+  readonly now: () => number;
+  /** 팀원에게 알려 줄 오늘 날짜(YYYY-MM-DD). 웹 검색 결과를 판단할 기준이다. */
+  readonly today: () => string;
+  readonly badge: string;
+  readonly requireClean: boolean;
+}
+
+/** 한 번 실행하는 동안의 기록. 판정에는 쓰지 않는다. */
+class RunTally {
+  readonly usage: Record<ModelTier, { calls: number; tokens: number }> = {
+    haiku: { calls: 0, tokens: 0 },
+    sonnet: { calls: 0, tokens: 0 },
+    opus: { calls: 0, tokens: 0 },
+  };
+  costUsd = 0;
+  calls = 0;
+  readonly attempts: Record<MemberRole, number> = { intake: 0, tester: 0, implementer: 0 };
+
+  add(call: MemberCall, result: MemberResult): number {
+    const tier = this.usage[call.setting.tier];
+    tier.calls += 1;
+    tier.tokens += result.usage.inputTokens + result.usage.outputTokens + result.usage.cacheReadTokens;
+    this.costUsd += result.usage.costUsd;
+    this.calls += 1;
+    this.attempts[call.role] += 1;
+    return this.attempts[call.role];
+  }
+}
+
+/**
+ * 1단계 최소 루프: 접수 → Red(테스트 팀원) → Green(구현 주니어) → 검증 → 읽기 안내서.
+ * 순서와 판정은 WorkOrder·RunScope·Verification이 정하고, 이 서비스는 팀원과 검사를
+ * 불러서 결과를 엔티티 메서드에 넘기기만 한다.
+ */
+export class MinimalLoopService {
+  constructor(private readonly deps: MinimalLoopDeps) {}
+
+  async run(request: string): Promise<RunOutcome> {
+    const { workspace, checks, log, progress } = this.deps;
+    const started = this.deps.now();
+    WorkspaceState.of(await workspace.dirtyFiles()).assertReady(this.deps.requireClean);
+
+    const tally = new RunTally();
+    progress.step('기준선 검사와 팀장 접수를 함께 시작합니다');
+    const [baselineResults, intake] = await Promise.all([checks.runSuite(), this.intake(request, tally)]);
+    const baseline = Verification.of(baselineResults);
+    await log.recordChecks('baseline', baselineResults);
+
+    if (intake === null) {
+      return this.finish({ tally, started, title: request.slice(0, 60), status: 'stopped', stopReason: 'intake-failed', assumptions: [] });
+    }
+    const { dto, order, assumptions } = intake;
+    const brief = `<today>${this.deps.today()}</today>\n\n${dto.toBrief(order.difficulty.grade)}`;
+    progress.step(`업무: [${order.difficulty.grade}] ${order.title}`);
+
+    const scope = RunScope.minimalLoop();
+    let redFeedback: string | null = null;
+    let lastFailure: string | null = null;
+    let lockedTests: string[] = [];
+    let verdict: VerificationVerdict | null = null;
+    let explanation: ExplanationDto | null = null;
+
+    for (let step = 0; step < MAX_STEPS; step += 1) {
+      const decision = scope.decide(order);
+      if (decision.kind === 'complete') {
+        return this.finish({ tally, started, title: order.title, status: 'complete', stopReason: null, verdict, explanation, assumptions });
+      }
+      if (decision.kind === 'stop') {
+        return this.finish({ tally, started, title: order.title, status: 'stopped', stopReason: decision.reason, verdict, explanation, assumptions });
+      }
+
+      if (decision.assignment.role === 'tester') {
+        const attempt = tally.attempts.tester + 1;
+        const message = [brief, '<task>위 수용 기준을 검사하는, 지금은 실패하는 테스트를 작성하세요.</task>', redFeedback ? `<previous_attempt>\n${redFeedback}\n</previous_attempt>` : '']
+          .filter((s) => s !== '')
+          .join('\n\n');
+        await this.call('tester', message, TESTER_REPORT_SCHEMA, order, tally);
+        const result = await this.judgeRed(order);
+        await log.recordChecks(`red-${attempt}`, result.checks);
+        lockedTests = result.testFiles;
+        redFeedback = result.feedback;
+        continue;
+      }
+
+      // implementer
+      const attempt = tally.attempts.implementer + 1;
+      const handoff = order.handoffNote();
+      const message = [
+        brief,
+        `<locked_tests>\n${lockedTests.join('\n')}\n</locked_tests>`,
+        '<task>잠긴 테스트를 통과시키는 최소 구현을 하세요. 테스트 파일은 고칠 수 없습니다.</task>',
+        handoff !== '' ? `<handoff>\n이전 시도의 실패 요약입니다.\n${handoff}\n</handoff>` : '',
+        lastFailure !== null ? `<last_failure>\n지난 시도에서 rauha가 직접 본 실패 메시지입니다.\n${lastFailure}\n</last_failure>` : '',
+      ]
+        .filter((s) => s !== '')
+        .join('\n\n');
+      const before = await workspace.snapshot();
+      const output = await this.call('implementer', message, IMPLEMENTER_REPORT_SCHEMA, order, tally);
+      const changed = workspace.changesBetween(before, await workspace.snapshot()).map((c) => c.path);
+      explanation = this.readExplanation(output) ?? explanation;
+
+      try {
+        order.assertDiffAllowed('implementer', changed);
+      } catch (error) {
+        if (!(error instanceof DomainError)) throw error;
+        order.recordGreen(TestRun.of({ passed: 0, failed: 1, failedNames: ['쓰기 거부'] }), `쓰기 거부: ${error.message}`);
+        lastFailure = error.message;
+        continue;
+      }
+
+      progress.step('검증 묶음을 실행합니다');
+      const locked = await checks.runTests(lockedTests);
+      const results = [Verification.lockedTests(locked.run, locked.command, locked.digest), ...(await checks.runSuite())];
+      await log.recordChecks(`green-${attempt}`, results);
+      verdict = Verification.of(results).judge(baseline);
+      order.recordGreen(verdict.toTestRun(locked.run), verdict.toFailureNote());
+      lastFailure = verdict.failureDetail();
+    }
+    return this.finish({ tally, started, title: order.title, status: 'stopped', stopReason: 'halted', verdict, explanation, assumptions });
+  }
+
+  // ── 접수 ──────────────────────────────────────────────────
+
+  /**
+   * 접수 → 해석이 갈리는 지점(가정)을 사용자에게 확인 → 다른 해석을 고르면 확정해서 한 번 더 접수.
+   * 물어볼 화면이 없으면 추천 해석으로 진행하고, 확인 안 된 가정으로 안내서에 남긴다.
+   */
+  private async intake(request: string, tally: RunTally): Promise<{ dto: IntakeDto; order: WorkOrder; assumptions: SettledAssumption[] } | null> {
+    const first = await this.intakeOnce(request, [], tally);
+    if (first === null || first.dto.assumptions.length === 0) return first === null ? null : { ...first, assumptions: [] };
+
+    const { user, progress } = this.deps;
+    if (!user.interactive) return { ...first, assumptions: first.dto.settleAssumptions(null).map(toSettled) };
+
+    progress.step('요청이 두 가지 이상으로 읽히는 곳이 있어 확인합니다');
+    const picks: number[] = [];
+    for (const assumption of first.dto.assumptions) picks.push(await user.choose(assumption));
+    const settled = first.dto.settleAssumptions(picks);
+    if (!settled.some((s) => s.changed)) return { ...first, assumptions: settled.map(toSettled) };
+
+    const second = await this.intakeOnce(request, settled, tally);
+    if (second === null) return null;
+    return { ...second, assumptions: [...settled.map(toSettled), ...second.dto.settleAssumptions(null).map(toSettled)] };
+  }
+
+  private async intakeOnce(request: string, clarifications: readonly SettledAssumptionChoice[], tally: RunTally): Promise<{ dto: IntakeDto; order: WorkOrder } | null> {
+    const files = await this.deps.workspace.listFiles();
+    let feedback: string | null = null;
+    for (let attempt = 1; attempt <= INTAKE_ATTEMPTS; attempt += 1) {
+      const message = [
+        `<today>${this.deps.today()}</today>`,
+        `<request>\n${request}\n</request>`,
+        `<project_files>\n${files.join('\n')}\n</project_files>`,
+        clarifications.length > 0
+          ? `<clarifications>\n사용자가 직접 정한 해석입니다. 이대로 수용 기준을 쓰고, 이 지점은 assumptions에 다시 넣지 마세요.\n${clarifications.map((c) => `- ${c.question} → ${c.chosen}`).join('\n')}\n</clarifications>`
+          : '',
+        feedback ? `<previous_attempt>\n${feedback}\n</previous_attempt>` : '',
+      ]
+        .filter((s) => s !== '')
+        .join('\n\n');
+      const output = await this.call('intake', message, INTAKE_SCHEMA, null, tally);
+      try {
+        const dto = IntakeDto.from(output);
+        const order = dto.toOpenWorkOrder().toEntity(this.deps.newId());
+        order.approveScenario(dto.toScenarioSummary());
+        return { dto, order };
+      } catch (error) {
+        if (!(error instanceof DomainError)) throw error;
+        feedback = `지난 업무 지시서가 거부됐습니다: ${error.message}`;
+      }
+    }
+    return null;
+  }
+
+  // ── Red 판정 ──────────────────────────────────────────────
+
+  private async judgeRed(order: WorkOrder): Promise<{ testFiles: string[]; feedback: string | null; checks: ReturnType<typeof Verification.lockedTests>[] }> {
+    const changes = await this.deps.workspace.changesSinceHead();
+    const paths = changes.map((c) => c.path);
+    const testFiles = changes.filter((c) => c.kind !== 'deleted' && WritePolicy.isTestFile(c.path)).map((c) => c.path);
+    const invalid = TestRun.of({ passed: 0, failed: 0 });
+    try {
+      order.assertDiffAllowed('tester', paths);
+    } catch (error) {
+      if (!(error instanceof DomainError)) throw error;
+      order.recordRed(invalid);
+      return { testFiles, feedback: error.message, checks: [] };
+    }
+    if (testFiles.length === 0) {
+      order.recordRed(invalid);
+      return { testFiles, feedback: '테스트 파일을 만들거나 고치지 않았습니다.', checks: [] };
+    }
+    const result = await this.deps.checks.runTests(testFiles);
+    order.recordRed(result.run);
+    const problem = result.run.redProblem();
+    return {
+      testFiles,
+      feedback: problem === null ? null : [problem, result.digest].filter((s) => s !== '').join('\n'),
+      checks: [Verification.lockedTests(result.run, result.command)],
+    };
+  }
+
+  // ── 팀원 호출 ─────────────────────────────────────────────
+
+  private async call(role: MemberRole, userMessage: string, outputSchema: Record<string, unknown>, order: WorkOrder | null, tally: RunTally): Promise<unknown> {
+    const setting = this.deps.roles.get(role);
+    const writeRole = role === 'intake' ? 'lead' : role;
+    const call: MemberCall = {
+      role,
+      setting,
+      userMessage,
+      outputSchema,
+      canWrite: (path) => order !== null && order.allowsWrite(writeRole, path),
+    };
+    this.deps.progress.step(`${ROLE_LABEL[role]}(${setting.tier}) 작업 중…`, role);
+    const result = await this.deps.team.run(call);
+    const attempt = tally.add(call, result);
+    await this.deps.log.recordCall(role, attempt, call, result);
+    if (result.error !== null) this.deps.progress.step(`${ROLE_LABEL[role]} 오류: ${result.error}`);
+    return result.output;
+  }
+
+  private readExplanation(output: unknown): ExplanationDto | null {
+    try {
+      return MemberReportDto.from(output, true).explanation;
+    } catch (error) {
+      if (error instanceof DomainError) return null;
+      throw error;
+    }
+  }
+
+  // ── 마무리 ────────────────────────────────────────────────
+
+  private async finish(props: {
+    tally: RunTally;
+    started: number;
+    title: string;
+    status: 'complete' | 'stopped';
+    stopReason: RunStopReason | null;
+    verdict?: VerificationVerdict | null;
+    explanation?: ExplanationDto | null;
+    assumptions: readonly SettledAssumption[];
+  }): Promise<RunOutcome> {
+    const { tally } = props;
+    const durationMs = this.deps.now() - props.started;
+    const guideProps = {
+      badge: this.deps.badge,
+      title: props.title,
+      status: props.status,
+      stopReason: props.stopReason,
+      durationMs,
+      costUsd: tally.costUsd,
+      tierCalls: { haiku: tally.usage.haiku.calls, sonnet: tally.usage.sonnet.calls, opus: tally.usage.opus.calls },
+      explanation: props.explanation ?? null,
+      verdict: props.verdict ?? null,
+      changes: await this.deps.workspace.changesSinceHead(),
+      assumptions: props.assumptions,
+    };
+    const summary = {
+      title: props.title,
+      status: props.status,
+      stopReason: props.stopReason,
+      durationMs,
+      costUsd: tally.costUsd,
+      usage: tally.usage,
+      attempts: tally.attempts,
+    };
+    const logDir = await this.deps.log.finish(summary, ReadingGuideDto.create({ ...guideProps, logDir: null }).toMarkdown());
+    return {
+      guide: ReadingGuideDto.create({ ...guideProps, logDir }),
+      status: props.status,
+      stopReason: props.stopReason,
+      title: props.title,
+      calls: tally.calls,
+      implementerAttempts: tally.attempts.implementer,
+      costUsd: tally.costUsd,
+      durationMs,
+      usage: tally.usage,
+      logDir,
+    };
+  }
+}
