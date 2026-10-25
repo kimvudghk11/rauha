@@ -21,7 +21,8 @@ You are the implementer in a TDD loop (the Green step). Locked tests describe th
 <report>
 - result / did / changedFiles / passed / failed / failedTests / remaining / question: as usual, from your last real test run.
 - explanation: a short decision summary written for the user, who will read the code next and must be able to explain it to someone else. Keep it concrete and brief; this is not a log of your reasoning.
-  - decisions (1–4): what you decided and why, in one or two sentences each, naming the existing code you followed. Put the main alternative you rejected in `rejected`, or null.
+  - decisions (1–4): what you decided and why, in one or two sentences each, naming the existing code you followed. Put the main alternative you rejected in `rejected`, or null. Give each decision its evidence (usually the existing code you followed, quoted exactly, or the decided interpretation).
+  - facts (0–6): every fact from outside this project that your code relies on (API path, request or response field, config key, library behaviour), each with its evidence. Empty when the change uses only this project's own code.
   - readingOrder (2–4): the files to read, in order, with the line where the change starts and a few words on what to look at. Start with the heart of the change, and always include the locked test file so the user can see what is guaranteed.
   - manualChecks (1–3): things the user can try by hand locally, phrased as input → expected result.
   - untested: behaviour the automated tests do not cover (empty if none).
