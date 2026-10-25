@@ -1,4 +1,5 @@
 import type { MemberRole, PermissionRequest } from '@rauha/core';
+import { gaugeLevel, gaugeParts, type GaugeLevel } from './gauge.js';
 import { displayWidth, fitLines, wrapText } from './text-width.js';
 
 export { displayWidth };
@@ -213,6 +214,11 @@ export interface ResultCard {
   readonly todo: readonly string[];
 }
 
+/** 사용률 막대 색: 평소는 하늘색, 70%부터 노랑, 90%부터 산호색. */
+const GAUGE_COLOR: Readonly<Record<GaugeLevel, string>> = { normal: '#8FD3F7', warn: '#FFDB7A', critical: '#F3958F' };
+/** 막대의 빈 부분(레일) 색. 어두운 바탕에서 보일 만큼만 밝은 회청색. */
+const GAUGE_TRACK_COLOR = '#56627A';
+
 /** 결과 카드에 다 쓰는 바뀐 파일 수. 넘으면 "외 n개". */
 const MAX_CARD_FILES = 6;
 const DONE_COLOR = '#84D9AE';
@@ -242,6 +248,8 @@ export interface MascotView {
   resultCard(card: ResultCard, columns: number): string;
   /** "아까 그 기능" 후보를 고르게 하기 전에 보여 주는 화면 */
   pastPick(columns: number): string;
+  /** 사용률 막대. 채운 부분은 사용률에 따라 색이 달라지고 빈 부분은 흐리다. */
+  gauge(percent: number, cells: number): string;
   /** 선택 목록에서 고른 줄 색칠 */
   highlight(text: string): string;
 }
@@ -326,6 +334,10 @@ export function mascotView(depth: number, version: string, badge: string): Masco
       return box(lines, COLORS['B']!, depth).join('\n');
     },
     pastPick: () => say('ask', ['혹시 이 작업을 말씀하시는 건가요?']),
+    gauge: (percent, cells) => {
+      const { filled, track } = gaugeParts(percent, cells);
+      return `${fg(GAUGE_COLOR[gaugeLevel(percent)], filled)}${fg(GAUGE_TRACK_COLOR, track)}`;
+    },
     highlight: (text) => `\x1b[1m${fg(COLORS['B']!, text)}`,
   };
 }

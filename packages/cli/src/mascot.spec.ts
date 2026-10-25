@@ -245,6 +245,19 @@ describe('mascotView', () => {
     }
   });
 
+  it('사용률 막대는 사용률이 높을수록 색이 달라지고, 글자는 색을 빼면 같다', () => {
+    const view = mascotView(24, 'v0', '[personal]')!;
+    const low = view.gauge(10, 10);
+    const warn = view.gauge(80, 10);
+    const critical = view.gauge(95, 10);
+    expect(visible(low)).toBe('▄▁▁▁▁▁▁▁▁▁');
+    expect(visible(warn)).toBe('▄▄▄▄▄▄▄▄▁▁');
+    const fillColor = (bar: string) => /\x1b\[38;[0-9;]*m/.exec(bar)?.[0];
+    expect(new Set([fillColor(low), fillColor(warn), fillColor(critical)]).size).toBe(3);
+    // 막대 뒤에 글이 이어지므로 배경색은 쓰지 않는다
+    for (const bar of [low, warn, critical]) expect(bar).not.toMatch(/48;/);
+  });
+
   it('끝 인사는 결과에 따라 다르다', () => {
     const view = mascotView(24, 'v0', '[personal]')!;
     expect(visible(view.finale('complete'))).not.toBe(visible(view.finale('stopped')));
