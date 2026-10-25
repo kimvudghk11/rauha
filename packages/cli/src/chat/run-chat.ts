@@ -1,11 +1,11 @@
 import { render } from 'ink';
 import React from 'react';
-import { ChatSession, GitWorkspace, type MemberRole, type PermissionAsker, type Profile, type UserPort } from '@rauha/core';
+import { ChatSession, GitWorkspace, type PermissionAsker, type Profile, type UserPort } from '@rauha/core';
 import { FACT_ANSWERED, FACT_OPTIONS, PERMISSION_ANSWERED, PERMISSION_OPTIONS, toFactAnswer, toPermissionAnswer } from '../ask.js';
-import { formatElapsed } from '../live-line.js';
 import { mascotView } from '../mascot.js';
 import { createLoop, createTeam, loadPrompts, openMemory, roleSettings } from '../run.js';
 import { ChatApp } from './chat-app.js';
+import { chatProgress } from './chat-progress.js';
 import { ChatStore } from './chat-store.js';
 import { HELP_TEXT, parseCommand } from './commands.js';
 import { parkingStream } from './cursor-park.js';
@@ -32,25 +32,8 @@ export async function runChat(options: ChatOptions): Promise<number> {
   const view = mascotView(process.stderr.getColorDepth(), `v${options.version}`, profile.badge());
   const store = new ChatStore();
 
-  // 진행 알림 → 일하는 중 줄. role이 붙은 알림 = 그 팀원이 일을 시작함(앞 줄은 걸린 시간과 함께 고정).
-  let working: { text: string; role: MemberRole; startedAt: number } | null = null;
-  const finishWorking = () => {
-    if (working === null) return;
-    const elapsed = formatElapsed(Date.now() - working.startedAt);
-    store.stopWorking(view?.done(working.text, working.role, elapsed) ?? `  ◆ ${working.text} ${elapsed}`);
-    working = null;
-  };
-  const progress = {
-    step: (message: string, role?: MemberRole) => {
-      finishWorking();
-      if (role === undefined) {
-        store.print(view?.step(message) ?? `  · ${message}`);
-        return;
-      }
-      working = { text: message, role, startedAt: Date.now() };
-      store.startWorking(message, role, working.startedAt);
-    },
-  };
+  const progress = chatProgress(store, view, Date.now);
+  const finishWorking = progress.finish;
 
   const ask: PermissionAsker = async (request) => {
     const screen = view?.permission(request, columns()) ?? `⚠ 위험 동작 허락? ${request.reason}\n  ${request.detail}`;

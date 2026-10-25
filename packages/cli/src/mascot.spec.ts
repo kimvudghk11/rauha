@@ -67,11 +67,11 @@ describe('mascotView', () => {
 
   it('팀원 진행 줄은 팀원마다 다른 색 표시를 붙이고, 그 밖의 줄은 흐리게 쓴다', () => {
     const view = mascotView(24, 'v0', '[personal]')!;
-    const lead = view.step('팀장 접수(sonnet) 작업 중…', 'intake');
-    const tester = view.step('테스트 팀원(haiku) 작업 중…', 'tester');
+    const lead = view.step('팀장 접수 작업 중…', 'intake');
+    const tester = view.step('테스트 팀원 작업 중…', 'tester');
     const plain = view.step('검증 묶음을 실행합니다');
-    expect(visible(lead)).toBe('  ◆ 팀장 접수(sonnet) 작업 중…');
-    expect(lead).not.toBe(tester.replace('테스트 팀원(haiku)', '팀장 접수(sonnet)'));
+    expect(visible(lead)).toBe('  ◆ 팀장 접수 작업 중…');
+    expect(lead).not.toBe(tester.replace('테스트 팀원', '팀장 접수'));
     expect(visible(plain)).toBe('  · 검증 묶음을 실행합니다');
   });
 
@@ -177,8 +177,8 @@ describe('mascotView', () => {
 
   it('작업 중 줄은 팀원 색 스피너와 경과 시간을, 끝난 줄은 ◆와 걸린 시간을 보여 준다', () => {
     const view = mascotView(24, 'v0', '[personal]')!;
-    expect(visible(view.working('▘', '팀장 접수(sonnet) 작업 중…', 'intake', '12초'))).toBe('  ▘ 팀장 접수(sonnet) 작업 중… 12초');
-    expect(visible(view.done('팀장 접수(sonnet) 작업 중…', 'intake', '34초'))).toBe('  ◆ 팀장 접수(sonnet) 34초');
+    expect(visible(view.working('▘', '팀장 접수 작업 중…', 'intake', '12초'))).toBe('  ▘ 팀장 접수 작업 중… 12초');
+    expect(visible(view.done('팀장 접수 작업 중…', 'intake', '34초'))).toBe('  ◆ 팀장 접수 34초');
   });
 
   it('추측 확인 화면은 주장과 확인하지 못했다는 말을 박스에 담는다', () => {

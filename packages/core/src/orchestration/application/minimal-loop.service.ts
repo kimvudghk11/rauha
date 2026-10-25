@@ -472,7 +472,7 @@ export class MinimalLoopService {
       outputSchema,
       canWrite: (path) => order !== null && order.allowsWrite(writeRole, path),
     };
-    this.deps.progress.step(`${ROLE_LABEL[role]}(${setting.tier}) 작업 중…`, role);
+    this.deps.progress.step(`${ROLE_LABEL[role]} 작업 중…`, role);
     const result = await this.deps.team.run(call);
     const attempt = tally.add(call, result);
     await this.deps.log.recordCall(role, attempt, call, result);

@@ -31,11 +31,11 @@ describe('ChatStore', () => {
 
   it('일이 끝나면 일하는 중 표시를 고정 줄로 바꾼다', () => {
     const store = new ChatStore();
-    store.startWorking('구현 팀원(haiku) 작업 중…', 'implementer', 1000);
-    expect(store.working).toMatchObject({ text: '구현 팀원(haiku) 작업 중…', role: 'implementer', startedAt: 1000 });
-    store.stopWorking('◆ 구현 팀원(haiku) 34초');
+    store.startWorking('구현 팀원 작업 중…', 'implementer', 1000);
+    expect(store.working).toMatchObject({ text: '구현 팀원 작업 중…', role: 'implementer', startedAt: 1000 });
+    store.stopWorking('◆ 구현 팀원 34초');
     expect(store.working).toBeNull();
-    expect(store.lines).toEqual(['◆ 구현 팀원(haiku) 34초']);
+    expect(store.lines).toEqual(['◆ 구현 팀원 34초']);
   });
 
   it('답할 질문이 없을 때 답은 무시한다', () => {

@@ -232,6 +232,15 @@ describe('MinimalLoopService', () => {
     expect(steps.find(([m]) => m.startsWith('검증 묶음'))?.[1]).toBeUndefined();
   });
 
+  it('진행 알림에는 모델 이름을 넣지 않는다', async () => {
+    const ws = new FakeWorkspace();
+    const team = new FakeTeam(ws, { intake: [() => intake()], tester: [writeTest], implementer: [implement] });
+    const steps: string[] = [];
+    await service(ws, team, new FakeChecks(ws), new FakeLog(), new FakeUser(false), { step: (message) => steps.push(message) }).run('Money에 할인 추가');
+    expect(steps).toContain('팀장 접수 작업 중…');
+    for (const step of steps) expect(step).not.toMatch(/haiku|sonnet|opus/);
+  });
+
   it('주니어가 두 번 실패하면 시니어(sonnet)가 실패 요약을 받아 이어서 하고 완료된다', async () => {
     const ws = new FakeWorkspace();
     const team = new FakeTeam(ws, { intake: [() => intake()], tester: [writeTest], implementer: [implementWrong, implementWrong, implement] });

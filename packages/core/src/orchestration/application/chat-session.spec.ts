@@ -121,7 +121,7 @@ class FakeLoops {
 
 const route = (mode: 'work' | 'question', refersToPast = false, pastQuery: string | null = null) => () => ({ mode, refersToPast, pastQuery });
 
-function session(p: { team: FakeTeam; loops?: FakeLoops; memory?: FakeMemory; user?: UserPort; files?: Record<string, string> }) {
+function session(p: { team: FakeTeam; loops?: FakeLoops; memory?: FakeMemory; user?: UserPort; files?: Record<string, string>; steps?: string[] }) {
   let clock = Date.parse('2026-10-25T07:00:00.000Z');
   let id = 0;
   return ChatSession.start({
@@ -130,7 +130,7 @@ function session(p: { team: FakeTeam; loops?: FakeLoops; memory?: FakeMemory; us
     workspace: { readFile: async (path: string) => p.files?.[path] ?? null },
     memory: p.memory ?? new FakeMemory(),
     user: p.user ?? new FakeUser(true),
-    progress: { step: () => {} },
+    progress: { step: (message: string) => void p.steps?.push(message) },
     roles: RoleSettingsDto.defaults(),
     now: () => (clock += 60_000),
     newId: () => `id${(id += 1)}`,
@@ -141,6 +141,13 @@ function session(p: { team: FakeTeam; loops?: FakeLoops; memory?: FakeMemory; us
 // ── 테스트 ───────────────────────────────────────────────────
 
 describe('ChatSession — 질문', () => {
+  it('라우터·답변 팀원은 누구인지·어떤 모델인지 없이 그냥 작업 중이라고 알린다', async () => {
+    const team = new FakeTeam({ router: [route('question')], answerer: [() => ({ answer: '네.', claims: [{ text: 'a', evidence: [] }] })] });
+    const steps: string[] = [];
+    await session({ team, steps }).handle('이거 뭐야?');
+    expect(steps).toEqual(['작업 중…', '작업 중…']);
+  });
+
   it('질문이면 테스트·구현 없이 답하고, 근거가 확인된 주장과 추측을 나눈다', async () => {
     const team = new FakeTeam({
       router: [route('question')],

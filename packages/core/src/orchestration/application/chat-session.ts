@@ -164,7 +164,8 @@ export class ChatSession {
 
   private async member(role: MemberRole, parts: readonly string[], outputSchema: Record<string, unknown>): Promise<MemberResult> {
     const setting = this.deps.roles.get(role);
-    this.deps.progress.step(`${role === 'router' ? '라우터' : '답변 팀원'}(${setting.tier}) 작업 중…`, role);
+    // 질문을 나누고 답하는 건 사용자에게 한 가지 일로 보이므로 누가 하는지 밝히지 않는다.
+    this.deps.progress.step('작업 중…', role);
     const result = await this.deps.team.run({ role, setting, userMessage: parts.filter((p) => p !== '').join('\n\n'), outputSchema, canWrite: () => false });
     this.costUsd += result.usage.costUsd;
     this.calls[setting.tier] += 1;
