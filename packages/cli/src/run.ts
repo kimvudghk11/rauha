@@ -27,6 +27,8 @@ export interface RunContext {
   readonly requireClean: boolean;
   /** 이번 실행에만 덧씌우는 RAUHA_ROLE_* 값(bench 비교용) */
   readonly roleEnv?: Readonly<Record<string, string>>;
+  /** false면 리뷰·사실 점검 없이 검증 통과로 완료(--quick) */
+  readonly threePass?: boolean;
 }
 
 export interface RunResult {
@@ -66,6 +68,7 @@ export async function runOnce(request: string, ctx: RunContext): Promise<RunResu
     today: () => localDate(new Date()),
     badge: ctx.profile.badge(),
     requireClean: ctx.requireClean,
+    threePass: ctx.threePass ?? true,
   });
   return { outcome: await service.run(request), promptHash: prompts.hash };
 }

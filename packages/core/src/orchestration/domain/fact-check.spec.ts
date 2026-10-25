@@ -84,6 +84,13 @@ describe('FactCheck — 추측', () => {
     expect(checked.verified).toEqual([{ kind: 'user', text: '원 미만을 버린다' }]);
   });
 
+  it('사용자가 맞다고 확인한 추측은 사용자 근거가 붙은 사실이 된다', () => {
+    const check = FactCheck.of([{ kind: 'fact', text: '응답 필드는 email', evidence: [] }, { kind: 'fact', text: '경로는 /info', evidence: [] }], sources());
+    const confirmed = check.withConfirmed(['응답 필드는 email']);
+    expect(confirmed.guesses('fact').map((c) => c.text)).toEqual(['경로는 /info']);
+    expect(confirmed.all()[0]!.verified).toEqual([{ kind: 'user', text: '사용자가 맞다고 확인함' }]);
+  });
+
   it('code 근거에 나온 경로를 중복 없이 모은다', () => {
     const quote = 'export class Money {';
     expect(

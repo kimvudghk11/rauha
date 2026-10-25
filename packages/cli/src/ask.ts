@@ -110,7 +110,7 @@ export function terminalAsker(screen: AskScreen): Asker {
 
 /** 해석이 갈리는 지점을 터미널에서 고르게 한다. Enter = 추천 해석. */
 export function terminalUser(live: LiveLine | null = null): UserPort {
-  if (!interactive()) return { interactive: false, choose: async () => 0 };
+  if (!interactive()) return noUser;
   return {
     interactive: true,
     choose: (assumption: Assumption) =>
@@ -118,6 +118,12 @@ export function terminalUser(live: LiveLine | null = null): UserPort {
         const options = [assumption.chosen, ...assumption.alternatives];
         const lines = options.map((o, i) => `  ${i + 1}) ${o}${i === 0 ? '  (추천)' : ''}`).join('\n');
         return parseChoice(await prompt(`\n? ${assumption.question}\n${lines}\n  번호 [1]: `), options.length);
+      }),
+    confirmFact: (claim) =>
+      pausing(live, async () => {
+        const wrong = /^n(o)?$/i.test((await prompt(`\n? 근거를 확인하지 못했어요. 맞나요?\n  ${claim.text}\n  [Y/n] `)).trim());
+        if (!wrong) return { correct: true } as const;
+        return { correct: false, correction: (await prompt('  바로잡을 내용: ')).trim() || '(사용자가 틀렸다고 함)' } as const;
       }),
   };
 }
@@ -130,4 +136,4 @@ export function parseChoice(answer: string, count: number): number {
 }
 
 /** bench처럼 물어볼 화면이 없는 실행. */
-export const noUser: UserPort = { interactive: false, choose: async () => 0 };
+export const noUser: UserPort = { interactive: false, choose: async () => 0, confirmFact: async () => ({ correct: true }) };

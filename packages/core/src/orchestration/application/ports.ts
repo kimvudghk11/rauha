@@ -1,3 +1,4 @@
+import type { CheckedClaim } from '../domain/fact-check.js';
 import type { TestRun } from '../domain/test-run.js';
 import type { CheckResult } from '../domain/verification.js';
 import type { Assumption } from './dto/intake.dto.js';
@@ -88,11 +89,15 @@ export interface RunLogPort {
   finish(summary: Record<string, unknown>, guideMarkdown: string): Promise<string>;
 }
 
-/** 사용자에게 해석을 확인받는다. 물어볼 화면이 없으면 interactive가 false다. */
+export type FactAnswer = { readonly correct: true } | { readonly correct: false; readonly correction: string };
+
+/** 사용자에게 해석과 추측을 확인받는다. 물어볼 화면이 없으면 interactive가 false이고 아무것도 묻지 않는다. */
 export interface UserPort {
   readonly interactive: boolean;
   /** 0 = 추천 해석(chosen), 1.. = alternatives의 순서. */
   choose(assumption: Assumption): Promise<number>;
+  /** 코드에 들어갔는데 근거가 확인되지 않은 사실이 맞는지 묻는다. */
+  confirmFact(claim: CheckedClaim): Promise<FactAnswer>;
 }
 
 export interface ProgressPort {

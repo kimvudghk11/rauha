@@ -90,6 +90,16 @@ export class FactCheck {
   verifiedClaims(): readonly CheckedClaim[] {
     return this.checked.filter((c) => !c.isGuess);
   }
+
+  /** 사용자가 맞다고 확인한 추측(주장 문장으로 찾음)을 사용자 근거가 붙은 사실로 바꾼다. */
+  withConfirmed(texts: readonly string[]): FactCheck {
+    const confirmed = new Set(texts);
+    return new FactCheck(
+      this.checked.map((c) =>
+        c.isGuess && confirmed.has(c.text) ? { ...c, verified: [{ kind: 'user', text: '사용자가 맞다고 확인함' }], isGuess: false } : c,
+      ),
+    );
+  }
 }
 
 /** code 근거에 나온 경로(중복 없이). 인프라가 이 파일들만 읽는다. */

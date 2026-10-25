@@ -1,4 +1,5 @@
 import { DomainError } from '../../shared/domain-error.js';
+import { citedPaths, FactCheck, normalizeUrl, ReviewFindings, type CheckedClaim } from '../domain/fact-check.js';
 import type { ModelTier } from '../domain/team.js';
 import { TestRun } from '../domain/test-run.js';
 import { RunScope } from '../domain/run-scope.js';
@@ -9,8 +10,9 @@ import { WritePolicy } from '../domain/write-policy.js';
 import { MemberReportDto, type ExplanationDto } from './dto/explanation.dto.js';
 import { IntakeDto, type SettledAssumptionChoice } from './dto/intake.dto.js';
 import { ReadingGuideDto, type RunStopReason, type SettledAssumption } from './dto/reading-guide.dto.js';
+import { ReviewReportDto } from './dto/review-report.dto.js';
 import type { MemberRole, RoleSettingsDto } from './dto/role-settings.dto.js';
-import { IMPLEMENTER_REPORT_SCHEMA, INTAKE_SCHEMA, TESTER_REPORT_SCHEMA } from './dto/schemas.js';
+import { IMPLEMENTER_REPORT_SCHEMA, INTAKE_SCHEMA, REVIEWER_REPORT_SCHEMA, TESTER_REPORT_SCHEMA } from './dto/schemas.js';
 import type {
   ChecksPort,
   MemberCall,
@@ -42,7 +44,40 @@ export interface RunOutcome {
   readonly escalated: boolean;
   /** 마지막 구현 호출의 모델. 구현까지 못 갔으면 null */
   readonly finalTier: ModelTier | null;
+  readonly facts: FactsSummary;
   readonly logDir: string;
+}
+
+/** 사실 점검 결과. 3단 작업이 아니면(--quick) 비어 있다. */
+export interface FactsSummary {
+  /** 구현 보고의 결정·외부 사실과 확인 결과(마지막 리뷰 기준) */
+  readonly checked: readonly CheckedClaim[];
+  /** 근거 없는 리뷰 지적 */
+  readonly reviewerGuesses: readonly CheckedClaim[];
+  /** 코드에 들어간 추측인데 물어볼 화면이 없어 확인받지 못한 것 */
+  readonly unconfirmed: readonly CheckedClaim[];
+  readonly reviewRounds: number;
+  /** 리뷰어 보고를 읽지 못한 리뷰가 있었는지 */
+  readonly reviewMissing: boolean;
+}
+
+/** 리뷰 단계를 오가며 쌓이는 기록. 판정은 FactCheck·ReviewFindings가 한다. */
+class ReviewState {
+  rounds = 0;
+  missing = false;
+  /** 다음 구현 메시지에 넣을 피드백(확인된 지적·정정) */
+  feedback: string | null = null;
+  readonly corrections: string[] = [];
+  readonly confirmed: string[] = [];
+  /** 마지막 잠긴 테스트 실행에서 통과한 테스트 */
+  passed: readonly string[] = [];
+  checked: readonly CheckedClaim[] = [];
+  reviewerGuesses: readonly CheckedClaim[] = [];
+  unconfirmed: readonly CheckedClaim[] = [];
+
+  summary(): FactsSummary {
+    return { checked: this.checked, reviewerGuesses: this.reviewerGuesses, unconfirmed: this.unconfirmed, reviewRounds: this.rounds, reviewMissing: this.missing };
+  }
 }
 
 const ESCALATION_NOTE =
@@ -62,6 +97,8 @@ export interface MinimalLoopDeps {
   readonly today: () => string;
   readonly badge: string;
   readonly requireClean: boolean;
+  /** 1차 구현 → 리뷰어 재검증·2차 구현 → 사실 점검. false(--quick)면 검증 통과로 완료. */
+  readonly threePass: boolean;
 }
 
 /** 한 번 실행하는 동안의 기록. 판정에는 쓰지 않는다. */
@@ -77,9 +114,12 @@ class RunTally {
   readonly implementerTiers: ModelTier[] = [];
   /** 승격된 업무에서 구현 팀원을 부른 적이 있는지(모델 고정 실험과 구분하려고 모델 이름이 아니라 업무 상태로 센다) */
   escalated = false;
+  /** 이번 업무에서 팀원들이 실제로 연 주소(정규화) → 본문. web 근거 확인 재료. */
+  readonly fetched = new Map<string, string | null>();
 
   add(call: MemberCall, result: MemberResult): number {
     if (call.role === 'implementer') this.implementerTiers.push(call.setting.tier);
+    for (const page of result.fetched) this.fetched.set(normalizeUrl(page.url), page.body);
     const tier = this.usage[call.setting.tier];
     tier.calls += 1;
     tier.tokens += result.usage.inputTokens + result.usage.outputTokens + result.usage.cacheReadTokens;
@@ -116,7 +156,8 @@ export class MinimalLoopService {
     const brief = `<today>${this.deps.today()}</today>\n\n${dto.toBrief(order.difficulty.grade)}`;
     progress.step(`업무: [${order.difficulty.grade}] ${order.title}`);
 
-    const scope = RunScope.ladder();
+    const scope = this.deps.threePass ? RunScope.threePass() : RunScope.ladder();
+    const review = new ReviewState();
     let redFeedback: string | null = null;
     let lastFailure: string | null = null;
     let lockedTests: string[] = [];
@@ -126,10 +167,16 @@ export class MinimalLoopService {
     for (let step = 0; step < MAX_STEPS; step += 1) {
       const decision = scope.decide(order);
       if (decision.kind === 'complete') {
-        return this.finish({ tally, started, title: order.title, status: 'complete', stopReason: null, verdict, explanation, assumptions });
+        return this.finish({ tally, started, title: order.title, status: 'complete', stopReason: null, verdict, explanation, assumptions, facts: review.summary() });
       }
       if (decision.kind === 'stop') {
-        return this.finish({ tally, started, title: order.title, status: 'stopped', stopReason: decision.reason, verdict, explanation, assumptions });
+        return this.finish({ tally, started, title: order.title, status: 'stopped', stopReason: decision.reason, verdict, explanation, assumptions, facts: review.summary() });
+      }
+
+      if (decision.assignment.role === 'reviewer') {
+        const reviewed = await this.review({ brief, order, lockedTests, explanation, tally, assumptions, state: review, tier: decision.assignment.tier });
+        order.recordReview(reviewed);
+        continue;
       }
 
       if (decision.assignment.role === 'tester') {
@@ -155,9 +202,13 @@ export class MinimalLoopService {
         handoff !== '' ? `<handoff>\n이전 시도의 실패 요약입니다.\n${handoff}\n</handoff>` : '',
         lastFailure !== null ? `<last_failure>\n지난 시도에서 rauha가 직접 본 실패 메시지입니다.\n${lastFailure}\n</last_failure>` : '',
         order.isEscalated() ? ESCALATION_NOTE : '',
+        review.feedback !== null
+          ? `<review>\n리뷰에서 근거가 확인된 지적과 사용자 정정입니다. 이것만 고치고, 다른 곳은 건드리지 마세요.\n${review.feedback}\n</review>`
+          : '',
       ]
         .filter((s) => s !== '')
         .join('\n\n');
+      review.feedback = null;
       const before = await workspace.snapshot();
       tally.escalated ||= order.isEscalated();
       const output = await this.call('implementer', message, IMPLEMENTER_REPORT_SCHEMA, order, tally, decision.assignment.tier);
@@ -175,13 +226,86 @@ export class MinimalLoopService {
 
       progress.step('검증 묶음을 실행합니다');
       const locked = await checks.runTests(lockedTests);
+      review.passed = locked.passed;
       const results = [Verification.lockedTests(locked.run, locked.command, locked.digest), ...(await checks.runSuite())];
       await log.recordChecks(`green-${attempt}`, results);
       verdict = Verification.of(results).judge(baseline);
       order.recordGreen(verdict.toTestRun(locked.run), verdict.toFailureNote());
       lastFailure = verdict.failureDetail();
     }
-    return this.finish({ tally, started, title: order.title, status: 'stopped', stopReason: 'halted', verdict, explanation, assumptions });
+    return this.finish({ tally, started, title: order.title, status: 'stopped', stopReason: 'halted', verdict, explanation, assumptions, facts: review.summary() });
+  }
+
+  // ── 재검증과 사실 점검 ────────────────────────────────────
+
+  /**
+   * 리뷰 한 번: 리뷰어 호출 → 근거 재료 모으기 → 구현·리뷰 주장 확인 → 코드에 들어간 추측은 사용자 확인
+   * → 확인된 지적·정정이 있으면 changes. 판정 규칙은 FactCheck·ReviewFindings에 있다.
+   */
+  private async review(p: {
+    brief: string;
+    order: WorkOrder;
+    lockedTests: readonly string[];
+    explanation: ExplanationDto | null;
+    tally: RunTally;
+    assumptions: readonly SettledAssumption[];
+    state: ReviewState;
+    tier: ModelTier;
+  }): Promise<'pass' | 'changes'> {
+    const { workspace, user } = this.deps;
+    const state = p.state;
+    state.rounds += 1;
+    const changed = (await workspace.changesSinceHead()).map((c) => `${c.kind} ${c.path}`);
+    const report = { decisions: p.explanation?.decisions ?? [], facts: p.explanation?.facts ?? [] };
+    const message = [
+      p.brief,
+      `<locked_tests>\n${p.lockedTests.join('\n')}\n</locked_tests>`,
+      `<changed_files>\n${changed.join('\n')}\n</changed_files>`,
+      `<implementer_report>\n${JSON.stringify(report, null, 2)}\n</implementer_report>`,
+      '<task>위 변경을 처음 보는 눈으로 검토하세요. 근거가 확인되는 문제만 수정 요청이 됩니다.</task>',
+    ].join('\n\n');
+    const reviewReport = this.readReview(await this.call('reviewer', message, REVIEWER_REPORT_SCHEMA, p.order, p.tally, p.tier));
+    state.missing ||= reviewReport === null;
+
+    const implementerClaims = p.explanation?.claims() ?? [];
+    const reviewClaims = reviewReport?.claims() ?? [];
+    const paths = citedPaths([...implementerClaims, ...reviewClaims]);
+    const files = new Map(await Promise.all(paths.map(async (path) => [path, await workspace.readFile(path)] as const)));
+    const sources = {
+      files,
+      passedTests: state.passed,
+      fetched: p.tally.fetched,
+      userStatements: [...p.assumptions.map((a) => a.chosen), ...state.corrections],
+    };
+    let implementerCheck = FactCheck.of(implementerClaims, sources).withConfirmed(state.confirmed);
+    const reviewCheck = FactCheck.of(reviewClaims, sources);
+
+    const corrections: string[] = [];
+    if (user.interactive) {
+      for (const guess of implementerCheck.guesses('fact')) {
+        const answer = await user.confirmFact(guess);
+        if (answer.correct) state.confirmed.push(guess.text);
+        else corrections.push(answer.correction);
+      }
+      implementerCheck = implementerCheck.withConfirmed(state.confirmed);
+    }
+    state.corrections.push(...corrections);
+
+    const findings = ReviewFindings.of(reviewCheck, corrections);
+    state.feedback = findings.verdict() === 'changes' ? findings.feedback() : null;
+    state.checked = implementerCheck.all();
+    state.reviewerGuesses = reviewCheck.guesses('review');
+    state.unconfirmed = user.interactive ? [] : implementerCheck.guesses('fact');
+    return findings.verdict();
+  }
+
+  private readReview(output: unknown): ReviewReportDto | null {
+    try {
+      return ReviewReportDto.from(output);
+    } catch (error) {
+      if (error instanceof DomainError) return null;
+      throw error;
+    }
   }
 
   // ── 접수 ──────────────────────────────────────────────────
@@ -313,7 +437,9 @@ export class MinimalLoopService {
     verdict?: VerificationVerdict | null;
     explanation?: ExplanationDto | null;
     assumptions: readonly SettledAssumption[];
+    facts?: FactsSummary;
   }): Promise<RunOutcome> {
+    const facts = props.facts ?? new ReviewState().summary();
     const { tally } = props;
     const durationMs = this.deps.now() - props.started;
     const guideProps = {
@@ -354,6 +480,7 @@ export class MinimalLoopService {
       usage: tally.usage,
       escalated,
       finalTier,
+      facts,
       logDir,
     };
   }

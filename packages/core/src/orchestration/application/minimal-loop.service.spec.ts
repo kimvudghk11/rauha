@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { DomainError } from '../../shared/domain-error.js';
 import { TestRun } from '../domain/test-run.js';
+import type { CheckedClaim } from '../domain/fact-check.js';
 import type { CheckResult } from '../domain/verification.js';
 import type { Assumption } from './dto/intake.dto.js';
 import { RoleSettingsDto, type MemberRole } from './dto/role-settings.dto.js';
 import { MinimalLoopService } from './minimal-loop.service.js';
 import type {
   ChecksPort,
+  FactAnswer,
   FileChange,
   MemberCall,
   MemberResult,
@@ -52,13 +54,19 @@ class FakeWorkspace implements WorkspacePort {
 
 class FakeUser implements UserPort {
   readonly asked: string[] = [];
+  readonly factsAsked: string[] = [];
   constructor(
     readonly interactive: boolean,
     private readonly answers: number[] = [],
+    private readonly factAnswers: FactAnswer[] = [],
   ) {}
   async choose(assumption: Assumption) {
     this.asked.push(assumption.question);
     return this.answers.shift() ?? 0;
+  }
+  async confirmFact(claim: CheckedClaim): Promise<FactAnswer> {
+    this.factsAsked.push(claim.text);
+    return this.factAnswers.shift() ?? { correct: true };
   }
 }
 
@@ -91,7 +99,7 @@ class FakeChecks implements ChecksPort {
     private readonly suite: () => CheckResult[] = () => [{ name: 'tests', status: 'pass', failures: [], command: 'npm run test', summary: '통과' }],
   ) {}
   async runTests(files: readonly string[]): Promise<TestsResult> {
-    const implemented = this.ws.files.get('src/money.ts') === 'v2';
+    const implemented = this.ws.files.get('src/money.ts')?.startsWith('v2') === true;
     const run = implemented ? TestRun.of({ passed: 2, failed: 0 }) : TestRun.of({ passed: 0, failed: 2, failedNames: ['discount'] });
     return {
       run,
@@ -163,8 +171,10 @@ function service(
   log = new FakeLog(),
   user: UserPort = new FakeUser(false),
   progress: ProgressPort = { step: () => {} },
+  threePass = false,
 ) {
   return new MinimalLoopService({
+    threePass,
     team,
     workspace: ws,
     checks,
@@ -410,5 +420,108 @@ describe('MinimalLoopService — 해석이 갈리는 요청과 재시도 정보'
     expect(outcome.status).toBe('complete');
     expect(second[0]).toContain('<last_failure>');
     expect(second[0]).toContain('discount: expected 9000');
+  });
+});
+
+describe('MinimalLoopService — 사실 기반 3단 작업', () => {
+  const blank = { path: null, line: null, quote: null, name: null, url: null, text: null };
+  const CODE = 'v2 export function discount(rate) { return amount * rate }';
+  const implementCode: Script = (_c, ws) => {
+    ws.files.set('src/money.ts', CODE);
+    return { ...report, explanation };
+  };
+  const implementFixed: Script = (_c, ws) => {
+    ws.files.set('src/money.ts', 'v2 fixed export function discount(rate) { return Math.floor(amount * (100 - rate) / 100) }');
+    return { ...report, explanation };
+  };
+  const implementWithGuess: Script = (_c, ws) => {
+    ws.files.set('src/money.ts', CODE);
+    return { ...report, explanation: { ...explanation, facts: [{ claim: '응답 필드 이름은 email이다', evidence: [] }] } };
+  };
+  const pass = () => ({ verdict: 'pass', summary: '문제 없음', issues: [] });
+  const verifiedIssue = { problem: '할인율을 곱하기만 해서 10%가 10배가 된다', path: 'src/money.ts', line: 1, evidence: [{ ...blank, kind: 'code', path: 'src/money.ts', line: 1, quote: 'return amount * rate' }] };
+  const guessIssue = { problem: '함수 이름이 어색하다', path: null, line: null, evidence: [] };
+  const changes = (...issues: unknown[]) => () => ({ verdict: 'changes', summary: '고칠 것 있음', issues });
+  const run = (team: FakeTeam, ws: FakeWorkspace, user: UserPort = new FakeUser(false), threePass = true) =>
+    service(ws, team, new FakeChecks(ws), new FakeLog(), user, { step: () => {} }, threePass).run('Money에 할인 추가');
+
+  it('검증을 통과하면 리뷰어가 보고, 문제없으면 완료한다', async () => {
+    const ws = new FakeWorkspace();
+    const team = new FakeTeam(ws, { intake: [() => intake()], tester: [writeTest], implementer: [implementCode], reviewer: [pass] });
+    const outcome = await run(team, ws);
+    expect(team.calls).toEqual(['intake', 'tester', 'implementer', 'reviewer']);
+    expect(team.log.find((c) => c.role === 'reviewer')!.tier).toBe('sonnet');
+    expect(outcome.status).toBe('complete');
+    expect(outcome.facts.reviewRounds).toBe(1);
+  });
+
+  it('근거가 확인된 리뷰 지적이 있으면 2차 구현을 하고, 다시 리뷰를 받는다', async () => {
+    const ws = new FakeWorkspace();
+    const team = new FakeTeam(ws, { intake: [() => intake()], tester: [writeTest], implementer: [implementCode, implementFixed], reviewer: [changes(verifiedIssue), pass] });
+    const outcome = await run(team, ws);
+    expect(team.calls).toEqual(['intake', 'tester', 'implementer', 'reviewer', 'implementer', 'reviewer']);
+    const second = team.log.filter((c) => c.role === 'implementer')[1]!;
+    expect(second.message).toContain('<review>');
+    expect(second.message).toContain('할인율을 곱하기만 해서');
+    expect(outcome).toMatchObject({ status: 'complete' });
+    expect(outcome.facts.reviewRounds).toBe(2);
+  });
+
+  it('근거 없는 리뷰 지적은 2차 구현을 일으키지 않고 리뷰어 추측으로 남는다', async () => {
+    const ws = new FakeWorkspace();
+    const team = new FakeTeam(ws, { intake: [() => intake()], tester: [writeTest], implementer: [implementCode], reviewer: [changes(guessIssue)] });
+    const outcome = await run(team, ws);
+    expect(team.calls.filter((r) => r === 'implementer')).toHaveLength(1);
+    expect(outcome.status).toBe('complete');
+    expect(outcome.facts.reviewerGuesses.map((c) => c.text)).toEqual(['함수 이름이 어색하다']);
+  });
+
+  it('근거 있는 지적과 없는 지적이 섞이면 근거 있는 것만 넘긴다', async () => {
+    const ws = new FakeWorkspace();
+    const team = new FakeTeam(ws, { intake: [() => intake()], tester: [writeTest], implementer: [implementCode, implementFixed], reviewer: [changes(verifiedIssue, guessIssue), pass] });
+    await run(team, ws);
+    const second = team.log.filter((c) => c.role === 'implementer')[1]!;
+    expect(second.message).toContain('할인율을 곱하기만 해서');
+    expect(second.message).not.toContain('함수 이름이 어색하다');
+  });
+
+  it('코드에 들어간 추측은 사용자에게 묻고, 틀렸다고 하면 정정을 넣어 2차 구현한다', async () => {
+    const ws = new FakeWorkspace();
+    const user = new FakeUser(true, [], [{ correct: false, correction: '응답 필드 이름은 mail이다' }]);
+    const team = new FakeTeam(ws, { intake: [() => intake()], tester: [writeTest], implementer: [implementWithGuess, implementFixed], reviewer: [pass, pass] });
+    const outcome = await run(team, ws, user);
+    expect(user.factsAsked).toEqual(['응답 필드 이름은 email이다']);
+    const second = team.log.filter((c) => c.role === 'implementer')[1]!;
+    expect(second.message).toContain('응답 필드 이름은 mail이다');
+    expect(outcome.status).toBe('complete');
+  });
+
+  it('사용자가 맞다고 한 추측은 다시 묻지 않고 사실로 남는다', async () => {
+    const ws = new FakeWorkspace();
+    const user = new FakeUser(true, [], [{ correct: true }]);
+    const team = new FakeTeam(ws, { intake: [() => intake()], tester: [writeTest], implementer: [implementWithGuess], reviewer: [pass] });
+    const outcome = await run(team, ws, user);
+    expect(user.factsAsked).toHaveLength(1);
+    expect(outcome.facts.checked.find((c) => c.kind === 'fact')?.isGuess).toBe(false);
+    expect(outcome.facts.unconfirmed).toEqual([]);
+  });
+
+  it('화면이 없으면 추측을 묻지 않고 확인 필요로 남긴다', async () => {
+    const ws = new FakeWorkspace();
+    const user = new FakeUser(false);
+    const team = new FakeTeam(ws, { intake: [() => intake()], tester: [writeTest], implementer: [implementWithGuess], reviewer: [pass] });
+    const outcome = await run(team, ws, user);
+    expect(user.factsAsked).toEqual([]);
+    expect(outcome.facts.unconfirmed.map((c) => c.text)).toEqual(['응답 필드 이름은 email이다']);
+    expect(outcome.status).toBe('complete');
+  });
+
+  it('--quick이면 리뷰 없이 검증 통과로 완료한다', async () => {
+    const ws = new FakeWorkspace();
+    const team = new FakeTeam(ws, { intake: [() => intake()], tester: [writeTest], implementer: [implementCode] });
+    const outcome = await run(team, ws, new FakeUser(false), false);
+    expect(team.calls).not.toContain('reviewer');
+    expect(outcome.status).toBe('complete');
+    expect(outcome.facts.reviewRounds).toBe(0);
   });
 });
