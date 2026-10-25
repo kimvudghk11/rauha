@@ -24,6 +24,15 @@ describe('parkingStream', () => {
     expect(writes.join('')).toBe('\x1b[2B\r화면\x1b[2A\x1b[7G');
   });
 
+  it('커서를 돌리고, 화면을 쓰고, 다시 옮기는 것을 한 번의 쓰기로 보낸다 (중간 자리가 터미널에 보이지 않게)', () => {
+    const { stream, writes } = fakeStream();
+    const { stream: wrapped, park } = parkingStream(stream);
+    park.set({ up: 2, column: 6 });
+    writes.length = 0;
+    wrapped.write('화면');
+    expect(writes).toHaveLength(1);
+  });
+
   it('자리를 바꾸면 원래 자리를 거쳐 새 자리로 간다', () => {
     const { stream, writes } = fakeStream();
     const { park } = parkingStream(stream);

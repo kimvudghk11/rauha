@@ -18,26 +18,34 @@ export function parkingStream(real: NodeJS.WriteStream): { stream: NodeJS.WriteS
   let wanted: CursorSpot | null = null;
   let parked: CursorSpot | null = null;
   let visible = false;
-  const raw = (data: string) => real.write(data);
+  // leave·enter는 보낼 글을 돌려주고 상태만 바꾼다. 호출하는 쪽이 한 번의 쓰기로 합쳐 보낸다:
+  // 따로 보내면 터미널이 그 사이(커서가 아래에 내려가 있는 때)를 보고, 한글 조합 글자를 엉뚱한 줄에 그린다.
   const leave = () => {
-    if (parked === null) return;
-    raw(`\x1b[${parked.up}B\r`);
+    if (parked === null) return '';
+    const text = `\x1b[${parked.up}B\r`;
     parked = null;
+    return text;
   };
   const enter = () => {
     if (wanted === null) {
-      if (visible) raw('\x1b[?25l');
+      const text = visible ? '\x1b[?25l' : '';
       visible = false;
-      return;
+      return text;
     }
-    raw(`\x1b[${wanted.up}A\x1b[${wanted.column + 1}G${visible ? '' : '\x1b[?25h'}`);
+    const text = `\x1b[${wanted.up}A\x1b[${wanted.column + 1}G${visible ? '' : '\x1b[?25h'}`;
     parked = wanted;
     visible = true;
+    return text;
   };
   const write = (...args: Parameters<NodeJS.WriteStream['write']>) => {
-    leave();
-    const result = (real.write as (...a: unknown[]) => boolean)(...args);
-    enter();
+    const [data, ...rest] = args;
+    const before = leave();
+    if (typeof data === 'string') return (real.write as (...a: unknown[]) => boolean)(before + data + enter(), ...rest);
+    // 글이 아닌 데이터(Buffer 등)는 합칠 수 없어서 앞뒤를 따로 보낸다.
+    if (before !== '') real.write(before);
+    const result = (real.write as (...a: unknown[]) => boolean)(data, ...rest);
+    const after = enter();
+    if (after !== '') real.write(after);
     return result;
   };
   const stream = new Proxy(real, {
@@ -52,9 +60,10 @@ export function parkingStream(real: NodeJS.WriteStream): { stream: NodeJS.WriteS
     park: {
       set(spot) {
         if (spot?.up === wanted?.up && spot?.column === wanted?.column) return;
-        leave();
+        const before = leave();
         wanted = spot;
-        enter();
+        const text = before + enter();
+        if (text !== '') real.write(text);
       },
     },
   };
