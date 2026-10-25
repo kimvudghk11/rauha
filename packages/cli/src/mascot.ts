@@ -70,22 +70,47 @@ const FACES: Readonly<Record<Face, FaceSpec>> = {
 };
 
 /**
- * 대화 화면에서 팀원이 일하는 동안 옆에 두는 작은 Delfi(10×8 픽셀 = 4줄).
- * 줄마다 마지막으로 칠한 칸은 위아래 중 하나만 칠해 배경색이 줄 끝에 오지 않게 했다.
+ * 대화 화면에서 팀원이 일하는 동안 옆에 두는 작은 Delfi. 몸은 10×8 픽셀이고 10×10 도화지(= 5줄) 위를 움직인다.
+ *
+ * 줄마다 마지막으로 칠한 칸은 위아래 중 하나만 칠해야 한다(cmd 창 크기를 바꿀 때 배경색이 줄 끝까지 번지지 않게).
+ * 한 줄은 위아래 두 픽셀 줄을 묶으므로, 이웃한 두 픽셀 줄의 가장 오른쪽 칸이 서로 달라야 한다.
+ * 몸이 위아래로 움직이면 짝이 바뀌어서 어느 짝에서도 성립해야 해서, 눈 줄에 지느러미 끝 한 픽셀(S)을 더 뒀다.
  */
 const MINI = [
   '....S.....',
   '...HBB....',
   '..HBBBB...',
-  '.HEBBEB...',
+  '.HEBBEBS..',
   '.BBBBBB...',
   'SBLLLLBS..',
   '.SBLLBS...',
   '..SSSS....',
 ];
+const MINI_COLS = 10;
+const MINI_ROWS = 10;
+/** 몸이 도화지 위에서 내려온 칸 수. 틱 3번마다 다음 값으로 바뀐다(둥실). */
+const MINI_BOB = [1, 0, 1, 2] as const;
+/** 틱 3번을 한 걸음으로 센다. 120ms 틱이면 한 걸음이 약 0.36초다. */
+const TICKS_PER_STEP = 3;
+/** 이 걸음 수마다 한 걸음 동안 눈을 감는다 */
+const BLINK_EVERY_STEPS = 8;
 
-export function paintMiniDelfi(): Pixels {
-  return MINI.map((row) => [...row].map((k) => (k === '.' ? null : COLORS[k]!)));
+/** 작은 Delfi의 tick번째 모습: 위아래로 둥실, 가끔 눈 깜빡임, 오른쪽에서 올라가는 물방울 두 개. */
+export function paintMiniDelfi(tick = 0): Pixels {
+  const step = Math.floor(tick / TICKS_PER_STEP);
+  const offset = MINI_BOB[step % MINI_BOB.length]!;
+  const blink = step % BLINK_EVERY_STEPS === BLINK_EVERY_STEPS - 1;
+  const px: Pixels = Array.from({ length: MINI_ROWS }, () => Array<string | null>(MINI_COLS).fill(null));
+  MINI.forEach((row, r) =>
+    [...row].forEach((k, x) => {
+      if (k !== '.') px[r + offset]![x] = COLORS[blink && k === 'E' ? 'S' : k]!;
+    }),
+  );
+  // 물방울: 몸 오른쪽(8·9칸)에서 한 칸씩 올라간다. 둘은 5줄 떨어져 있어 한 칸(위아래 묶음)에 같이 들지 않는다.
+  const wobble = Math.floor(tick / 2) % 2;
+  px[MINI_ROWS - 1 - (tick % MINI_ROWS)]![8 + wobble] = COLORS['H']!;
+  px[MINI_ROWS - 1 - ((tick + MINI_ROWS / 2) % MINI_ROWS)]![9 - wobble] = COLORS['H']!;
+  return px;
 }
 
 export function paintDelfi(face: Face): Pixels {
@@ -238,7 +263,7 @@ export interface MascotView {
   /** 팀원이 일하는 동안 다시 그리는 한 줄 */
   working(frame: string, message: string, role: MemberRole, elapsed: string): string;
   /** 대화 화면용: 작은 Delfi 옆에 그린 작업 중 줄(여러 줄이라 -p의 한 줄 진행 표시에는 못 쓴다) */
-  workingDelfi(frame: string, message: string, role: MemberRole, elapsed: string): string;
+  workingDelfi(frame: string, message: string, role: MemberRole, elapsed: string, tick?: number): string;
   /** 팀원 일이 끝나 고정되는 줄 */
   done(message: string, role: MemberRole, elapsed: string): string;
   finale(status: 'complete' | 'stopped'): string;
@@ -288,8 +313,8 @@ export function mascotView(depth: number, version: string, badge: string): Masco
     },
     step: (message, role) => (role === undefined ? `  ${dim('·')} ${dim(message)}` : `  ${fg(ROLE_COLOR[role], '◆')} ${message}`),
     working: (frame, message, role, elapsed) => `  ${fg(ROLE_COLOR[role], frame)} ${message} ${dim(elapsed)}`,
-    workingDelfi: (frame, message, role, elapsed) => {
-      const mini = toAnsi(paintMiniDelfi(), depth).map((line) => `  ${line}`);
+    workingDelfi: (frame, message, role, elapsed, tick = 0) => {
+      const mini = toAnsi(paintMiniDelfi(tick), depth).map((line) => `  ${line}`);
       return beside(mini, [`${fg(ROLE_COLOR[role], frame)} ${message} ${dim(elapsed)}`], 1).join('\n');
     },
     done: (message, role, elapsed) => `  ${fg(ROLE_COLOR[role], '◆')} ${message.replace(/ 작업 중…$/, '')} ${dim(elapsed)}`,

@@ -309,6 +309,28 @@ describe('ChatApp', () => {
     expect(screen).not.toMatch(/[▀▄]/);
   });
 
+  it('일하는 동안 작은 Delfi가 시간이 지나면 움직인다', async () => {
+    const store = new ChatStore();
+    const view = mascotView(24, 'v0', '[personal]');
+    const r = render(React.createElement(ChatApp, { store, banner: () => '배너', view, onSubmit: vi.fn() }));
+    mounted.push(r);
+    await resize(r.stdout, 100, 40);
+    store.startWorking('접수 중…', 'intake', Date.now());
+    const seen = new Set<string>();
+    for (let i = 0; i < 14; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 130));
+      // 스피너·경과 시간 같은 글은 빼고 그림(들여쓰기 2 + 10칸)만 비교한다.
+      seen.add(
+        visible(r.lastFrame())
+          .split('\n')
+          .filter((l) => /[▀▄]/.test(l.slice(0, 12)))
+          .map((l) => l.slice(0, 12))
+          .join('\n'),
+      );
+    }
+    expect(seen.size).toBeGreaterThanOrEqual(4);
+  });
+
   it('고정 줄은 출력된 순서대로 남는다', async () => {
     const store = new ChatStore();
     const { lastFrame } = app(store);

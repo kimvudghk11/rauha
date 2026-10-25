@@ -61,7 +61,7 @@ function WorkingLine({ working, view, rows }: { working: Working; view: MascotVi
   const spinner = SPINNER[frame % SPINNER.length]!;
   const elapsed = formatElapsed(Date.now() - working.startedAt);
   const small = rows > 0 && rows < MIN_ROWS_FOR_MINI_DELFI;
-  const drawn = small ? view?.working(spinner, working.text, working.role, elapsed) : view?.workingDelfi(spinner, working.text, working.role, elapsed);
+  const drawn = small ? view?.working(spinner, working.text, working.role, elapsed) : view?.workingDelfi(spinner, working.text, working.role, elapsed, frame);
   return h(Text, null, drawn ?? `  ${spinner} ${working.text} ${elapsed}`);
 }
 

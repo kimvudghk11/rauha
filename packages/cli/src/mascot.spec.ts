@@ -251,14 +251,44 @@ describe('mascotView', () => {
 
   it('대화 화면의 작업 중 줄은 작은 Delfi 옆에 그린다 (마지막 글자에 배경색 없음)', () => {
     const view = mascotView(24, 'v0', '[personal]')!;
-    const lines = view.workingDelfi('▖', '접수 > 테스트 중…', 'tester', '12초').split('\n');
-    expect(lines).toHaveLength(4);
+    const lines = view.workingDelfi('▖', '접수 > 테스트 중…', 'tester', '12초', 0).split('\n');
+    expect(lines).toHaveLength(5);
     expect(lines.map(visible).join('\n')).toContain('▖ 접수 > 테스트 중… 12초');
     expect(lines.map(visible).join('\n')).toMatch(/[▀▄]/);
-    for (const line of lines) {
-      const last = line.split(/(?=\x1b\[)/).filter((seg) => visible(seg).trim() !== '').at(-1);
-      if (last !== undefined) expect(last).not.toMatch(/48;/);
+  });
+
+  it('작업 중 Delfi는 틱마다 움직인다: 위아래로 둥실, 눈 깜빡임, 올라가는 물방울', () => {
+    const view = mascotView(24, 'v0', '[personal]')!;
+    const frames = Array.from({ length: 48 }, (_, tick) => view.workingDelfi('▖', '작업', 'tester', '1초', tick));
+    // 한 바퀴 안에 서로 다른 그림이 여럿이고, 같은 틱은 언제나 같은 그림이다.
+    expect(new Set(frames).size).toBeGreaterThanOrEqual(6);
+    expect(view.workingDelfi('▖', '작업', 'tester', '1초', 7)).toBe(frames[7]);
+    // 움직여도 높이는 늘 같다(줄 수가 바뀌면 입력창 자리가 흔들린다).
+    for (const frame of frames) expect(frame.split('\n')).toHaveLength(5);
+    // 둥실: 몸이 위아래로 움직여 첫 줄에 몸이 있는 틱과 없는 틱이 모두 있다.
+    // 몸은 0~7칸, 물방울은 8·9칸이라 앞 10글자(들여쓰기 2 + 몸 8칸)만 본다.
+    const topHasBody = frames.map((f) => /[▀▄]/.test(visible(f.split('\n')[0]!).slice(0, 10)));
+    expect(topHasBody).toContain(true);
+    expect(topHasBody).toContain(false);
+    // 모든 틱의 모든 줄: 마지막으로 칠한 글자에 배경색이 없다(cmd 창 크기를 바꿀 때 번지지 않게).
+    for (const frame of frames) {
+      for (const line of frame.split('\n')) {
+        const last = line.split(/(?=\x1b\[)/).filter((seg) => visible(seg).trim() !== '').at(-1);
+        if (last !== undefined) expect(last, JSON.stringify(visible(line))).not.toMatch(/48;/);
+      }
     }
+  });
+
+  it('작업 중 Delfi가 움직여도 한 줄의 너비는 같다 (물방울이 줄 길이를 흔들지 않게)', () => {
+    const view = mascotView(24, 'v0', '[personal]')!;
+    const widths = new Set<number>();
+    for (let tick = 0; tick < 48; tick++) {
+      // 글이 붙은 줄은 길이가 달라서 빼고, 그림만 있는 줄(들여쓰기 2 + 10칸)의 너비를 본다.
+      for (const line of view.workingDelfi('▖', '작업', 'tester', '1초', tick).split('\n')) {
+        if (!visible(line).includes('작업')) widths.add(displayWidth(visible(line)));
+      }
+    }
+    expect([...widths]).toEqual([12]);
   });
 
   it('사용률 막대는 사용률이 높을수록 색이 달라지고, 글자는 색을 빼면 같다', () => {
