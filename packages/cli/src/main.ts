@@ -20,7 +20,9 @@ const HELP = `rauha — 터미널에서 팀장과 대화하는 클로드 팀
   rauha -p "<요청>"            한 번 실행: 접수 → 테스트 → 구현 → 검증 → 읽기 안내서
   rauha whoami                현재 프로필과 Claude Code 설정 폴더 확인
   rauha login                 이 프로필의 Claude Code 로그인 (브라우저 인증)
-  rauha bench [--only <id>]   연습용 프로젝트에서 고정 요청 묶음 실행 (rauha 저장소 루트)
+  rauha bench [--only <id>] [--compare]
+                              연습용 프로젝트에서 고정 요청 묶음 실행 (rauha 저장소 루트)
+                              --compare: 요청마다 사다리(haiku부터)와 구현 sonnet 고정을 비교
   rauha --profile <이름> ...   프로필 직접 지정 (기본: 폴더 규칙 → personal)
 
 환경 변수
@@ -98,7 +100,7 @@ async function run(argv: readonly string[]): Promise<number> {
       return login(command.profile);
     case 'bench': {
       const { profile } = await resolveProfile(command.profile);
-      const report = await runBench({ repoRoot: workDir, profile, home: homedir(), only: command.only, log });
+      const report = await runBench({ repoRoot: workDir, profile, home: homedir(), only: command.only, compare: command.compare, log });
       process.stdout.write(`${report}\n`);
       return 0;
     }

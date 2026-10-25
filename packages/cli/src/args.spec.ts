@@ -23,7 +23,11 @@ describe('parseArgs — 1단계 명령', () => {
   });
 
   it('bench 와 --only', () => {
-    expect(parseArgs(['bench'])).toEqual({ kind: 'bench', profile: null, only: null });
-    expect(parseArgs(['bench', '--only', 'discount'])).toEqual({ kind: 'bench', profile: null, only: 'discount' });
+    expect(parseArgs(['bench'])).toEqual({ kind: 'bench', profile: null, only: null, compare: false });
+    expect(parseArgs(['bench', '--only', 'discount'])).toEqual({ kind: 'bench', profile: null, only: 'discount', compare: false });
+  });
+
+  it('bench --compare는 사다리와 sonnet 고정을 비교하는 실행이다', () => {
+    expect(parseArgs(['bench', '--compare'])).toEqual({ kind: 'bench', profile: null, only: null, compare: true });
   });
 });

@@ -25,6 +25,8 @@ export interface RunContext {
   readonly progress: ProgressPort;
   /** 커밋하지 않은 변경이 있으면 시작하지 않는다. */
   readonly requireClean: boolean;
+  /** 이번 실행에만 덧씌우는 RAUHA_ROLE_* 값(bench 비교용) */
+  readonly roleEnv?: Readonly<Record<string, string>>;
 }
 
 export interface RunResult {
@@ -58,7 +60,7 @@ export async function runOnce(request: string, ctx: RunContext): Promise<RunResu
     log: new FileRunLog(ctx.profile.runsDir(ctx.home), runId, new Date(), prompts.hash),
     progress: ctx.progress,
     user: ctx.user,
-    roles: RoleSettingsDto.defaults().withEnv(process.env),
+    roles: RoleSettingsDto.defaults().withEnv({ ...process.env, ...ctx.roleEnv }),
     newId: () => runId,
     now: () => Date.now(),
     today: () => localDate(new Date()),

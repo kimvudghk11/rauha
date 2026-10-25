@@ -18,5 +18,13 @@
   {
     "id": "compare",
     "request": "Money끼리 크기를 비교하는 isGreaterThan 메서드를 추가해줘."
+  },
+  {
+    "id": "coupon",
+    "request": "장바구니에 쿠폰을 적용할 수 있게 해줘. 정액 쿠폰(예: 3,000원)과 정률 쿠폰(예: 10%) 두 가지가 있고, Cart에 applyCoupon을 붙이고, CartService에 쿠폰 적용 후 합계를 돌려주는 메서드를 추가해줘. 정률은 원 미만 버림, 할인 후 금액이 0원보다 작아지면 0원."
+  },
+  {
+    "id": "quantity-limit",
+    "request": "같은 상품은 장바구니에 최대 10개까지만 담기게 해줘. 넘기면 AppError로 막고, CartService.add로 담을 때도 같은 규칙이 적용돼야 해. 수량을 바꾸는 changeQuantity(productId, quantity)도 추가하고 같은 제한을 지켜."
   }
 ]

@@ -12,10 +12,22 @@ interface BenchRequest {
   readonly request: string;
 }
 
-interface BenchRow {
+/** ladder = 기본(haiku부터 사다리), sonnet = 구현 팀원을 sonnet으로 고정한 비교 실행 */
+export type BenchVariant = 'ladder' | 'sonnet';
+
+const VARIANT_LABEL: Readonly<Record<BenchVariant, string>> = { ladder: '사다리', sonnet: 'sonnet 고정' };
+const VARIANT_ENV: Readonly<Record<BenchVariant, Readonly<Record<string, string>>>> = {
+  ladder: {},
+  sonnet: { RAUHA_ROLE_IMPLEMENTER: 'sonnet' },
+};
+
+export interface BenchRow {
   readonly id: string;
+  readonly variant: BenchVariant;
   readonly result: string;
   readonly attempts: number;
+  readonly escalated: boolean;
+  readonly finalTier: string;
   readonly seconds: number;
   readonly haikuTokens: number;
   readonly sonnetTokens: number;
@@ -38,11 +50,14 @@ function tokens(n: number): string {
   return n >= 1000 ? `${Math.round(n / 1000)}k` : String(n);
 }
 
-function toRow(id: string, outcome: RunOutcome): BenchRow {
+function toRow(id: string, variant: BenchVariant, outcome: RunOutcome): BenchRow {
   return {
     id,
+    variant,
     result: outcome.status === 'complete' ? '완료' : `멈춤(${outcome.stopReason})`,
     attempts: outcome.implementerAttempts,
+    escalated: outcome.escalated,
+    finalTier: outcome.finalTier ?? '-',
     seconds: outcome.durationMs / 1000,
     haikuTokens: outcome.usage.haiku.tokens,
     sonnetTokens: outcome.usage.sonnet.tokens,
@@ -74,24 +89,47 @@ export async function freshSandbox(source: string, target: string, nodeModules: 
   git('commit', '-qm', 'bench start');
 }
 
-function table(rows: readonly BenchRow[], promptHash: string, startedAt: Date): string {
-  const head = ['요청', '결과', '시도', '시간', 'haiku 토큰', 'sonnet 토큰', '추정 비용'];
-  const body = rows.map((r) => [r.id, r.result, String(r.attempts), clock(r.seconds), tokens(r.haikuTokens), tokens(r.sonnetTokens), `$${r.costUsd.toFixed(3)}`]);
-  const widths = head.map((h, i) => Math.max(h.length, ...body.map((b) => (b[i] as string).length)));
-  const line = (cells: readonly string[]) => cells.map((c, i) => c.padEnd(widths[i] as number)).join('  ');
+function summary(rows: readonly BenchRow[]): string {
   const done = rows.filter((r) => r.result === '완료');
   const avg = rows.length > 0 ? rows.reduce((n, r) => n + r.seconds, 0) / rows.length : 0;
   const total = rows.reduce((n, r) => n + r.costUsd, 0);
-  return [
-    `프롬프트 ${promptHash} · ${startedAt.toISOString().slice(0, 16).replace('T', ' ')}`,
-    line(head),
-    ...body.map(line),
-    `첫 시도 성공 ${rows.filter((r) => r.firstTry).length}/${rows.length} · 완료 ${done.length}/${rows.length} · 평균 ${clock(avg)} · 합계 $${total.toFixed(3)}`,
-  ].join('\n');
+  const escalated = rows.filter((r) => r.escalated).length;
+  return `첫 시도 성공 ${rows.filter((r) => r.firstTry).length}/${rows.length} · 완료 ${done.length}/${rows.length} · 승격 ${escalated} · 평균 ${clock(avg)} · 합계 $${total.toFixed(3)}`;
+}
+
+/** 결과 표. sonnet 고정 행이 있으면 비교 표로 그리고, 변형별 합계 줄을 따로 낸다. */
+export function benchTable(rows: readonly BenchRow[], promptHash: string, startedAt: Date): string {
+  const compare = rows.some((r) => r.variant === 'sonnet');
+  const head = ['요청', ...(compare ? ['변형'] : []), '결과', '시도', '승격', '시간', 'haiku 토큰', 'sonnet 토큰', '추정 비용'];
+  const body = rows.map((r) => [
+    r.id,
+    ...(compare ? [VARIANT_LABEL[r.variant]] : []),
+    r.result,
+    String(r.attempts),
+    r.escalated ? '승격' : '-',
+    clock(r.seconds),
+    tokens(r.haikuTokens),
+    tokens(r.sonnetTokens),
+    `$${r.costUsd.toFixed(3)}`,
+  ]);
+  const widths = head.map((h, i) => Math.max(h.length, ...body.map((b) => (b[i] as string).length)));
+  const line = (cells: readonly string[]) => cells.map((c, i) => c.padEnd(widths[i] as number)).join('  ');
+  const totals = compare
+    ? (['ladder', 'sonnet'] as const).map((v) => `${VARIANT_LABEL[v]}: ${summary(rows.filter((r) => r.variant === v))}`)
+    : [summary(rows)];
+  return [`프롬프트 ${promptHash} · ${startedAt.toISOString().slice(0, 16).replace('T', ' ')}`, line(head), ...body.map(line), ...totals].join('\n');
 }
 
 /** 고정 요청 묶음을 매번 새 복사본에서 돌려 프롬프트 버전끼리 비교한다. */
-export async function runBench(props: { repoRoot: string; profile: Profile; home: string; only: string | null; log: (line: string) => void }): Promise<string> {
+export async function runBench(props: {
+  repoRoot: string;
+  profile: Profile;
+  home: string;
+  only: string | null;
+  /** 요청마다 사다리와 sonnet 고정을 한 번씩 돌려 비교한다 */
+  compare: boolean;
+  log: (line: string) => void;
+}): Promise<string> {
   const sandbox = join(props.repoRoot, 'examples', 'sandbox');
   const requestsFile = join(props.repoRoot, 'examples', 'bench', 'requests.json');
   if (!existsSync(sandbox) || !existsSync(requestsFile)) {
@@ -107,30 +145,47 @@ export async function runBench(props: { repoRoot: string; profile: Profile; home
   const rows: BenchRow[] = [];
   let promptHash = '';
 
+  const variants: readonly BenchVariant[] = props.compare ? ['ladder', 'sonnet'] : ['ladder'];
   for (const req of requests) {
-    const copy = benchCopyDir(stamp(startedAt), req.id);
-    await freshSandbox(sandbox, copy, join(props.repoRoot, 'node_modules'));
-    props.log(`── ${req.id}: ${req.request}`);
-    try {
-      const { outcome, promptHash: hash } = await runOnce(req.request, {
-        root: copy,
-        profile: props.profile,
-        home: props.home,
-        ask: refuseAll(props.log),
-        user: noUser,
-        progress: { step: (m) => props.log(`   ${m}`) },
-        requireClean: true,
-      });
-      promptHash = hash;
-      rows.push(toRow(req.id, outcome));
-      props.log(`   → ${outcome.status === 'complete' ? '완료' : `멈춤(${outcome.stopReason})`} · ${outcome.logDir}`);
-    } catch (error) {
-      props.log(`   → 오류: ${(error as Error).message}`);
-      rows.push({ id: req.id, result: '오류', attempts: 0, seconds: 0, haikuTokens: 0, sonnetTokens: 0, costUsd: 0, firstTry: false, logDir: null });
+    for (const variant of variants) {
+      const copy = benchCopyDir(stamp(startedAt), props.compare ? `${req.id}-${variant}` : req.id);
+      await freshSandbox(sandbox, copy, join(props.repoRoot, 'node_modules'));
+      props.log(`── ${req.id}${props.compare ? ` [${VARIANT_LABEL[variant]}]` : ''}: ${req.request}`);
+      try {
+        const { outcome, promptHash: hash } = await runOnce(req.request, {
+          root: copy,
+          profile: props.profile,
+          home: props.home,
+          ask: refuseAll(props.log),
+          user: noUser,
+          progress: { step: (m) => props.log(`   ${m}`) },
+          requireClean: true,
+          roleEnv: VARIANT_ENV[variant],
+        });
+        promptHash = hash;
+        rows.push(toRow(req.id, variant, outcome));
+        props.log(`   → ${outcome.status === 'complete' ? '완료' : `멈춤(${outcome.stopReason})`} · ${outcome.logDir}`);
+      } catch (error) {
+        props.log(`   → 오류: ${(error as Error).message}`);
+        rows.push({
+          id: req.id,
+          variant,
+          result: '오류',
+          attempts: 0,
+          escalated: false,
+          finalTier: '-',
+          seconds: 0,
+          haikuTokens: 0,
+          sonnetTokens: 0,
+          costUsd: 0,
+          firstTry: false,
+          logDir: null,
+        });
+      }
     }
   }
 
-  const report = table(rows, promptHash, startedAt);
+  const report = benchTable(rows, promptHash, startedAt);
   await writeFile(join(benchDir, 'bench.md'), `\`\`\`\n${report}\n\`\`\`\n`, 'utf8');
   await writeFile(join(benchDir, 'bench.json'), `${JSON.stringify({ promptHash, rows }, null, 2)}\n`, 'utf8');
   return `${report}\n\n저장: ${benchDir}`;
