@@ -176,6 +176,7 @@ export function beside(art: readonly string[], text: readonly string[], gap = 2)
  * 다시 그리는 TUI가 아니므로 박스를 작게 잡아서 버틴다.
  */
 const MAX_BANNER_WIDTH = 60;
+const GREETING = '오늘도 신나게 헤엄쳐요';
 
 /** 허락 박스의 최대 너비. 긴 명령은 이 안에서 접는다. */
 const MAX_PERMISSION_WIDTH = 76;
@@ -213,11 +214,24 @@ export function mascotView(depth: number, version: string, badge: string): Masco
   const say = (face: Face, text: string[]) => beside(art(face), text, GAP).join('\n');
   return {
     // Claude Code 시작 화면처럼 맨 위에 박스 하나: 왼쪽 Delfi, 오른쪽 rauha·인사말·작업 폴더.
+    // 창이 좁으면 Delfi 아래에 글을 두고, 그것도 안 되면 박스 없이 글만 쓴다.
     banner: (workDir, columns) => {
+      // 마지막 칸까지 채운 줄은 터미널이 다음 줄로 접어 버려서 한 칸을 비운다.
+      const limit = Math.min(columns - 1, MAX_BANNER_WIDTH);
       const picture = art('hello');
-      const textRoom = Math.min(columns, MAX_BANNER_WIDTH) - 4 - displayWidth(picture[0]!) - GAP;
-      const text = [`\x1b[1m${fg(COLORS['B']!, 'rauha')} ${dim(version)}  ${dim(badge)}`, '오늘도 신나게 헤엄쳐요', '', dim(shortenMiddle(workDir, textRoom))];
-      return box(['', ...beside(picture, text, GAP), ''], COLORS['B']!, depth).join('\n');
+      const title = `\x1b[1m${fg(COLORS['B']!, 'rauha')} ${dim(version)}  ${dim(badge)}`;
+      const textWidth = Math.max(displayWidth(title), displayWidth(GREETING));
+      const sideRoom = limit - 4 - displayWidth(picture[0]!) - GAP;
+      if (sideRoom >= textWidth) {
+        const text = [title, GREETING, '', dim(shortenMiddle(workDir, sideRoom))];
+        return box(['', ...beside(picture, text, GAP), ''], COLORS['B']!, depth).join('\n');
+      }
+      const stackRoom = limit - 4;
+      if (stackRoom >= Math.max(displayWidth(picture[0]!), textWidth + 2)) {
+        const text = [title, GREETING, '', dim(shortenMiddle(workDir, stackRoom - 2))].map((line) => (line === '' ? '' : `  ${line}`));
+        return box(['', ...picture, '', ...text, ''], COLORS['B']!, depth).join('\n');
+      }
+      return [`rauha ${version}  ${badge}`, GREETING, workDir].flatMap((line) => wrapText(line, limit)).join('\n');
     },
     step: (message, role) => (role === undefined ? `  ${dim('·')} ${dim(message)}` : `  ${fg(ROLE_COLOR[role], '◆')} ${message}`),
     working: (frame, message, role, elapsed) => `  ${fg(ROLE_COLOR[role], frame)} ${message} ${dim(elapsed)}`,
@@ -227,14 +241,14 @@ export function mascotView(depth: number, version: string, badge: string): Masco
         ? say('done', ['끝났어요! 아래 읽기 안내서부터 봐 주세요.'])
         : say('stuck', ['여기서 멈췄어요. 이유는 아래 안내서에 적어 뒀어요.']),
     permission: (request, columns) => {
-      const inner = Math.min(columns, MAX_PERMISSION_WIDTH) - 4;
+      const inner = Math.min(columns - 1, MAX_PERMISSION_WIDTH) - 4;
       const command = wrapText(request.detail, inner - 2).map((line) => `  \x1b[1m${line}${RESET}`);
       const reason = wrapText(request.reason, inner - 2).map((line) => `  ${dim(line)}`);
       const header = `\x1b[1m${fg(ROLE_COLOR[request.role], ROLE_NAME[request.role])}  ${dim(request.tool)}`;
       return [say('ask', ['위험할 수 있는 동작이라 직접 허락받을게요.']), '', ...box([header, '', ...command, ...reason], COLORS['B']!, depth)].join('\n');
     },
     factCheck: (claim, columns) => {
-      const inner = Math.min(columns, MAX_PERMISSION_WIDTH) - 4;
+      const inner = Math.min(columns - 1, MAX_PERMISSION_WIDTH) - 4;
       const lines = wrapText(claim, inner - 2).map((line) => `  \x1b[1m${line}${RESET}`);
       return [say('ask', ['근거를 확인하지 못했어요. 맞는지 알려 주세요.']), '', ...box([dim('코드에 들어간 사실'), '', ...lines], COLORS['B']!, depth)].join('\n');
     },
