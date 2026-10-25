@@ -12,26 +12,50 @@ export function displayWidth(text: string): number {
   return width;
 }
 
-/** 색 코드가 섞인 글을 터미널 줄 단위로 접는다. 색 코드는 칸을 차지하지 않고 쪼개지 않는다. */
+/**
+ * 색 코드가 섞인 글을 터미널 줄 단위로 접는다. 띄어쓰기에서 줄을 바꾸고, 줄보다 긴 단어만 글자 단위로 자른다.
+ * 색 코드는 칸을 차지하지 않고 쪼개지 않는다(색 코드에는 띄어쓰기가 없다).
+ */
 export function fitLines(text: string, width: number): string[] {
   const lines: string[] = [];
   for (const source of text.split('\n')) {
     let current = '';
     let used = 0;
-    for (const token of source.split(/(\x1b\[[0-9;]*m)/)) {
-      if (token.startsWith('\x1b[')) {
-        current += token;
+    const breakLine = () => {
+      lines.push(current.replace(/ +$/, ''));
+      current = '';
+      used = 0;
+    };
+    for (const piece of source.split(/( +)/)) {
+      if (piece === '') continue;
+      const w = displayWidth(piece);
+      if (used + w <= width) {
+        current += piece;
+        used += w;
         continue;
       }
-      for (const ch of token) {
-        const w = displayWidth(ch);
-        if (used + w > width && used > 0) {
-          lines.push(current);
-          current = '';
-          used = 0;
+      // 줄 끝에 걸린 띄어쓰기는 줄바꿈으로 바꾼다.
+      if (piece.startsWith(' ')) {
+        if (used > 0) breakLine();
+        continue;
+      }
+      if (used > 0) breakLine();
+      if (w <= width) {
+        current = piece;
+        used = w;
+        continue;
+      }
+      for (const token of piece.split(/(\x1b\[[0-9;]*m)/)) {
+        if (token.startsWith('\x1b[')) {
+          current += token;
+          continue;
         }
-        current += ch;
-        used += w;
+        for (const ch of token) {
+          const cw = displayWidth(ch);
+          if (used + cw > width && used > 0) breakLine();
+          current += ch;
+          used += cw;
+        }
       }
     }
     lines.push(current);

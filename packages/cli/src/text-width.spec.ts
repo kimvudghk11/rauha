@@ -13,6 +13,18 @@ describe('fitLines', () => {
     expect(lines.join('')).toBe(`\x1b[38;5;117m${'a'.repeat(6)}\x1b[0m`);
   });
 
+  it('띄어쓰기에서 줄을 바꾸고 단어 가운데서는 자르지 않는다', () => {
+    expect(fitLines('패치와 스케일링을 합니다', 12)).toEqual(['패치와', '스케일링을', '합니다']);
+  });
+
+  it('한 단어가 줄보다 길면 그 단어만 글자 단위로 자른다', () => {
+    expect(fitLines('a abcdefgh', 4)).toEqual(['a', 'abcd', 'efgh']);
+  });
+
+  it('줄 앞 들여쓰기는 남긴다', () => {
+    expect(fitLines('  - 가나 다라', 9)).toEqual(['  - 가나', '다라']);
+  });
+
   it('빈 줄도 한 줄로 남는다', () => {
     expect(fitLines('a\n\nb', 10)).toEqual(['a', '', 'b']);
   });
