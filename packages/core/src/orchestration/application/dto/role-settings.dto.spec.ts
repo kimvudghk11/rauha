@@ -41,6 +41,13 @@ describe('RoleSettingsDto', () => {
     for (const tool of ['Edit', 'Write', 'Bash']) expect(reviewer.tools).not.toContain(tool);
   });
 
+  it('라우터는 도구 없는 haiku, 답변 팀원은 읽기만 하는 sonnet', () => {
+    const roles = RoleSettingsDto.defaults();
+    expect(roles.get('router')).toMatchObject({ tier: 'haiku', effort: 'low', tools: [] });
+    expect(roles.get('answerer')).toMatchObject({ tier: 'sonnet' });
+    expect(roles.get('answerer').tools).not.toContain('Write');
+  });
+
   it('형식이 틀린 환경 변수는 거부한다', () => {
     expect(() => RoleSettingsDto.defaults().withEnv({ RAUHA_ROLE_TESTER: 'gpt:fast' })).toThrow(DomainError);
   });

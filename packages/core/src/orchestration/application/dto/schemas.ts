@@ -46,14 +46,14 @@ export const INTAKE_SCHEMA: Record<string, unknown> = {
 
 /**
  * 근거 한 개. 구조화 출력에서 oneOf를 피하려고 모든 칸을 두고, 종류에 안 쓰는 칸은 null.
- * code: path·line·quote(실제 코드 한 줄 그대로), test: name, web: url·quote, user: text.
+ * code: path·line·quote(실제 코드 한 줄 그대로), test: name, web: url·quote, user·record: text.
  */
 const EVIDENCE = {
   type: 'object',
   additionalProperties: false,
   required: ['kind', 'path', 'line', 'quote', 'name', 'url', 'text'],
   properties: {
-    kind: { enum: ['code', 'test', 'web', 'user'] },
+    kind: { enum: ['code', 'test', 'web', 'user', 'record'] },
     path: nullableStr,
     line: { type: ['integer', 'null'] },
     quote: nullableStr,
@@ -152,6 +152,32 @@ export const REVIEWER_REPORT_SCHEMA: Record<string, unknown> = {
         required: ['problem', 'path', 'line', 'evidence'],
         properties: { problem: str, path: nullableStr, line: { type: ['integer', 'null'] }, evidence: evidenceList(4) },
       },
+    },
+  },
+};
+
+export const ROUTE_SCHEMA: Record<string, unknown> = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['mode', 'refersToPast', 'pastQuery'],
+  properties: {
+    mode: { enum: ['work', 'question'], description: 'work: 코드를 바꾸는 요청, question: 코드를 바꾸지 않는 질문' },
+    refersToPast: { type: 'boolean', description: '이름 없이 지난 작업을 가리키는지("아까 그 기능", "방금 거")' },
+    pastQuery: { ...nullableStr, description: '기억에서 찾을 검색어(코드 이름·기능 단어). 없으면 null' },
+  },
+};
+
+export const ANSWER_SCHEMA: Record<string, unknown> = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['answer', 'claims'],
+  properties: {
+    answer: str,
+    claims: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 6,
+      items: { type: 'object', additionalProperties: false, required: ['text', 'evidence'], properties: { text: str, evidence: evidenceList(4) } },
     },
   },
 };

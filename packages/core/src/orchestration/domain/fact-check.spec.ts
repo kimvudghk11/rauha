@@ -8,6 +8,7 @@ const sources = (over: Partial<EvidenceSources> = {}): EvidenceSources => ({
   passedTests: ['Money > discount > 10% 할인하면 10,000원이 9,000원이 된다'],
   fetched: new Map<string, string | null>([['https://docs.example.com/api', 'POST /api/v1/info returns { name, email }'], ['https://blog.example.com/x', null]]),
   userStatements: ['할인 후 금액에서 원 미만을 버린다 (999원 10% → 899원)'],
+  records: ['Math.floor를 할인 후 금액에 씀 — 정한 해석을 따름'],
   ...over,
 });
 
@@ -61,6 +62,13 @@ describe('FactCheck — test·web·user 근거', () => {
   it('확정된 가정이나 사용자 정정에 있는 내용만 user 근거로 인정한다', () => {
     expect(one(claim([{ kind: 'user', text: '할인 후 금액에서 원 미만을 버린다' }])).isGuess).toBe(false);
     expect(one(claim([{ kind: 'user', text: '할인액에서 원 미만을 버린다' }])).isGuess).toBe(true);
+  });
+});
+
+describe('FactCheck — record 근거', () => {
+  it('기억에 있는 문장만 record 근거로 인정한다', () => {
+    expect(one(claim([{ kind: 'record', text: 'Math.floor를 할인 후 금액에 씀' }])).isGuess).toBe(false);
+    expect(one(claim([{ kind: 'record', text: 'Math.round를 씀' }])).isGuess).toBe(true);
   });
 });
 

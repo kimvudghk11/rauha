@@ -18,19 +18,19 @@ function folder(files: Record<string, string>): string {
 
 describe('PromptLibrary', () => {
   it('공통 앞부분과 역할 프롬프트를 이어 붙인다', async () => {
-    const lib = await PromptLibrary.load(folder({ '_common.md': 'COMMON', 'intake.md': 'I', 'tester.md': 'T', 'implementer.md': 'M', 'reviewer.md': 'R' }));
+    const lib = await PromptLibrary.load(folder({ '_common.md': 'COMMON', 'intake.md': 'I', 'tester.md': 'T', 'implementer.md': 'M', 'reviewer.md': 'R', 'router.md': 'O', 'answerer.md': 'A' }));
     expect(lib.system('tester')).toBe('COMMON\n\nT');
     expect(lib.hash).toMatch(/^[0-9a-f]{8}$/);
   });
 
   it('프롬프트가 바뀌면 해시도 바뀐다', async () => {
-    const a = await PromptLibrary.load(folder({ '_common.md': 'C', 'intake.md': 'I', 'tester.md': 'T', 'implementer.md': 'M', 'reviewer.md': 'R' }));
-    const b = await PromptLibrary.load(folder({ '_common.md': 'C', 'intake.md': 'I', 'tester.md': 'T2', 'implementer.md': 'M', 'reviewer.md': 'R' }));
+    const a = await PromptLibrary.load(folder({ '_common.md': 'C', 'intake.md': 'I', 'tester.md': 'T', 'implementer.md': 'M', 'reviewer.md': 'R', 'router.md': 'O', 'answerer.md': 'A' }));
+    const b = await PromptLibrary.load(folder({ '_common.md': 'C', 'intake.md': 'I', 'tester.md': 'T2', 'implementer.md': 'M', 'reviewer.md': 'R', 'router.md': 'O', 'answerer.md': 'A' }));
     expect(a.hash).not.toBe(b.hash);
   });
 
   it('리뷰어 프롬프트도 공통 원칙과 합쳐 읽는다', async () => {
-    const lib = await PromptLibrary.load(folder({ '_common.md': 'C', 'intake.md': 'I', 'tester.md': 'T', 'implementer.md': 'M', 'reviewer.md': 'R' }));
+    const lib = await PromptLibrary.load(folder({ '_common.md': 'C', 'intake.md': 'I', 'tester.md': 'T', 'implementer.md': 'M', 'reviewer.md': 'R', 'router.md': 'O', 'answerer.md': 'A' }));
     expect(lib.system('reviewer')).toBe('C\n\nR');
   });
 

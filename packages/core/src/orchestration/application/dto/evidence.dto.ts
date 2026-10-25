@@ -29,9 +29,10 @@ export class EvidenceDto {
           const url = text(e['url']);
           return url !== null ? [{ kind: 'web', url, quote: text(e['quote']) }] : [];
         }
-        case 'user': {
+        case 'user':
+        case 'record': {
           const said = text(e['text']);
-          return said !== null ? [{ kind: 'user', text: said }] : [];
+          return said !== null ? [{ kind: e['kind'], text: said }] : [];
         }
         default:
           return [];

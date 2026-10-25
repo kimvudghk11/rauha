@@ -49,6 +49,8 @@ function evidenceLabel(e: Evidence): string {
       return e.url;
     case 'user':
       return e.text === '사용자가 맞다고 확인함' ? '사용자가 확인' : '정한 해석';
+    case 'record':
+      return '기억된 결정';
   }
 }
 

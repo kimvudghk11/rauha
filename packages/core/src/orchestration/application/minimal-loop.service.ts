@@ -1,6 +1,6 @@
 import { DomainError } from '../../shared/domain-error.js';
 import { citedPaths, FactCheck, normalizeUrl, ReviewFindings, type CheckedClaim } from '../domain/fact-check.js';
-import type { ModelTier } from '../domain/team.js';
+import type { ModelTier, TeamRole } from '../domain/team.js';
 import { TestRun } from '../domain/test-run.js';
 import { RunScope } from '../domain/run-scope.js';
 import { Verification, type VerificationVerdict } from '../domain/verification.js';
@@ -32,7 +32,16 @@ const INTAKE_ATTEMPTS = 2;
 /** 상태 머신이 멈추게 되어 있지만, 무한 반복을 막는 마지막 안전장치. */
 const MAX_STEPS = 12;
 const toSettled = ({ question, chosen, confirmed }: SettledAssumptionChoice): SettledAssumption => ({ question, chosen, confirmed });
-const ROLE_LABEL: Readonly<Record<MemberRole, string>> = { intake: '팀장 접수', tester: '테스트 팀원', implementer: '구현 팀원', reviewer: '리뷰어' };
+/** 쓰기 권한(WritePolicy)에서 어느 팀 역할로 볼지. 접수·라우터·답변은 파일을 쓰지 않는 팀장과 같다. */
+const WRITE_ROLE: Readonly<Record<MemberRole, TeamRole>> = {
+  intake: 'lead',
+  router: 'lead',
+  answerer: 'lead',
+  tester: 'tester',
+  implementer: 'implementer',
+  reviewer: 'reviewer',
+};
+const ROLE_LABEL: Readonly<Record<MemberRole, string>> = { intake: '팀장 접수', tester: '테스트 팀원', implementer: '구현 팀원', reviewer: '리뷰어', router: '라우터', answerer: '답변 팀원' };
 
 export interface RunOutcome {
   readonly guide: ReadingGuideDto;
@@ -119,7 +128,7 @@ class RunTally {
   };
   costUsd = 0;
   calls = 0;
-  readonly attempts: Record<MemberRole, number> = { intake: 0, tester: 0, implementer: 0, reviewer: 0 };
+  readonly attempts: Record<MemberRole, number> = { intake: 0, tester: 0, implementer: 0, reviewer: 0, router: 0, answerer: 0 };
   readonly implementerTiers: ModelTier[] = [];
   /** 승격된 업무에서 구현 팀원을 부른 적이 있는지(모델 고정 실험과 구분하려고 모델 이름이 아니라 업무 상태로 센다) */
   escalated = false;
@@ -300,6 +309,7 @@ export class MinimalLoopService {
       passedTests: state.passed,
       fetched: p.tally.fetched,
       userStatements: [...p.assumptions.map((a) => a.chosen), ...state.corrections],
+      records: [],
     };
     let implementerCheck = FactCheck.of(implementerClaims, sources).withConfirmed(state.confirmed);
     const reviewCheck = FactCheck.of(reviewClaims, sources);
@@ -426,7 +436,7 @@ export class MinimalLoopService {
     tier?: ModelTier,
   ): Promise<unknown> {
     const setting = tier === undefined ? this.deps.roles.get(role) : this.deps.roles.forAssignment(role, tier);
-    const writeRole = role === 'intake' ? 'lead' : role;
+    const writeRole = WRITE_ROLE[role];
     const call: MemberCall = {
       role,
       setting,

@@ -3,7 +3,9 @@ export type Evidence =
   | { readonly kind: 'code'; readonly path: string; readonly line: number | null; readonly quote: string }
   | { readonly kind: 'test'; readonly name: string }
   | { readonly kind: 'web'; readonly url: string; readonly quote: string | null }
-  | { readonly kind: 'user'; readonly text: string };
+  | { readonly kind: 'user'; readonly text: string }
+  /** 기억에 남은 그때의 결정·해석 문장 */
+  | { readonly kind: 'record'; readonly text: string };
 
 /** decision: 구현 결정과 이유, fact: 코드에 넣은 외부 사실, review: 리뷰어 지적 */
 export type ClaimKind = 'decision' | 'fact' | 'review';
@@ -24,6 +26,8 @@ export interface EvidenceSources {
   readonly fetched: ReadonlyMap<string, string | null>;
   /** 확정된 가정과 사용자 정정 */
   readonly userStatements: readonly string[];
+  /** 기억에서 꺼내 팀원에게 넘긴 결정·해석 문장 */
+  readonly records: readonly string[];
 }
 
 export interface CheckedClaim extends Claim {
@@ -63,6 +67,8 @@ function isVerified(evidence: Evidence, sources: EvidenceSources): boolean {
     }
     case 'user':
       return evidence.text.trim() !== '' && sources.userStatements.some((statement) => contains(statement, evidence.text));
+    case 'record':
+      return evidence.text.trim() !== '' && sources.records.some((record) => contains(record, evidence.text));
   }
 }
 

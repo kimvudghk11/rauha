@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { DomainError } from '../../shared/domain-error.js';
 import type { MemberRole } from '../application/dto/role-settings.dto.js';
 
-const ROLES: readonly MemberRole[] = ['intake', 'tester', 'implementer', 'reviewer'];
+const ROLES: readonly MemberRole[] = ['intake', 'tester', 'implementer', 'reviewer', 'router', 'answerer'];
 
 /**
  * 팀원 시스템 프롬프트. 실험하기 쉽도록 코드가 아니라 파일(`prompts/*.md`)에서 읽는다.
