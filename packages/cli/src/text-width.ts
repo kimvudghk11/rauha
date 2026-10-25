@@ -15,16 +15,22 @@ export function displayWidth(text: string): number {
 /**
  * 색 코드가 섞인 글을 터미널 줄 단위로 접는다. 띄어쓰기에서 줄을 바꾸고, 줄보다 긴 단어만 글자 단위로 자른다.
  * 색 코드는 칸을 차지하지 않고 쪼개지 않는다(색 코드에는 띄어쓰기가 없다).
+ * 목록 줄("- ", "■ ", "1. ")이 접히면 다음 줄을 글머리 뒤에 맞춘다.
  */
 export function fitLines(text: string, width: number): string[] {
   const lines: string[] = [];
   for (const source of text.split('\n')) {
+    const marker = BULLET.exec(source.replace(/\x1b\[[0-9;]*m/g, ''))?.[0] ?? '';
+    const hang = displayWidth(marker) < width ? displayWidth(marker) : 0;
     let current = '';
     let used = 0;
+    /** 이 줄에서 글이 시작하는 칸. 접힌 줄은 들여쓰기만큼 차 있다. */
+    let start = 0;
     const breakLine = () => {
       lines.push(current.replace(/ +$/, ''));
-      current = '';
-      used = 0;
+      current = ' '.repeat(hang);
+      used = hang;
+      start = hang;
     };
     for (const piece of source.split(/( +)/)) {
       if (piece === '') continue;
@@ -36,13 +42,13 @@ export function fitLines(text: string, width: number): string[] {
       }
       // 줄 끝에 걸린 띄어쓰기는 줄바꿈으로 바꾼다.
       if (piece.startsWith(' ')) {
-        if (used > 0) breakLine();
+        if (used > start) breakLine();
         continue;
       }
-      if (used > 0) breakLine();
-      if (w <= width) {
-        current = piece;
-        used = w;
+      if (used > start) breakLine();
+      if (used + w <= width) {
+        current += piece;
+        used += w;
         continue;
       }
       for (const token of piece.split(/(\x1b\[[0-9;]*m)/)) {
@@ -52,7 +58,7 @@ export function fitLines(text: string, width: number): string[] {
         }
         for (const ch of token) {
           const cw = displayWidth(ch);
-          if (used + cw > width && used > 0) breakLine();
+          if (used + cw > width && used > start) breakLine();
           current += ch;
           used += cw;
         }
@@ -62,6 +68,9 @@ export function fitLines(text: string, width: number): string[] {
   }
   return lines;
 }
+
+/** 줄 앞 들여쓰기와 글머리. 접힌 줄을 이만큼 들여 쓴다. */
+const BULLET = /^ *(?:[-•*] |■ |▍ |\d+\. )?/;
 
 /** 너비를 넘는 줄을 접는다. 위험한 명령은 줄이지 않고 전부 보여 줘야 해서 '...' 대신 접는다. */
 export function wrapText(text: string, width: number): string[] {

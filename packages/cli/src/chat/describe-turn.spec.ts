@@ -12,6 +12,23 @@ describe('describeTurn', () => {
     expect(text).not.toContain('예전엔 round였다');
   });
 
+  it('답 글은 두 칸 들여 쓰고, ■ 제목 줄은 강조한다', () => {
+    const view = { highlight: (t: string) => `<${t}>` } as unknown as Parameters<typeof describeTurn>[1];
+    const lines = describeTurn({ kind: 'answer', answer: '요약입니다.\n\n■ 관리 주체\n- EC2는 직접 관리합니다.', checked: [], costUsd: 0, durationMs: 0 }, view);
+    expect(lines).toContain('  요약입니다.');
+    expect(lines).toContain('  <▍ 관리 주체>');
+    expect(lines).toContain('  - EC2는 직접 관리합니다.');
+  });
+
+  it('실제로 열어 확인한 웹 문서는 맨 아래 출처로 한 번씩 짧게 보여 준다', () => {
+    const web = (url: string) => ({ kind: 'fact' as const, text: 't', evidence: [], verified: [{ kind: 'web' as const, url, quote: 'q' }], isGuess: false });
+    const url = 'https://docs.aws.amazon.com/AmazonECS/latest/developerguide/launch_types.html';
+    const text = describeTurn({ kind: 'answer', answer: '답', checked: [web(url), web(url), claim('x', true)], costUsd: 0, durationMs: 0 }, null).join('\n');
+    expect(text).toContain('출처');
+    expect(text.match(/docs\.aws\.amazon\.com › /g)).toHaveLength(1);
+    expect(text).toContain('docs.aws.amazon.com › AmazonECS/latest/developerguide/launch_types.html');
+  });
+
   it('한도면 한도 문장을 그대로 보여 준다', () => {
     expect(describeTurn({ kind: 'blocked', reason: 'usage-limit', message: "You've hit your session limit · resets 9:40pm" }, null).join('\n')).toContain('resets 9:40pm');
   });

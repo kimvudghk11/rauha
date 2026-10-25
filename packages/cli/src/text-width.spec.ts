@@ -22,7 +22,12 @@ describe('fitLines', () => {
   });
 
   it('줄 앞 들여쓰기는 남긴다', () => {
-    expect(fitLines('  - 가나 다라', 9)).toEqual(['  - 가나', '다라']);
+    expect(fitLines('  - 가나 다라', 9)).toEqual(['  - 가나', '    다라']);
+  });
+
+  it('목록 줄이 접히면 다음 줄을 글머리 뒤에 맞춘다', () => {
+    expect(fitLines('  - 가나 다라 마바', 12)).toEqual(['  - 가나', '    다라', '    마바']);
+    expect(fitLines('■ 관리 주체가 다릅니다', 12)).toEqual(['■ 관리', '  주체가', '  다릅니다']);
   });
 
   it('빈 줄도 한 줄로 남는다', () => {
