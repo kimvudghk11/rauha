@@ -11,5 +11,7 @@ export default defineConfig({
   test: {
     include: ['packages/*/src/**/*.spec.ts'],
     environment: 'node',
+    // 인프라 테스트는 실제 git·셸을 여러 번 부른다. 병렬 실행으로 바쁠 때 5초 기본값을 넘기기도 한다.
+    testTimeout: 20_000,
   },
 });

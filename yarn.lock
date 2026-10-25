@@ -5,6 +5,99 @@ __metadata:
   version: 10
   cacheKey: 10c0
 
+"@anthropic-ai/claude-agent-sdk-darwin-arm64@npm:0.3.296":
+  version: 0.3.296
+  resolution: "@anthropic-ai/claude-agent-sdk-darwin-arm64@npm:0.3.296"
+  conditions: os=darwin & cpu=arm64
+  languageName: node
+  linkType: hard
+
+"@anthropic-ai/claude-agent-sdk-darwin-x64@npm:0.3.296":
+  version: 0.3.296
+  resolution: "@anthropic-ai/claude-agent-sdk-darwin-x64@npm:0.3.296"
+  conditions: os=darwin & cpu=x64
+  languageName: node
+  linkType: hard
+
+"@anthropic-ai/claude-agent-sdk-linux-arm64-musl@npm:0.3.296":
+  version: 0.3.296
+  resolution: "@anthropic-ai/claude-agent-sdk-linux-arm64-musl@npm:0.3.296"
+  conditions: os=linux & cpu=arm64 & libc=musl
+  languageName: node
+  linkType: hard
+
+"@anthropic-ai/claude-agent-sdk-linux-arm64@npm:0.3.296":
+  version: 0.3.296
+  resolution: "@anthropic-ai/claude-agent-sdk-linux-arm64@npm:0.3.296"
+  conditions: os=linux & cpu=arm64 & libc=glibc
+  languageName: node
+  linkType: hard
+
+"@anthropic-ai/claude-agent-sdk-linux-x64-musl@npm:0.3.296":
+  version: 0.3.296
+  resolution: "@anthropic-ai/claude-agent-sdk-linux-x64-musl@npm:0.3.296"
+  conditions: os=linux & cpu=x64 & libc=musl
+  languageName: node
+  linkType: hard
+
+"@anthropic-ai/claude-agent-sdk-linux-x64@npm:0.3.296":
+  version: 0.3.296
+  resolution: "@anthropic-ai/claude-agent-sdk-linux-x64@npm:0.3.296"
+  conditions: os=linux & cpu=x64 & libc=glibc
+  languageName: node
+  linkType: hard
+
+"@anthropic-ai/claude-agent-sdk-win32-arm64@npm:0.3.296":
+  version: 0.3.296
+  resolution: "@anthropic-ai/claude-agent-sdk-win32-arm64@npm:0.3.296"
+  conditions: os=win32 & cpu=arm64
+  languageName: node
+  linkType: hard
+
+"@anthropic-ai/claude-agent-sdk-win32-x64@npm:0.3.296":
+  version: 0.3.296
+  resolution: "@anthropic-ai/claude-agent-sdk-win32-x64@npm:0.3.296"
+  conditions: os=win32 & cpu=x64
+  languageName: node
+  linkType: hard
+
+"@anthropic-ai/claude-agent-sdk@npm:0.3.296":
+  version: 0.3.296
+  resolution: "@anthropic-ai/claude-agent-sdk@npm:0.3.296"
+  dependencies:
+    "@anthropic-ai/claude-agent-sdk-darwin-arm64": "npm:0.3.296"
+    "@anthropic-ai/claude-agent-sdk-darwin-x64": "npm:0.3.296"
+    "@anthropic-ai/claude-agent-sdk-linux-arm64": "npm:0.3.296"
+    "@anthropic-ai/claude-agent-sdk-linux-arm64-musl": "npm:0.3.296"
+    "@anthropic-ai/claude-agent-sdk-linux-x64": "npm:0.3.296"
+    "@anthropic-ai/claude-agent-sdk-linux-x64-musl": "npm:0.3.296"
+    "@anthropic-ai/claude-agent-sdk-win32-arm64": "npm:0.3.296"
+    "@anthropic-ai/claude-agent-sdk-win32-x64": "npm:0.3.296"
+  peerDependencies:
+    "@anthropic-ai/sdk": ">=0.93.0"
+    "@modelcontextprotocol/sdk": ^1.29.0
+    zod: ^4.0.0
+  dependenciesMeta:
+    "@anthropic-ai/claude-agent-sdk-darwin-arm64":
+      optional: true
+    "@anthropic-ai/claude-agent-sdk-darwin-x64":
+      optional: true
+    "@anthropic-ai/claude-agent-sdk-linux-arm64":
+      optional: true
+    "@anthropic-ai/claude-agent-sdk-linux-arm64-musl":
+      optional: true
+    "@anthropic-ai/claude-agent-sdk-linux-x64":
+      optional: true
+    "@anthropic-ai/claude-agent-sdk-linux-x64-musl":
+      optional: true
+    "@anthropic-ai/claude-agent-sdk-win32-arm64":
+      optional: true
+    "@anthropic-ai/claude-agent-sdk-win32-x64":
+      optional: true
+  checksum: 10c0/e1b792ea767a0a24de8a7109e06b94c5ddc445935b60b57bdf35c2dcbea0a0f2f1f5da191cbf9516fca4a5cd14eaabd3b3b35fddeee8b5355f4620df25dec452
+  languageName: node
+  linkType: hard
+
 "@esbuild/aix-ppc64@npm:0.28.2":
   version: 0.28.2
   resolution: "@esbuild/aix-ppc64@npm:0.28.2"
@@ -227,7 +320,9 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@rauha/core@workspace:packages/core"
   dependencies:
+    "@anthropic-ai/claude-agent-sdk": "npm:0.3.296"
     "@types/node": "npm:^22.20.5"
+    smol-toml: "npm:1.9.1"
     typescript: "npm:^5.9.3"
     vitest: "npm:^3.2.7"
   languageName: unknown
@@ -1010,6 +1105,13 @@ __metadata:
   version: 2.0.0
   resolution: "siginfo@npm:2.0.0"
   checksum: 10c0/3def8f8e516fbb34cb6ae415b07ccc5d9c018d85b4b8611e3dc6f8be6d1899f693a4382913c9ed51a06babb5201639d76453ab297d1c54a456544acf5c892e34
+  languageName: node
+  linkType: hard
+
+"smol-toml@npm:1.9.1":
+  version: 1.9.1
+  resolution: "smol-toml@npm:1.9.1"
+  checksum: 10c0/8acccf7bbc063f29405f58f5014ab39bf4eb9d7f0e000e5e3f140f7d4d6ead5696681a7c15260d1f2910213012c0af43b31a05bf94f704b0bdf39989fba08c02
   languageName: node
   linkType: hard
 
