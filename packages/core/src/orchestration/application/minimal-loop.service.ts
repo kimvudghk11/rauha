@@ -24,6 +24,8 @@ import type {
   TeamMemberPort,
   UserPort,
   WorkspacePort,
+  WorkspaceSnapshot,
+  FileChange,
 } from './ports.js';
 
 const INTAKE_ATTEMPTS = 2;
@@ -47,6 +49,10 @@ export interface RunOutcome {
   /** 마지막 구현 호출의 모델. 구현까지 못 갔으면 null */
   readonly finalTier: ModelTier | null;
   readonly facts: FactsSummary;
+  /** 이번 요청 시작 스냅숏 대비 바뀐 파일 */
+  readonly changedInRun: readonly FileChange[];
+  /** 끝난 뒤 스냅숏(HEAD 대비 바뀐 파일 → 내용 값). 대화 세션이 다음 요청의 carried로 쓴다. */
+  readonly snapshotAfter: ReadonlyMap<string, string>;
   readonly logDir: string;
 }
 
@@ -58,6 +64,8 @@ class UsageLimitReached extends Error {}
 interface RunProgress {
   title: string;
   assumptions: readonly SettledAssumption[];
+  /** 요청 시작 스냅숏. 바뀐 파일은 HEAD가 아니라 이것과 비교한다(세션에서 앞 요청이 남긴 변경을 빼려고). */
+  readonly start: WorkspaceSnapshot;
 }
 
 /** 리뷰 단계를 오가며 쌓이는 기록. 판정은 FactCheck·ReviewFindings가 한다. */
@@ -96,6 +104,8 @@ export interface MinimalLoopDeps {
   readonly today: () => string;
   readonly badge: string;
   readonly requireClean: boolean;
+  /** 대화 세션에서 앞 요청까지 rauha가 남긴 파일 → 내용 값. 그대로면 그 위에서 이어 일한다. */
+  readonly carried?: ReadonlyMap<string, string>;
   /** 1차 구현 → 리뷰어 재검증·2차 구현 → 사실 점검. false(--quick)면 검증 통과로 완료. */
   readonly threePass: boolean;
 }
@@ -139,14 +149,17 @@ export class MinimalLoopService {
 
   async run(request: string): Promise<RunOutcome> {
     const started = this.deps.now();
-    WorkspaceState.of(await this.deps.workspace.dirtyFiles()).assertReady(this.deps.requireClean);
+    const { workspace } = this.deps;
+    const dirty = await workspace.dirtyFiles();
+    const start = dirty === null ? { files: new Map<string, string>() } : await workspace.snapshot();
+    WorkspaceState.of(dirty, this.deps.carried, start.files).assertReady(this.deps.requireClean);
     const tally = new RunTally();
-    const current: RunProgress = { title: request.slice(0, 60), assumptions: [] };
+    const current: RunProgress = { title: request.slice(0, 60), assumptions: [], start };
     try {
       return await this.execute(request, tally, started, current);
     } catch (error) {
       if (!(error instanceof UsageLimitReached)) throw error;
-      return this.finish({ tally, started, title: current.title, status: 'stopped', stopReason: 'usage-limit', assumptions: current.assumptions });
+      return this.finish({ tally, started, start: current.start, title: current.title, status: 'stopped', stopReason: 'usage-limit', assumptions: current.assumptions });
     }
   }
 
@@ -158,7 +171,7 @@ export class MinimalLoopService {
     await log.recordChecks('baseline', baselineResults);
 
     if (intake === null) {
-      return this.finish({ tally, started, title: request.slice(0, 60), status: 'stopped', stopReason: 'intake-failed', assumptions: [] });
+      return this.finish({ tally, started, start: current.start, title: request.slice(0, 60), status: 'stopped', stopReason: 'intake-failed', assumptions: [] });
     }
     const { dto, order, assumptions } = intake;
     current.title = order.title;
@@ -177,14 +190,14 @@ export class MinimalLoopService {
     for (let step = 0; step < MAX_STEPS; step += 1) {
       const decision = scope.decide(order);
       if (decision.kind === 'complete') {
-        return this.finish({ tally, started, title: order.title, status: 'complete', stopReason: null, verdict, explanation, assumptions, facts: review.summary() });
+        return this.finish({ tally, started, start: current.start, title: order.title, status: 'complete', stopReason: null, verdict, explanation, assumptions, facts: review.summary() });
       }
       if (decision.kind === 'stop') {
-        return this.finish({ tally, started, title: order.title, status: 'stopped', stopReason: decision.reason, verdict, explanation, assumptions, facts: review.summary() });
+        return this.finish({ tally, started, start: current.start, title: order.title, status: 'stopped', stopReason: decision.reason, verdict, explanation, assumptions, facts: review.summary() });
       }
 
       if (decision.assignment.role === 'reviewer') {
-        const reviewed = await this.review({ brief, order, lockedTests, explanation, tally, assumptions, state: review, tier: decision.assignment.tier });
+        const reviewed = await this.review({ brief, order, lockedTests, explanation, tally, assumptions, state: review, tier: decision.assignment.tier, start: current.start });
         order.recordReview(reviewed);
         continue;
       }
@@ -195,7 +208,7 @@ export class MinimalLoopService {
           .filter((s) => s !== '')
           .join('\n\n');
         await this.call('tester', message, TESTER_REPORT_SCHEMA, order, tally, decision.assignment.tier);
-        const result = await this.judgeRed(order);
+        const result = await this.judgeRed(order, current.start);
         await log.recordChecks(`red-${attempt}`, result.checks);
         lockedTests = result.testFiles;
         redFeedback = result.feedback;
@@ -243,7 +256,7 @@ export class MinimalLoopService {
       order.recordGreen(verdict.toTestRun(locked.run), verdict.toFailureNote());
       lastFailure = verdict.failureDetail();
     }
-    return this.finish({ tally, started, title: order.title, status: 'stopped', stopReason: 'halted', verdict, explanation, assumptions, facts: review.summary() });
+    return this.finish({ tally, started, start: current.start, title: order.title, status: 'stopped', stopReason: 'halted', verdict, explanation, assumptions, facts: review.summary() });
   }
 
   // ── 재검증과 사실 점검 ────────────────────────────────────
@@ -260,12 +273,13 @@ export class MinimalLoopService {
     tally: RunTally;
     assumptions: readonly SettledAssumption[];
     state: ReviewState;
+    start: WorkspaceSnapshot;
     tier: ModelTier;
   }): Promise<'pass' | 'changes'> {
     const { workspace, user } = this.deps;
     const state = p.state;
     state.rounds += 1;
-    const changed = (await workspace.changesSinceHead()).map((c) => `${c.kind} ${c.path}`);
+    const changed = workspace.changesBetween(p.start, await workspace.snapshot()).map((c) => `${c.kind} ${c.path}`);
     const report = { decisions: p.explanation?.decisions ?? [], facts: p.explanation?.facts ?? [] };
     const message = [
       p.brief,
@@ -373,8 +387,9 @@ export class MinimalLoopService {
 
   // ── Red 판정 ──────────────────────────────────────────────
 
-  private async judgeRed(order: WorkOrder): Promise<{ testFiles: string[]; feedback: string | null; checks: ReturnType<typeof Verification.lockedTests>[] }> {
-    const changes = await this.deps.workspace.changesSinceHead();
+  private async judgeRed(order: WorkOrder, start: WorkspaceSnapshot): Promise<{ testFiles: string[]; feedback: string | null; checks: ReturnType<typeof Verification.lockedTests>[] }> {
+    const { workspace } = this.deps;
+    const changes = workspace.changesBetween(start, await workspace.snapshot());
     const paths = changes.map((c) => c.path);
     const testFiles = changes.filter((c) => c.kind !== 'deleted' && WritePolicy.isTestFile(c.path)).map((c) => c.path);
     const invalid = TestRun.of({ passed: 0, failed: 0 });
@@ -445,6 +460,7 @@ export class MinimalLoopService {
   private async finish(props: {
     tally: RunTally;
     started: number;
+    start: WorkspaceSnapshot;
     title: string;
     status: 'complete' | 'stopped';
     stopReason: RunStopReason | null;
@@ -454,6 +470,8 @@ export class MinimalLoopService {
     facts?: FactsSummary;
   }): Promise<RunOutcome> {
     const facts = props.facts ?? new ReviewState().summary();
+    const after = await this.deps.workspace.snapshot();
+    const changedInRun = this.deps.workspace.changesBetween(props.start, after);
     const { tally } = props;
     const durationMs = this.deps.now() - props.started;
     const guideProps = {
@@ -466,7 +484,7 @@ export class MinimalLoopService {
       tierCalls: { haiku: tally.usage.haiku.calls, sonnet: tally.usage.sonnet.calls, opus: tally.usage.opus.calls },
       explanation: props.explanation ?? null,
       verdict: props.verdict ?? null,
-      changes: await this.deps.workspace.changesSinceHead(),
+      changes: changedInRun,
       assumptions: props.assumptions,
       facts,
     };
@@ -496,6 +514,8 @@ export class MinimalLoopService {
       escalated,
       finalTier,
       facts,
+      changedInRun,
+      snapshotAfter: after.files,
       logDir,
     };
   }

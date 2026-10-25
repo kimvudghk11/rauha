@@ -176,9 +176,11 @@ function service(
   user: UserPort = new FakeUser(false),
   progress: ProgressPort = { step: () => {} },
   threePass = false,
+  carried?: ReadonlyMap<string, string>,
 ) {
   return new MinimalLoopService({
     threePass,
+    ...(carried !== undefined ? { carried } : {}),
     team,
     workspace: ws,
     checks,
@@ -267,6 +269,17 @@ describe('MinimalLoopService', () => {
     const team = new FakeTeam(ws, { intake: [() => intake()], tester: [writeTest], implementer: [implement] });
     const outcome = await service(ws, team, new FakeChecks(ws)).run('Money에 할인 추가');
     expect(outcome).toMatchObject({ escalated: false, finalTier: 'haiku' });
+  });
+
+  it('앞 요청이 남긴 미커밋 변경은 이번 요청의 테스트 팀원 변경으로 세지 않는다', async () => {
+    const ws = new FakeWorkspace(['src/cart.ts']);
+    ws.files.set('src/cart.ts', 'prev');
+    const team = new FakeTeam(ws, { intake: [() => intake()], tester: [writeTest], implementer: [implement] });
+    const outcome = await service(ws, team, new FakeChecks(ws), new FakeLog(), new FakeUser(false), { step: () => {} }, false, new Map([['src/cart.ts', 'prev']])).run('Money에 할인 추가');
+    expect(outcome.status).toBe('complete');
+    expect(outcome.changedInRun.map((c) => c.path).sort()).toEqual(['src/money.spec.ts', 'src/money.ts']);
+    expect(outcome.guide.toMarkdown()).not.toContain('src/cart.ts');
+    expect(outcome.snapshotAfter.get('src/cart.ts')).toBe('prev');
   });
 
   it('구독 사용 한도에 걸리면 더 부르지 않고 바로 멈춘다', async () => {

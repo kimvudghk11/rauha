@@ -20,3 +20,20 @@ describe('WorkspaceState', () => {
     expect(() => WorkspaceState.of(['a']).assertReady(false)).not.toThrow();
   });
 });
+
+describe('WorkspaceState — 대화 세션에서 이어 일하기', () => {
+  const carried = new Map([['src/a.ts', 'h1']]);
+
+  it('세션 중 rauha가 남긴 파일은 그대로면 시작을 막지 않는다', () => {
+    expect(() => WorkspaceState.of(['src/a.ts'], carried, new Map([['src/a.ts', 'h1']])).assertReady(true)).not.toThrow();
+  });
+
+  it('rauha가 남긴 파일을 직접 고쳤으면 알린다', () => {
+    expect(() => WorkspaceState.of(['src/a.ts'], carried, new Map([['src/a.ts', 'h2']])).assertReady(true)).toThrow(/직접 고친/);
+  });
+
+  it('세션 전부터 있던 변경은 막는다', () => {
+    const current = new Map([['src/a.ts', 'h1'], ['src/b.ts', 'x']]);
+    expect(() => WorkspaceState.of(['src/a.ts', 'src/b.ts'], carried, current).assertReady(true)).toThrow(/src\/b\.ts/);
+  });
+});
