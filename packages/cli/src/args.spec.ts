@@ -15,3 +15,15 @@ describe('parseArgs', () => {
     expect(parseArgs(['-p', '고쳐줘'])).toEqual({ kind: 'chat', profile: null, prompt: '고쳐줘' });
   });
 });
+
+describe('parseArgs — 1단계 명령', () => {
+  it('login 과 --profile', () => {
+    expect(parseArgs(['login'])).toEqual({ kind: 'login', profile: null });
+    expect(parseArgs(['login', '--profile', 'work'])).toEqual({ kind: 'login', profile: 'work' });
+  });
+
+  it('bench 와 --only', () => {
+    expect(parseArgs(['bench'])).toEqual({ kind: 'bench', profile: null, only: null });
+    expect(parseArgs(['bench', '--only', 'discount'])).toEqual({ kind: 'bench', profile: null, only: 'discount' });
+  });
+});
