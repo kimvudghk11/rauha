@@ -31,7 +31,11 @@ export class PromptLibrary {
       }
     };
     const common = await read('_common.md');
-    const entries = await Promise.all(ROLES.map(async (role) => [role, `${common}\n\n${await read(`${role}.md`)}`] as const));
+    // 동시에 읽되, 없는 파일은 역할 순서상 첫 번째 것을 알려 준다(어느 읽기가 먼저 끝나는지에 따라 메시지가 바뀌지 않게).
+    const settled = await Promise.allSettled(ROLES.map((role) => read(`${role}.md`)));
+    const missing = settled.find((s): s is PromiseRejectedResult => s.status === 'rejected');
+    if (missing !== undefined) throw missing.reason;
+    const entries = ROLES.map((role, i) => [role, `${common}\n\n${(settled[i] as PromiseFulfilledResult<string>).value}`] as const);
     const prompts = Object.fromEntries(entries) as Record<MemberRole, string>;
     const hash = createHash('sha256').update(JSON.stringify(entries)).digest('hex').slice(0, 8);
     return new PromptLibrary(prompts, hash);
