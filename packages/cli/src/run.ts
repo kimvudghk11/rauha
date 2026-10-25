@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import {
   AgentSdkTeamMember,
@@ -5,8 +6,11 @@ import {
   GitWorkspace,
   MinimalLoopService,
   NodeChecks,
+  projectMemoryFile,
   PromptLibrary,
   RoleSettingsDto,
+  SqliteMemory,
+  workMemoryFrom,
   type Profile,
   type ProgressPort,
   type RunOutcome,
@@ -44,6 +48,34 @@ function definedEnv(env: NodeJS.ProcessEnv): Record<string, string> {
 function localDate(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/** 기억은 git 저장소 최상위마다 하나. 하위 폴더에서 실행해도 같은 프로젝트 기억을 쓴다. */
+function projectRoot(dir: string): string {
+  try {
+    return execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: dir, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim() || dir;
+  } catch {
+    return dir;
+  }
+}
+
+/** 프로젝트 기억 저장소를 연다. 쓰고 나면 close 한다. */
+export function openMemory(ctx: Pick<RunContext, 'root' | 'profile' | 'home'>): SqliteMemory {
+  return SqliteMemory.open(projectMemoryFile(ctx.profile.memoryDir(ctx.home), projectRoot(ctx.root)));
+}
+
+/** 한 번 실행(-p)한 작업도 기억에 남긴다. 실패해도 실행 결과는 그대로 두고 한 줄로 알린다. */
+export async function rememberRun(outcome: RunOutcome, request: string, ctx: Pick<RunContext, 'root' | 'profile' | 'home'>, log: (line: string) => void): Promise<void> {
+  try {
+    const memory = openMemory(ctx);
+    try {
+      await memory.save(workMemoryFrom(outcome, { id: randomUUID(), at: new Date().toISOString(), request, extendsWork: null }));
+    } finally {
+      memory.close();
+    }
+  } catch (error) {
+    log(`기억에 남기지 못했습니다: ${(error as Error).message}`);
+  }
 }
 
 /** 어댑터를 조립해서 최소 루프를 한 번 돌린다. */

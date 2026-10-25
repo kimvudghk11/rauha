@@ -9,7 +9,7 @@ import { terminalAsker, terminalUser } from './ask.js';
 import { runBench } from './bench.js';
 import { LiveLine } from './live-line.js';
 import { mascotView } from './mascot.js';
-import { runOnce } from './run.js';
+import { rememberRun, runOnce } from './run.js';
 
 const VERSION = '0.0.0';
 
@@ -141,6 +141,7 @@ async function run(argv: readonly string[]): Promise<number> {
         requireClean: true,
         threePass: !command.quick,
       }).finally(() => live?.stop());
+      await rememberRun(outcome, command.prompt, { root: workDir, profile, home: homedir() }, log);
       if (view) log(`\n${view.finale(outcome.status)}`);
       process.stdout.write(`\n${process.stdout.isTTY ? outcome.guide.toTerminal(workDir) : outcome.guide.toMarkdown()}\n`);
       return outcome.status === 'complete' ? 0 : 2;

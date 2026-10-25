@@ -92,5 +92,5 @@ export {
 } from './memory/domain/work-memory.js';
 export type { MemoryPort } from './memory/application/memory.port.js';
 export { projectMemoryFile, SqliteMemory } from './memory/infrastructure/sqlite-memory.js';
-export { ChatSession, type ChatSessionDeps, type TurnOutcome } from './orchestration/application/chat-session.js';
+export { ChatSession, workMemoryFrom, type ChatSessionDeps, type TurnOutcome } from './orchestration/application/chat-session.js';
 export type { RunContextBlocks } from './orchestration/application/minimal-loop.service.js';

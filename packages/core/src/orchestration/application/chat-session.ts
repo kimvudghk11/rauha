@@ -1,5 +1,5 @@
 import type { MemoryPort } from '../../memory/application/memory.port.js';
-import { recallBlock, WorkMemory, type Recall } from '../../memory/domain/work-memory.js';
+import { recallBlock, WorkMemory, type MemoryEntry, type Recall } from '../../memory/domain/work-memory.js';
 import { citedPaths, FactCheck, normalizeUrl, type CheckedClaim } from '../domain/fact-check.js';
 import type { ModelTier } from '../domain/team.js';
 import { AnswerDto } from './dto/answer.dto.js';
@@ -37,6 +37,22 @@ export interface ChatSessionDeps {
 interface Turn {
   readonly input: string;
   readonly result: string;
+}
+
+/** 끝난 실행 → 기억 그래프 점과 선. 대화 세션과 한 번 실행(-p)이 같은 규칙으로 남긴다. */
+export function workMemoryFrom(outcome: RunOutcome, p: { id: string; at: string; request: string; extendsWork: string | null }): MemoryEntry {
+  return WorkMemory.fromWork({
+    id: p.id,
+    at: p.at,
+    title: outcome.title,
+    request: p.request,
+    status: outcome.status,
+    changedFiles: outcome.changedInRun.filter((c) => c.kind !== 'deleted').map((c) => c.path),
+    lockedTests: outcome.lockedTests,
+    decisions: outcome.facts.checked.filter((c) => c.kind === 'decision').map((c) => ({ text: c.text, verified: !c.isGuess, rejected: null })),
+    assumptions: outcome.assumptions.map((a) => ({ question: a.question, chosen: a.chosen })),
+    extendsWork: p.extendsWork,
+  });
 }
 
 /**
@@ -88,23 +104,7 @@ export class ChatSession {
     const touched = new Set([...this.carried.keys(), ...outcome.changedInRun.map((c) => c.path)]);
     this.carried = new Map([...touched].filter((p) => outcome.snapshotAfter.has(p)).map((p) => [p, outcome.snapshotAfter.get(p)!]));
 
-    const checked = new Map(outcome.facts.checked.map((c) => [c.text, c]));
-    await this.deps.memory.save(
-      WorkMemory.fromWork({
-        id: this.deps.newId(),
-        at: this.at(),
-        title: outcome.title,
-        request: input,
-        status: outcome.status,
-        changedFiles: outcome.changedInRun.filter((c) => c.kind !== 'deleted').map((c) => c.path),
-        lockedTests: outcome.lockedTests,
-        decisions: [...checked.values()]
-          .filter((c) => c.kind === 'decision')
-          .map((c) => ({ text: c.text, verified: !c.isGuess, rejected: null })),
-        assumptions: outcome.assumptions.map((a) => ({ question: a.question, chosen: a.chosen })),
-        extendsWork: past?.work.id ?? null,
-      }),
-    );
+    await this.deps.memory.save(workMemoryFrom(outcome, { id: this.deps.newId(), at: this.at(), request: input, extendsWork: past?.work.id ?? null }));
     this.lastTitle = outcome.title;
     this.turns.push({ input, result: `작업 "${outcome.title}" ${outcome.status === 'complete' ? '완료' : `멈춤(${outcome.stopReason})`}, 바뀐 파일 ${outcome.changedInRun.map((c) => c.path).join(', ') || '없음'}` });
     return { kind: 'work', outcome };
