@@ -109,9 +109,10 @@ async function run(argv: readonly string[]): Promise<number> {
         log('rauha가 저장소에서 실행 중이 아니라 갱신할 수 없어요. 저장소에서 yarn rauha update를 실행해 주세요.');
         return 1;
       }
-      log('최신 버전으로 갱신해요…');
+      log('새 버전이 있는지 확인해요…');
       const result = await runUpdate(repoRoot(), nodeExec(), log);
       if (!result.ok) return 1;
+      if (!result.built) return 0;
       log('다시 실행할게요.\n');
       // 방금 빌드한 코드로 뜨도록 새 프로세스로 띄운다. 'update'만 빼고 나머지 인자는 그대로 넘긴다.
       const rest = argv.filter((arg, i) => !(arg === 'update' && argv.indexOf('update') === i));

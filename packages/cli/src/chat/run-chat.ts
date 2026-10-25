@@ -174,10 +174,10 @@ export async function runChat(options: ChatOptions): Promise<number> {
             return;
           }
           store.setBusy(true);
-          store.print('\n  최신 버전으로 갱신해요…');
+          store.print('\n  새 버전이 있는지 확인해요…');
           const result = await runUpdate(repoRoot(), nodeExec(), (line) => store.print(line));
           store.setBusy(false);
-          if (!result.ok) return;
+          if (!result.ok || !result.built) return;
           // 방금 빌드한 코드로 뜨도록, 이 화면을 닫고 같은 터미널에서 새 프로세스로 다시 띄운다(지난 작업 기억은 파일에 있어 남는다).
           store.print('  다시 띄울게요.');
           restartAfterExit = true;

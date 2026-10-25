@@ -46,44 +46,44 @@ describe('runUpdate', () => {
     expect(calls.indexOf('yarn build')).toBeGreaterThan(calls.indexOf('yarn install'));
   });
 
-  it('이미 최신이어도 빌드한다 (같은 폴더에서 고친 코드가 아직 빌드 전일 수 있다)', async () => {
+  it('이미 최신이면 빌드도 다시 띄우기도 하지 않는다', async () => {
     const { exec, calls } = fakeExec({ ...base(), 'git rev-list --count HEAD..@{u}': { stdout: '0\n' } });
     const log: string[] = [];
     const result = await runUpdate('E:/rauha', exec, (l) => log.push(l));
-    expect(result).toMatchObject({ ok: true, pulled: 0, built: true });
+    expect(result).toMatchObject({ ok: true, pulled: 0, built: false });
     expect(calls).not.toContain('git pull --ff-only');
-    expect(calls).toContain('yarn build');
+    expect(calls).not.toContain('yarn build');
     expect(log.join('\n')).toContain('이미 최신');
   });
 
-  it('바뀐 파일이 있으면 내려받지 않고 알린 뒤 빌드만 한다 (작업 중인 파일을 건드리지 않는다)', async () => {
+  it('바뀐 파일이 있어 내려받지 못하면 알리기만 한다 (작업 중인 파일을 건드리지 않는다)', async () => {
     const { exec, calls } = fakeExec({ ...base(), 'git status --porcelain --untracked-files=no': { stdout: ' M packages/cli/src/a.ts\n' }, 'git rev-list --count HEAD..@{u}': { stdout: '2\n' } });
     const log: string[] = [];
     const result = await runUpdate('E:/rauha', exec, (l) => log.push(l));
-    expect(result).toMatchObject({ ok: true, pulled: 0, built: true });
+    expect(result).toMatchObject({ ok: true, pulled: 0, built: false });
     expect(calls).not.toContain('git pull --ff-only');
+    expect(calls).not.toContain('yarn build');
     expect(log.join('\n')).toContain('바뀐 파일이 있어');
   });
 
-  it('GitHub에 연결하지 못해도 알리고 빌드는 한다', async () => {
+  it('GitHub에 연결하지 못하면 알리기만 한다', async () => {
     const { exec, calls } = fakeExec({ ...base(), 'git fetch --quiet': { code: 128, stderr: 'unable to access' } });
     const log: string[] = [];
     const result = await runUpdate('E:/rauha', exec, (l) => log.push(l));
-    expect(result.ok).toBe(true);
-    expect(calls).not.toContain('git pull --ff-only');
-    expect(calls).toContain('yarn build');
+    expect(result).toMatchObject({ ok: true, built: false });
+    expect(calls).not.toContain('yarn build');
     expect(log.join('\n')).toContain('연결하지 못');
   });
 
-  it('git 저장소가 아니면 내려받기를 건너뛰고 빌드만 한다', async () => {
+  it('git 저장소가 아니면 아무것도 하지 않는다', async () => {
     const { exec, calls } = fakeExec({ 'git rev-parse --is-inside-work-tree': { code: 128, stderr: 'not a git repository' } });
     const result = await runUpdate('E:/rauha', exec, () => {});
-    expect(result).toMatchObject({ ok: true, pulled: 0, built: true });
-    expect(calls).toEqual(['git rev-parse --is-inside-work-tree', 'yarn build']);
+    expect(result).toMatchObject({ ok: true, pulled: 0, built: false });
+    expect(calls).toEqual(['git rev-parse --is-inside-work-tree']);
   });
 
   it('빌드가 실패하면 실패로 끝내고 오류의 마지막 줄을 보여 준다 (그 상태로 다시 띄우지 않게)', async () => {
-    const { exec } = fakeExec({ ...base(), 'git rev-list --count HEAD..@{u}': { stdout: '0\n' }, 'yarn build': { code: 2, stdout: 'a\nb\nerror TS2322: 형식이 맞지 않습니다\n' } });
+    const { exec } = fakeExec({ ...base(), 'git rev-list --count HEAD..@{u}': { stdout: '1\n' }, 'git diff --name-only aaa bbb': { stdout: 'a.ts\n' }, 'yarn build': { code: 2, stdout: 'a\nb\nerror TS2322: 형식이 맞지 않습니다\n' } });
     const log: string[] = [];
     const result = await runUpdate('E:/rauha', exec, (l) => log.push(l));
     expect(result).toMatchObject({ ok: false, built: false });

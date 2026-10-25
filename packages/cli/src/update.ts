@@ -7,7 +7,7 @@ import { join } from 'node:path';
 export type Exec = (command: string, args: readonly string[], cwd: string) => Promise<{ code: number; stdout: string; stderr: string }>;
 
 export interface UpdateResult {
-  /** false면 빌드까지 마치지 못했다. 이때는 다시 띄우지 않는다. */
+  /** false면 갱신하다 실패했다. 이때는 다시 띄우지 않는다. */
   readonly ok: boolean;
   /** 내려받은 새 커밋 수(내려받지 않았으면 0) */
   readonly pulled: number;
@@ -40,7 +40,7 @@ export function isRauhaRepo(readRootPackage: () => string = () => readFileSync(j
 /**
  * 최신 버전으로 갱신한다: 새 커밋 내려받기(빨리감기만) → 의존성이 바뀌었으면 설치 → 빌드.
  * - 작업 중인 파일(추적 중인 파일의 변경)이 있으면 내려받지 않는다. 덮어쓰거나 합치지 않는다.
- * - GitHub에 연결하지 못하거나 저장소가 아니어도 빌드는 한다(같은 폴더에서 고친 코드가 아직 빌드 전일 수 있다).
+ * - 새 커밋을 내려받았을 때만 빌드한다(`built`). 이미 최신이거나 내려받지 못했으면 바뀐 게 없으니 다시 띄울 필요도 없다.
  * - 설치나 빌드가 실패하면 실패로 끝낸다. 깨진 빌드로 다시 띄우지 않게.
  */
 export async function runUpdate(root: string, exec: Exec, log: (line: string) => void): Promise<UpdateResult> {
@@ -51,7 +51,7 @@ export async function runUpdate(root: string, exec: Exec, log: (line: string) =>
   if (inRepo) {
     const fetched = await exec('git', ['fetch', '--quiet'], root);
     if (fetched.code !== 0) {
-      log('  GitHub에 연결하지 못해 새 커밋은 확인하지 못했어요. 지금 있는 코드로 빌드할게요.');
+      log('  GitHub에 연결하지 못해 새 커밋을 확인하지 못했어요.');
     } else {
       const behind = Number((await exec('git', ['rev-list', '--count', 'HEAD..@{u}'], root)).stdout.trim()) || 0;
       const dirty = (await exec('git', ['status', '--porcelain', '--untracked-files=no'], root)).stdout.trim() !== '';
@@ -82,6 +82,8 @@ export async function runUpdate(root: string, exec: Exec, log: (line: string) =>
       }
     }
   }
+
+  if (pulled === 0) return { ok: true, pulled, installed, built: false };
 
   log('  빌드하는 중이에요…');
   const build = await exec('yarn', ['build'], root);
