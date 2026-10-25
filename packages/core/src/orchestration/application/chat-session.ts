@@ -34,6 +34,8 @@ export interface ChatSessionDeps {
   readonly now: () => number;
   readonly newId: () => string;
   readonly today: () => string;
+  /** 지금 날짜와 시각을 사람이 읽는 글로(시간대 포함). 컴퓨터 시계에서 읽은 값이라 답변 팀원이 그대로 쓴다. */
+  readonly nowText: () => string;
 }
 
 interface Turn {
@@ -121,7 +123,7 @@ export class ChatSession {
     const block = recallBlock(recalls, MEMORY_CHARS);
     const result = await this.member(
       'answerer',
-      [`<today>${this.deps.today()}</today>`, block !== '' ? `<memory>\n기억된 지난 작업과 그때의 결정입니다.\n${block}\n</memory>` : '', `<question>\n${input}\n</question>`],
+      [`<today>${this.deps.today()}</today>`, `<now>${this.deps.nowText()}</now>`, block !== '' ? `<memory>\n기억된 지난 작업과 그때의 결정입니다.\n${block}\n</memory>` : '', `<question>\n${input}\n</question>`],
       ANSWER_SCHEMA,
     );
     if (result.blocked) return { kind: 'blocked', ...result.blocked };

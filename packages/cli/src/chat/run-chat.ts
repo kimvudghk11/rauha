@@ -114,6 +114,7 @@ export async function runChat(options: ChatOptions): Promise<number> {
     now: Date.now,
     newId: () => crypto.randomUUID(),
     today: () => new Date().toISOString().slice(0, 10),
+    nowText: () => `${new Date().toLocaleString('ko-KR', { dateStyle: 'full', timeStyle: 'short' })} (${Intl.DateTimeFormat().resolvedOptions().timeZone})`,
   });
 
   const screen = parkingStream(process.stderr);

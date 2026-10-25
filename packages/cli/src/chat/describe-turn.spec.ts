@@ -31,6 +31,12 @@ describe('describeTurn', () => {
     expect(text).toContain('docs.aws.amazon.com › AmazonECS/latest/developerguide/launch_types.html');
   });
 
+  it('확인된 근거가 없으면 "근거 확인됨 0개"를 쓰지 않고 걸린 시간만 쓴다', () => {
+    const text = describeTurn({ kind: 'answer', answer: '오후 11:40입니다.', checked: [claim('x', true)], costUsd: 0, durationMs: 5000 }, null).join('\n');
+    expect(text).not.toContain('근거 확인됨');
+    expect(text).toContain('5초');
+  });
+
   it('한도면 한도 문장을 그대로 보여 준다', () => {
     expect(describeTurn({ kind: 'blocked', reason: 'usage-limit', message: "You've hit your session limit · resets 9:40pm" }, null).join('\n')).toContain('resets 9:40pm');
   });

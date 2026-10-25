@@ -51,7 +51,8 @@ export function describeTurn(turn: TurnOutcome, view: MascotView | null): Printa
         ...turn.answer.split('\n').map((line) => (line === '' ? '' : `  ${titled(line, view)}`)),
         '',
         ...(sources.length > 0 ? ['  출처', ...sources.map((s) => `  - ${s}`), ''] : []),
-        `  근거 확인됨 ${verified.length}개 · ${formatElapsed(turn.durationMs)}`,
+        // 확인된 근거가 없으면 "0개"를 쓰지 않는다(날짜·시각처럼 근거가 필요 없는 답에서 불안만 준다).
+        `  ${verified.length > 0 ? `근거 확인됨 ${verified.length}개 · ` : ''}${formatElapsed(turn.durationMs)}`,
         '',
       ];
     }

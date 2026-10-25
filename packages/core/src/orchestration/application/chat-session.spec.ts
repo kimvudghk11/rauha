@@ -136,12 +136,20 @@ function session(p: { team: FakeTeam; loops?: FakeLoops; memory?: FakeMemory; us
     now: () => (clock += 60_000),
     newId: () => `id${(id += 1)}`,
     today: () => '2026-10-25',
+    nowText: () => '2026년 10월 25일 일요일 오후 11:40 (Asia/Seoul)',
   });
 }
 
 // ── 테스트 ───────────────────────────────────────────────────
 
 describe('ChatSession — 질문', () => {
+  it('답변 팀원에게 지금 날짜와 시각을 알려 준다 (시계를 못 읽는다며 답을 피하지 않게)', async () => {
+    const team = new FakeTeam({ router: [route('question')], answerer: [() => ({ answer: '오후 11:40입니다.', claims: [{ text: '지금은 오후 11:40', evidence: [] }] })] });
+    await session({ team }).handle('지금은 몇시야?');
+    const message = team.calls.find((c) => c.role === 'answerer')!.message;
+    expect(message).toContain('<now>2026년 10월 25일 일요일 오후 11:40 (Asia/Seoul)</now>');
+  });
+
   it('라우터·답변 팀원은 누구인지·어떤 모델인지 없이 그냥 작업 중이라고 알린다', async () => {
     const team = new FakeTeam({ router: [route('question')], answerer: [() => ({ answer: '네.', claims: [{ text: 'a', evidence: [] }] })] });
     const steps: string[] = [];
