@@ -1,0 +1,121 @@
+import { execFile } from 'node:child_process';
+import { join } from 'node:path';
+import { promisify } from 'node:util';
+import type { FileChange, WorkspacePort, WorkspaceSnapshot } from '../application/ports.js';
+
+const run = promisify(execFile);
+const IGNORED = /(^|\/)node_modules\//;
+/** 접수 팀장에게 넘기는 파일 목록 상한. 큰 저장소에서 메시지가 커지지 않게 한다. */
+const MAX_LISTED_FILES = 300;
+/** 커밋이 하나도 없는 저장소에서 비교 기준으로 쓰는 빈 트리. */
+const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+
+interface Entry {
+  readonly path: string;
+  readonly kind: FileChange['kind'];
+}
+
+function kindOf(letter: string): FileChange['kind'] {
+  if (letter === 'A') return 'added';
+  if (letter === 'D') return 'deleted';
+  return 'modified';
+}
+
+/**
+ * git으로 작업 트리를 본다. 비교 기준은 처음 본 시점의 커밋(시작 커밋)이라,
+ * 팀원이 몰래 커밋해도 바뀐 파일을 놓치지 않는다. 경로는 실행 폴더 기준이고 그 폴더 밖은 보지 않는다.
+ * 스냅숏 값은 `<종류>:<내용 해시>`.
+ */
+export class GitWorkspace implements WorkspacePort {
+  private base: string | null = null;
+
+  constructor(private readonly root: string) {}
+
+  async dirtyFiles(): Promise<string[] | null> {
+    try {
+      await this.git(['rev-parse', '--is-inside-work-tree']);
+    } catch {
+      return null;
+    }
+    await this.startCommit();
+    const out = await this.git(['status', '--porcelain=v1', '-z', '-uall', '--', '.'], false);
+    const prefix = await this.git(['rev-parse', '--show-prefix']);
+    const paths: string[] = [];
+    const parts = out.split('\0');
+    for (let i = 0; i < parts.length; i += 1) {
+      const part = parts[i] as string;
+      if (part.length < 4) continue;
+      const path = part.slice(3);
+      if (path.startsWith(prefix) && !IGNORED.test(path)) paths.push(path.slice(prefix.length));
+      if (part.startsWith('R') || part.startsWith('C')) i += 1; // 이름 바꾸기는 원래 이름이 뒤따른다.
+    }
+    return paths.sort();
+  }
+
+  async listFiles(): Promise<string[]> {
+    const out = await this.git(['ls-files', '-z', '--cached', '--others', '--exclude-standard', '--', '.'], false);
+    return [...new Set(out.split('\0').filter((p) => p !== '' && !IGNORED.test(p)))].sort().slice(0, MAX_LISTED_FILES);
+  }
+
+  async snapshot(): Promise<WorkspaceSnapshot> {
+    const entries = await this.changes();
+    const present = entries.filter((e) => e.kind !== 'deleted');
+    const hashes = present.length > 0 ? (await this.git(['hash-object', '--stdin-paths'], true, present.map((e) => join(this.root, e.path)).join('\n'))).split('\n') : [];
+    const files = new Map<string, string>();
+    present.forEach((e, i) => files.set(e.path, `${e.kind}:${hashes[i] ?? ''}`));
+    for (const e of entries.filter((x) => x.kind === 'deleted')) files.set(e.path, 'deleted:');
+    return { files };
+  }
+
+  changesBetween(before: WorkspaceSnapshot, after: WorkspaceSnapshot): FileChange[] {
+    const paths = [...new Set([...before.files.keys(), ...after.files.keys()])].sort();
+    return paths
+      .filter((p) => before.files.get(p) !== after.files.get(p))
+      .map((p) => {
+        const value = after.files.get(p);
+        // 스냅숏에서 사라졌다 = 시작 커밋 상태로 되돌렸다.
+        return { path: p, kind: value === undefined ? 'modified' : (value.split(':')[0] as FileChange['kind']) };
+      });
+  }
+
+  async changesSinceHead(): Promise<FileChange[]> {
+    return (await this.changes()).map((e) => ({ path: e.path, kind: e.kind }));
+  }
+
+  /** 시작 커밋 대비 바뀐 파일(커밋됐든 아니든) + 추적하지 않는 새 파일. */
+  private async changes(): Promise<Entry[]> {
+    const base = await this.startCommit();
+    const diff = (await this.git(['diff', '--name-status', '-z', '--no-renames', '--relative', base, '--', '.'], false)).split('\0');
+    const entries = new Map<string, Entry>();
+    for (let i = 0; i + 1 < diff.length; i += 2) {
+      const letter = (diff[i] as string).trim().charAt(0);
+      const path = diff[i + 1] as string;
+      if (letter !== '' && path !== '' && !IGNORED.test(path)) entries.set(path, { path, kind: kindOf(letter) });
+    }
+    const untracked = (await this.git(['ls-files', '--others', '--exclude-standard', '-z', '--', '.'], false)).split('\0');
+    for (const path of untracked) {
+      if (path !== '' && !IGNORED.test(path)) entries.set(path, { path, kind: 'added' });
+    }
+    return [...entries.values()].sort((a, b) => a.path.localeCompare(b.path));
+  }
+
+  private async startCommit(): Promise<string> {
+    if (this.base === null) {
+      try {
+        this.base = await this.git(['rev-parse', 'HEAD']);
+      } catch {
+        this.base = EMPTY_TREE;
+      }
+    }
+    return this.base;
+  }
+
+  private async git(args: readonly string[], trim = true, input?: string): Promise<string> {
+    const child = run('git', ['-c', 'core.quotepath=false', ...args], { cwd: this.root, maxBuffer: 32 * 1024 * 1024 });
+    if (input !== undefined) {
+      child.child.stdin?.end(input);
+    }
+    const { stdout } = await child;
+    return trim ? stdout.trim() : stdout;
+  }
+}

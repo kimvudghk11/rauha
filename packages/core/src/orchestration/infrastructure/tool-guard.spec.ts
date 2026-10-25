@@ -1,0 +1,84 @@
+import { describe, expect, it } from 'vitest';
+import { createToolGuard, type PermissionAnswer, type PermissionRequest, type ToolGuardOptions } from './tool-guard.js';
+
+const ROOT = 'E:/work/app';
+
+function input(tool_name: string, tool_input: Record<string, unknown>) {
+  return {
+    hook_event_name: 'PreToolUse' as const,
+    tool_name,
+    tool_input,
+    tool_use_id: 't1',
+    session_id: 's',
+    transcript_path: '',
+    cwd: ROOT,
+  };
+}
+
+const output = (out: unknown) =>
+  (out as { hookSpecificOutput?: { permissionDecision?: string; permissionDecisionReason?: string } }).hookSpecificOutput;
+const decision = (out: unknown) => output(out)?.permissionDecision;
+const opts = { signal: new AbortController().signal };
+
+function guardWith(answers: PermissionAnswer[], overrides: Partial<ToolGuardOptions> = {}) {
+  const asked: PermissionRequest[] = [];
+  const guard = createToolGuard({
+    root: ROOT,
+    role: 'implementer',
+    canWrite: () => true,
+    remembered: new Set(),
+    ask: async (request) => {
+      asked.push(request);
+      return answers.shift() ?? { kind: 'deny', note: null };
+    },
+    ...overrides,
+  });
+  return { guard, asked };
+}
+
+describe('createToolGuard', () => {
+  it('잠긴 테스트 쓰기는 묻지 않고 거절한다', async () => {
+    const { guard, asked } = guardWith([], { canWrite: (p) => !p.endsWith('.spec.ts') });
+    const out = await guard(input('Edit', { file_path: 'E:\\work\\app\\src\\a.spec.ts' }), 't1', opts);
+    expect(decision(out)).toBe('deny');
+    expect(asked).toEqual([]);
+  });
+
+  it('위험 명령은 누가·어떤 도구로·무엇을·왜 하는지 묻고 답에 따른다', async () => {
+    const { guard, asked } = guardWith([{ kind: 'allow' }, { kind: 'deny', note: null }]);
+    expect(decision(await guard(input('Bash', { command: 'rm -rf dist' }), 't', opts))).toBe('allow');
+    expect(decision(await guard(input('Bash', { command: 'rm -rf dist' }), 't', opts))).toBe('deny');
+    expect(asked[0]).toMatchObject({ role: 'implementer', tool: 'Bash', detail: 'rm -rf dist' });
+    expect(asked[0]!.reason).not.toBe('');
+  });
+
+  it('거절하면서 남긴 말은 팀원에게 거절 이유로 전달된다', async () => {
+    const { guard } = guardWith([{ kind: 'deny', note: 'dist는 지우지 말고 build 폴더만 정리해' }]);
+    const out = await guard(input('Bash', { command: 'rm -rf dist' }), 't', opts);
+    expect(decision(out)).toBe('deny');
+    expect(output(out)?.permissionDecisionReason).toContain('dist는 지우지 말고 build 폴더만 정리해');
+  });
+
+  it('이번 실행 동안 계속 허락하면 같은 명령은 다른 팀원 호출에서도 다시 묻지 않는다', async () => {
+    const remembered = new Set<string>();
+    const first = guardWith([{ kind: 'allow-always' }], { remembered });
+    const second = guardWith([], { remembered, role: 'tester' });
+    expect(decision(await first.guard(input('Bash', { command: 'rm -rf dist' }), 't', opts))).toBe('allow');
+    expect(decision(await second.guard(input('Bash', { command: 'rm -rf dist' }), 't', opts))).toBe('allow');
+    expect(second.asked).toEqual([]);
+    const other = await second.guard(input('Bash', { command: 'rm -rf src' }), 't', opts);
+    expect(decision(other)).toBe('deny');
+    expect(second.asked).toHaveLength(1);
+  });
+
+  it('git commit은 묻지 않고 거절한다', async () => {
+    const { guard, asked } = guardWith([{ kind: 'allow' }]);
+    expect(decision(await guard(input('Bash', { command: 'git commit -m x' }), 't', opts))).toBe('deny');
+    expect(asked).toEqual([]);
+  });
+
+  it('안전한 호출은 결정을 내리지 않고 그대로 둔다', async () => {
+    const { guard } = guardWith([]);
+    expect(decision(await guard(input('Bash', { command: 'yarn test' }), 't', opts))).toBeUndefined();
+  });
+});
