@@ -6,4 +6,9 @@ describe('Profile', () => {
     const profile = Profile.create({ name: 'work', claudeConfigDir: '~/.claude', sync: 'none' });
     expect(profile.runsDir('C:\\Users\\me')).toBe('C:/Users/me/.rauha/profiles/work/runs');
   });
+
+  it('기억은 프로필 폴더 아래 memory에 둔다', () => {
+    const profile = Profile.create({ name: 'work', claudeConfigDir: '~/.claude', sync: 'none' });
+    expect(profile.memoryDir('C:\\Users\\me')).toBe('C:/Users/me/.rauha/profiles/work/memory');
+  });
 });

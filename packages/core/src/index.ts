@@ -78,3 +78,17 @@ export {
   type ToolGuardOptions,
 } from './orchestration/infrastructure/tool-guard.js';
 export { loadProfileConfig } from './profile/infrastructure/config-file.js';
+
+// memory
+export {
+  recallBlock,
+  WorkMemory,
+  type MemoryEdge,
+  type MemoryEdgeKind,
+  type MemoryEntry,
+  type MemoryNode,
+  type MemoryNodeKind,
+  type Recall,
+} from './memory/domain/work-memory.js';
+export type { MemoryPort } from './memory/application/memory.port.js';
+export { projectMemoryFile, SqliteMemory } from './memory/infrastructure/sqlite-memory.js';

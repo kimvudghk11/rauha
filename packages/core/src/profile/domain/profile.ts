@@ -37,6 +37,11 @@ export class Profile {
     return `${toPosixPath(home)}/.rauha/profiles/${this.name}/runs`;
   }
 
+  /** 기억 그래프 폴더. 실행 기록처럼 프로필 폴더 아래에 두어 work 기억이 섞이거나 밖으로 나가지 않게 한다. */
+  memoryDir(home: string): string {
+    return `${toPosixPath(home)}/.rauha/profiles/${this.name}/memory`;
+  }
+
   canSync(): boolean {
     return this.sync !== 'none';
   }
