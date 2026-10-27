@@ -56,6 +56,23 @@ export function describeTurn(turn: TurnOutcome, view: MascotView | null): Printa
         '',
       ];
     }
+    case 'review': {
+      if (turn.files.length === 0) return ['', '  검토할 변경이 없어요.', ''];
+      // 답과 같은 규칙: 근거를 확인하지 못한 지적은 목록에 넣지 않고 개수만 알린다.
+      const verified = turn.checked.filter((c) => !c.isGuess);
+      const dropped = turn.checked.length - verified.length;
+      const target = turn.target === null ? '커밋하지 않은 변경' : `${turn.target}와 갈라진 뒤의 변경`;
+      return [
+        '',
+        `  검토 대상: ${target} · 파일 ${turn.files.length}개`,
+        ...(turn.summary !== '' ? [`  ${turn.summary}`] : []),
+        '',
+        ...(verified.length > 0 ? verified.map((c) => `  - ${c.text}`) : ['  근거가 확인된 문제는 없어요.']),
+        ...(dropped > 0 ? [`  근거를 확인하지 못한 지적 ${dropped}개는 뺐어요.`] : []),
+        `  ${formatElapsed(turn.durationMs)}`,
+        '',
+      ];
+    }
     case 'blocked':
       if (turn.reason === 'cancelled') return ['', '  멈췄어요.', ''];
       if (turn.reason === 'login') return ['', 'Claude에 로그인되어 있지 않아요. /exit로 나가서 rauha login을 실행한 뒤 다시 와 주세요.', ''];

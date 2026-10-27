@@ -4,8 +4,10 @@ import { citedPaths, FactCheck, normalizeUrl, type CheckedClaim } from '../domai
 import type { ModelTier } from '../domain/team.js';
 import { AnswerDto } from './dto/answer.dto.js';
 import type { MemberRole, RoleSettingsDto } from './dto/role-settings.dto.js';
+import { FilesBlockDto } from './dto/files-block.dto.js';
+import { ReviewReportDto } from './dto/review-report.dto.js';
 import { RouteDto, type Route } from './dto/route.dto.js';
-import { ANSWER_SCHEMA, ROUTE_SCHEMA } from './dto/schemas.js';
+import { ANSWER_SCHEMA, REVIEWER_REPORT_SCHEMA, ROUTE_SCHEMA } from './dto/schemas.js';
 import type { RunContextBlocks, RunOutcome } from './minimal-loop.service.js';
 import type { AccountBlock, MemberResult, PreparedCall, ProgressPort, TeamMemberPort, UserPort, WorkspacePort } from './ports.js';
 
@@ -19,6 +21,8 @@ const CANDIDATES = 3;
 export type TurnOutcome =
   | { readonly kind: 'work'; readonly outcome: RunOutcome }
   | { readonly kind: 'answer'; readonly answer: string; readonly checked: readonly CheckedClaim[]; readonly costUsd: number; readonly durationMs: number }
+  /** /review: 사용자의 변경을 리뷰어가 본 결과. target null = 커밋 안 한 변경. files가 비면 리뷰어를 부르지 않았다. */
+  | { readonly kind: 'review'; readonly target: string | null; readonly files: readonly string[]; readonly checked: readonly CheckedClaim[]; readonly summary: string; readonly durationMs: number }
   /** 계정 문제(사용 한도, 로그인 안 됨)로 막힘. 사용 한도면 message에 풀리는 시각이 들어 있다. */
   | { readonly kind: 'blocked'; readonly reason: AccountBlock['reason']; readonly message: string };
 
@@ -26,7 +30,7 @@ export interface ChatSessionDeps {
   /** 요청 하나를 돌릴 최소 루프. carried = 세션 중 rauha가 남긴 파일(그 위에서 이어 일함). */
   readonly newLoop: (carried: ReadonlyMap<string, string>) => { run(request: string, context: RunContextBlocks): Promise<RunOutcome> };
   readonly team: TeamMemberPort;
-  readonly workspace: Pick<WorkspacePort, 'readFile'>;
+  readonly workspace: Pick<WorkspacePort, 'readFile' | 'reviewChanges'>;
   readonly memory: MemoryPort;
   readonly user: UserPort;
   readonly progress: ProgressPort;
@@ -164,6 +168,43 @@ export class ChatSession {
     return { kind: 'answer', answer, checked, costUsd: result.usage.costUsd, durationMs: this.deps.now() - started };
   }
 
+  // ── 내 변경 검토 (/review) ───────────────────────────────
+
+  /** 사용자가 만든 변경을 리뷰어에게 보이고, 지적의 근거는 rauha가 확인한다. 파일은 고치지 않고 기억에도 남기지 않는다. */
+  async review(target: string | null): Promise<TurnOutcome> {
+    const started = this.deps.now();
+    const changes = await this.deps.workspace.reviewChanges(target);
+    const files = changes.map((c) => c.path);
+    if (changes.length === 0) return { kind: 'review', target, files, checked: [], summary: '', durationMs: this.deps.now() - started };
+
+    const present = changes.filter((c) => c.kind !== 'deleted').map((c) => c.path);
+    const contents = await Promise.all(present.map(async (path) => ({ path, content: await this.deps.workspace.readFile(path) })));
+    const result = await this.member(
+      'reviewer',
+      [
+        `<today>${this.deps.today()}</today>`,
+        `<review_request>\n${target === null ? '커밋하지 않은 변경' : `${target}와 갈라진 뒤의 변경`}을 검토해 달라는 사용자 요청입니다.\n</review_request>`,
+        `<changed_files>\n${changes.map((c) => `${c.kind} ${c.path}`).join('\n')}\n</changed_files>`,
+        FilesBlockDto.of(contents).toBlock(),
+        '<task>사용자가 직접 만든 변경을 검토하세요. 업무 지시서는 없습니다. 파일은 고치지 않습니다.</task>',
+      ],
+      REVIEWER_REPORT_SCHEMA,
+    );
+    if (result.blocked) return { kind: 'blocked', ...result.blocked };
+    const report = this.readReview(result.output);
+    const claims = report?.claims() ?? [];
+    const cited = new Map(await Promise.all(citedPaths(claims).map(async (path) => [path, await this.deps.workspace.readFile(path)] as const)));
+    const checked = FactCheck.of(claims, {
+      files: cited,
+      passedTests: [],
+      fetched: new Map(result.fetched.map((p) => [normalizeUrl(p.url), p.body])),
+      userStatements: [],
+      records: [],
+    }).all();
+    this.turns.push({ input: target === null ? '/review' : `/review ${target}`, result: `검토: 근거가 확인된 지적 ${checked.filter((c) => !c.isGuess).length}개` });
+    return { kind: 'review', target, files, checked, summary: report?.summary ?? '리뷰 결과를 읽지 못했어요.', durationMs: this.deps.now() - started };
+  }
+
   // ── 지난 작업 고르기 ─────────────────────────────────────
 
   /** 흐릿하게 가리킨 지난 작업을 기억에서 찾아 사용자에게 고르게 한다. 하나여도 묻는다. 화면이 없으면 새 작업. */
@@ -198,6 +239,14 @@ export class ChatSession {
     this.costUsd += result.usage.costUsd;
     this.calls[call.setting.tier] += 1;
     return result;
+  }
+
+  private readReview(output: unknown): ReviewReportDto | null {
+    try {
+      return ReviewReportDto.from(output);
+    } catch {
+      return null;
+    }
   }
 
   private readAnswer(output: unknown): AnswerDto | null {

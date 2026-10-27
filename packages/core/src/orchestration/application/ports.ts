@@ -92,6 +92,8 @@ export interface WorkspacePort {
   snapshot(): Promise<WorkspaceSnapshot>;
   changesBetween(before: WorkspaceSnapshot, after: WorkspaceSnapshot): FileChange[];
   changesSinceHead(): Promise<FileChange[]>;
+  /** /review 대상 파일. null = 지금 HEAD 대비 커밋 안 한 변경, 브랜치·커밋 = 그것과 갈라진 뒤의 변경. 없는 이름이면 DomainError. */
+  reviewChanges(target: string | null): Promise<FileChange[]>;
 }
 
 export interface TestsResult {

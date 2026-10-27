@@ -43,6 +43,45 @@ describe('GitWorkspace.readFile', () => {
   });
 });
 
+describe('GitWorkspace.reviewChanges', () => {
+  const gitIn = (dir: string) => (...args: string[]) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd: dir }).toString().trim();
+
+  it('검토 대상: 커밋 안 한 변경과 새 파일', async () => {
+    const dir = repo();
+    writeFileSync(join(dir, 'src', 'a.ts'), 'a2');
+    writeFileSync(join(dir, 'src', 'b.ts'), 'b1');
+    const changes = await new GitWorkspace(dir).reviewChanges(null);
+    expect(changes).toEqual([
+      { path: 'src/a.ts', kind: 'modified' },
+      { path: 'src/b.ts', kind: 'added' },
+    ]);
+  });
+
+  it('검토 대상: 브랜치와 갈라진 뒤의 변경', async () => {
+    const dir = repo();
+    const git = gitIn(dir);
+    const main = git('rev-parse', '--abbrev-ref', 'HEAD');
+    git('checkout', '-qb', 'feature');
+    writeFileSync(join(dir, 'src', 'f.ts'), 'f1');
+    git('add', '.');
+    git('commit', '-qm', 'feature');
+    git('checkout', '-q', main);
+    writeFileSync(join(dir, 'src', 'm.ts'), 'm1');
+    git('add', '.');
+    git('commit', '-qm', 'main moves on');
+    git('checkout', '-q', 'feature');
+    writeFileSync(join(dir, 'src', 'a.ts'), 'a2');
+    const changes = await new GitWorkspace(dir).reviewChanges(main);
+    expect(changes.map((c) => c.path)).toEqual(['src/a.ts', 'src/f.ts']);
+  });
+
+  it('없는 브랜치나 -로 시작하는 이름은 알기 쉬운 오류', async () => {
+    const ws = new GitWorkspace(repo());
+    await expect(ws.reviewChanges('no-such-branch')).rejects.toThrow('no-such-branch 브랜치나 커밋을 찾지 못했어요.');
+    await expect(ws.reviewChanges('--output=x')).rejects.toThrow('브랜치나 커밋을 찾지 못했어요.');
+  });
+});
+
 describe('GitWorkspace', () => {
   it('git 저장소가 아니면 dirtyFiles는 null', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'rauha-nogit-'));

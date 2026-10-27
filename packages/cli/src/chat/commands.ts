@@ -1,6 +1,10 @@
-type CommandName = 'clear' | 'status' | 'usage' | 'guide' | 'update' | 'help' | 'exit';
+type CommandName = 'clear' | 'status' | 'usage' | 'guide' | 'review' | 'update' | 'help' | 'exit';
 
-export type ChatCommand = { readonly kind: CommandName } | { readonly kind: 'unknown'; readonly name: string };
+export type ChatCommand =
+  | { readonly kind: Exclude<CommandName, 'review'> }
+  /** target: 비교할 브랜치·커밋. null = 커밋하지 않은 변경 */
+  | { readonly kind: 'review'; readonly target: string | null }
+  | { readonly kind: 'unknown'; readonly name: string };
 
 export interface CommandHelp {
   readonly name: string;
@@ -13,6 +17,7 @@ const COMMANDS: readonly { readonly kind: CommandName; readonly help: string }[]
   { kind: 'status', help: '지금 세션 상태(대화 수, 이어 일할 파일)' },
   { kind: 'usage', help: '구독 사용률(세션 5시간 · 주간)과 이번 대화 호출 수' },
   { kind: 'guide', help: '지난 작업의 자세한 읽기 안내서' },
+  { kind: 'review', help: '내 변경(커밋 안 한 것, 또는 /review <브랜치>로 그 브랜치와 갈라진 뒤)을 리뷰어가 검토해요. 파일은 고치지 않아요.' },
   { kind: 'update', help: '최신 버전으로 갱신하고 rauha를 다시 띄워요 (지난 작업 기억은 남아요)' },
   { kind: 'help', help: '이 안내' },
   { kind: 'exit', help: '끝내기 (Ctrl+C 두 번도 됨)' },
@@ -22,9 +27,11 @@ const COMMANDS: readonly { readonly kind: CommandName; readonly help: string }[]
 export function parseCommand(text: string): ChatCommand | null {
   const trimmed = text.trim();
   if (!trimmed.startsWith('/')) return null;
-  const name = trimmed.split(/\s+/)[0]!;
+  const [name, ...rest] = trimmed.split(/\s+/) as [string, ...string[]];
   const known = COMMANDS.find((c) => `/${c.kind}` === name.toLowerCase());
-  return known !== undefined ? { kind: known.kind } : { kind: 'unknown', name };
+  if (known === undefined) return { kind: 'unknown', name };
+  if (known.kind === 'review') return { kind: 'review', target: rest[0] ?? null };
+  return { kind: known.kind };
 }
 
 /** 입력창에 '/'로 시작하는 글을 치는 동안 보여 줄 명령 후보. 띄어쓰기가 들어가면 다 친 것으로 본다. */

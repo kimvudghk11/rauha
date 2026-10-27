@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
+import { DomainError } from '../../shared/domain-error.js';
 import { relativeToRoot } from '../../shared/path-pattern.js';
 import type { FileChange, WorkspacePort, WorkspaceSnapshot } from '../application/ports.js';
 import { SecretPolicy } from '../domain/secret-policy.js';
@@ -100,9 +101,38 @@ export class GitWorkspace implements WorkspacePort {
     return (await this.changes()).map((e) => ({ path: e.path, kind: e.kind }));
   }
 
-  /** 시작 커밋 대비 바뀐 파일(커밋됐든 아니든) + 추적하지 않는 새 파일. */
-  private async changes(): Promise<Entry[]> {
-    const base = await this.startCommit();
+  /**
+   * /review 대상. target이 null이면 지금 HEAD 대비(커밋 안 한 변경), 브랜치·커밋이면 그것과 갈라진 지점 대비.
+   * 세션 시작 커밋이 아니라 부를 때의 HEAD를 쓴다(그사이 사용자가 커밋했을 수 있다).
+   */
+  async reviewChanges(target: string | null): Promise<FileChange[]> {
+    const base = target === null ? await this.head() : await this.mergeBase(target);
+    return (await this.changes(base)).map((e) => ({ path: e.path, kind: e.kind }));
+  }
+
+  private async head(): Promise<string> {
+    try {
+      return await this.git(['rev-parse', 'HEAD']);
+    } catch {
+      return EMPTY_TREE;
+    }
+  }
+
+  /** `-`로 시작하는 이름은 git 옵션으로 읽히므로 받지 않는다. */
+  private async mergeBase(target: string): Promise<string> {
+    const unknown = new DomainError('UNKNOWN_REF', `${target} 브랜치나 커밋을 찾지 못했어요.`);
+    if (target.startsWith('-')) throw unknown;
+    try {
+      await this.git(['rev-parse', '--verify', '--quiet', `${target}^{commit}`]);
+      return await this.git(['merge-base', target, 'HEAD']);
+    } catch {
+      throw unknown;
+    }
+  }
+
+  /** base(기본: 시작 커밋) 대비 바뀐 파일(커밋됐든 아니든) + 추적하지 않는 새 파일. */
+  private async changes(from?: string): Promise<Entry[]> {
+    const base = from ?? (await this.startCommit());
     const diff = (await this.git(['diff', '--name-status', '-z', '--no-renames', '--relative', base, '--', '.'], false)).split('\0');
     const entries = new Map<string, Entry>();
     for (let i = 0; i + 1 < diff.length; i += 2) {

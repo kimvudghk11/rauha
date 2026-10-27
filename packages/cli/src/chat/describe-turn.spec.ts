@@ -3,6 +3,28 @@ import { describeTurn } from './describe-turn.js';
 
 const claim = (text: string, isGuess: boolean) => ({ kind: 'fact' as const, text, evidence: [], verified: isGuess ? [] : [{ kind: 'record' as const, text: 'x' }], isGuess });
 
+describe('describeTurn — /review', () => {
+  const review = (over: Record<string, unknown> = {}) => ({ kind: 'review' as const, target: null, files: ['src/money.ts'], checked: [], summary: '요약', durationMs: 3000, ...over });
+
+  it('바뀐 파일이 없으면 검토할 변경이 없다고만 한다', () => {
+    expect(describeTurn(review({ files: [] }), null).join('\n')).toContain('검토할 변경이 없어요.');
+  });
+
+  it('근거가 확인된 지적만 보여 주고, 뺀 지적은 개수만 알린다', () => {
+    const text = describeTurn(review({ target: 'develop', checked: [claim('add가 빼기를 한다 (src/money.ts:1)', false), claim('예전에도 그랬다', true)] }), null).join('\n');
+    expect(text).toContain('검토 대상: develop와 갈라진 뒤의 변경 · 파일 1개');
+    expect(text).toContain('- add가 빼기를 한다 (src/money.ts:1)');
+    expect(text).not.toContain('예전에도 그랬다');
+    expect(text).toContain('근거를 확인하지 못한 지적 1개는 뺐어요.');
+  });
+
+  it('확인된 지적이 없으면 문제가 없다고 한다', () => {
+    const text = describeTurn(review(), null).join('\n');
+    expect(text).toContain('검토 대상: 커밋하지 않은 변경 · 파일 1개');
+    expect(text).toContain('근거가 확인된 문제는 없어요.');
+  });
+});
+
 describe('describeTurn', () => {
   it('답은 답 글과 확인된 근거 수만 보여 주고, 추측 목록은 쓰지 않는다', () => {
     const text = describeTurn({ kind: 'answer', answer: '정한 해석 때문입니다.', checked: [claim('floor를 쓴다', false), claim('예전엔 round였다', true)], costUsd: 0.01, durationMs: 9000 }, null).join('\n');

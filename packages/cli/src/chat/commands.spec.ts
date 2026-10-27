@@ -20,6 +20,13 @@ describe('parseCommand', () => {
   });
 });
 
+describe('/review', () => {
+  it('/review는 커밋 안 한 변경, /review <브랜치>는 그 브랜치와 갈라진 뒤의 변경을 검토한다', () => {
+    expect(parseCommand('/review')).toEqual({ kind: 'review', target: null });
+    expect(parseCommand('/review develop')).toEqual({ kind: 'review', target: 'develop' });
+  });
+});
+
 describe('/guide', () => {
   it('/guide는 지난 작업의 읽기 안내서를 여는 명령이다', () => {
     expect(parseCommand('/guide')).toEqual({ kind: 'guide' });
@@ -28,7 +35,7 @@ describe('/guide', () => {
 
 describe('suggestCommands', () => {
   it('/만 치면 모든 명령을, 더 치면 앞이 맞는 명령만 설명과 함께 보여 준다', () => {
-    expect(suggestCommands('/').map((c) => c.name)).toEqual(['/clear', '/status', '/usage', '/guide', '/update', '/help', '/exit']);
+    expect(suggestCommands('/').map((c) => c.name)).toEqual(['/clear', '/status', '/usage', '/guide', '/review', '/update', '/help', '/exit']);
     expect(suggestCommands('/us')).toEqual([{ name: '/usage', help: expect.stringContaining('구독 사용률') }]);
     expect(suggestCommands('/up')).toEqual([{ name: '/update', help: expect.stringContaining('최신') }]);
   });

@@ -187,6 +187,21 @@ export async function runChat(options: ChatOptions): Promise<number> {
         case 'guide':
           store.print(lastGuide !== null ? `\n${lastGuide}\n` : '  아직 끝난 작업이 없어요.');
           return;
+        case 'review':
+          store.print(`\n> ${text}`);
+          team.resume();
+          store.setBusy(true);
+          try {
+            const turn = await session.review(command.target);
+            finishWorking();
+            store.printLines(describeTurn(turn, view));
+          } catch (error) {
+            finishWorking();
+            store.print(`rauha: ${(error as Error).message}`);
+          } finally {
+            store.setBusy(false);
+          }
+          return;
         case 'help':
           store.print(HELP_TEXT);
           return;

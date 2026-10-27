@@ -44,6 +44,9 @@ class FakeWorkspace implements WorkspacePort {
   async changesSinceHead() {
     return this.changesBetween({ files: new Map() }, await this.snapshot());
   }
+  async reviewChanges() {
+    return this.changesSinceHead();
+  }
   async listFiles() {
     return [...this.files.keys()];
   }

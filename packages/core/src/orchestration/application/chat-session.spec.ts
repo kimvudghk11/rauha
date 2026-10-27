@@ -6,7 +6,7 @@ import { ChatSession, type RunContextBlocks } from './chat-session.js';
 import { RoleSettingsDto, type MemberRole } from './dto/role-settings.dto.js';
 import type { RunOutcome } from './minimal-loop.service.js';
 import type { Assumption } from './dto/intake.dto.js';
-import type { FactAnswer, MemberCall, MemberResult, PastCandidate, TeamMemberPort, UserPort } from './ports.js';
+import type { FactAnswer, FileChange, MemberCall, MemberResult, PastCandidate, TeamMemberPort, UserPort } from './ports.js';
 
 // ── 가짜들 ───────────────────────────────────────────────────
 
@@ -129,13 +129,13 @@ class FakeLoops {
 
 const route = (mode: 'work' | 'question', refersToPast = false, pastQuery: string | null = null) => () => ({ mode, refersToPast, pastQuery });
 
-function session(p: { team: FakeTeam; loops?: FakeLoops; memory?: FakeMemory; user?: UserPort; files?: Record<string, string>; steps?: string[] }) {
+function session(p: { team: FakeTeam; loops?: FakeLoops; memory?: FakeMemory; user?: UserPort; files?: Record<string, string>; steps?: string[]; changes?: FileChange[] }) {
   let clock = Date.parse('2026-10-25T07:00:00.000Z');
   let id = 0;
   return ChatSession.start({
     newLoop: (p.loops ?? new FakeLoops()).newLoop,
     team: p.team,
-    workspace: { readFile: async (path: string) => p.files?.[path] ?? null },
+    workspace: { readFile: async (path: string) => p.files?.[path] ?? null, reviewChanges: async () => p.changes ?? [] },
     memory: p.memory ?? new FakeMemory(),
     user: p.user ?? new FakeUser(true),
     progress: { step: (message: string) => void p.steps?.push(message) },
@@ -205,6 +205,45 @@ describe('ChatSession — 질문', () => {
     const team = new FakeTeam({ router: [route('question')], answerer: [() => ({ answer: '안녕하세요.', claims: [] })] });
     const turn = await session({ team }).handle('안녕');
     expect(turn).toMatchObject({ kind: 'answer', answer: '안녕하세요.', checked: [] });
+  });
+});
+
+describe('ChatSession — 내 변경 검토', () => {
+  it('바뀐 파일이 없으면 리뷰어를 부르지 않는다', async () => {
+    const team = new FakeTeam({});
+    const turn = await session({ team }).review(null);
+    expect(turn).toMatchObject({ kind: 'review', files: [], checked: [] });
+    expect(team.calls).toEqual([]);
+  });
+
+  it('근거가 확인된 지적과 추측을 나누고 기억에는 남기지 않는다', async () => {
+    const memory = new FakeMemory();
+    const team = new FakeTeam({
+      reviewer: [
+        () => ({
+          verdict: 'changes',
+          summary: '덧셈이 뺄셈으로 되어 있습니다.',
+          issues: [
+            { problem: 'add가 빼기를 한다', path: 'src/money.ts', line: 1, evidence: [{ ...blank, kind: 'code', path: 'src/money.ts', line: 1, quote: 'return this.amount - other.amount' }] },
+            { problem: '예전에도 그랬다', path: null, line: null, evidence: [] },
+          ],
+        }),
+      ],
+    });
+    const turn = await session({ team, memory, changes: [{ path: 'src/money.ts', kind: 'modified' }], files: { 'src/money.ts': 'return this.amount - other.amount' } }).review(null);
+    expect(turn.kind).toBe('review');
+    if (turn.kind !== 'review') return;
+    expect(turn.checked.map((c) => c.isGuess)).toEqual([false, true]);
+    expect(turn.summary).toBe('덧셈이 뺄셈으로 되어 있습니다.');
+    expect(memory.nodes.size).toBe(0);
+  });
+
+  it('리뷰어는 바뀐 파일 내용을 <files>로 받는다', async () => {
+    const team = new FakeTeam({ reviewer: [() => ({ verdict: 'pass', summary: '좋습니다', issues: [] })] });
+    await session({ team, changes: [{ path: 'src/money.ts', kind: 'modified' }], files: { 'src/money.ts': 'export class Money {}' } }).review('develop');
+    const message = team.calls[0]!.message;
+    expect(message).toContain('<file path="src/money.ts">\n1\texport class Money {}\n</file>');
+    expect(message).toContain('develop');
   });
 });
 
