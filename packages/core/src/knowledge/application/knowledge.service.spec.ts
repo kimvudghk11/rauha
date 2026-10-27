@@ -94,8 +94,8 @@ describe('KnowledgeService', () => {
     const { svc, reader, team } = service(undefined, undefined, new FakeTeam((call) => ({ output: { notes: areasIn(call).map((area) => ({ area, text: '메모', sources: [`${area}/money.ts`] })) } })));
     await svc.current();
     reader.ref = ref('a1', true);
-    reader.changed = { paths: ['src/domain/money.ts'] };
-    reader.content.set('src/domain/money.ts', 'h:new');
+    reader.fileList.push('src/domain/coupon.ts');
+    reader.changed = { paths: ['src/domain/coupon.ts'] };
     await svc.current();
     await svc.current();
     expect(team.calls).toHaveLength(2);
@@ -105,8 +105,8 @@ describe('KnowledgeService', () => {
     const { svc, reader, team } = service(undefined, undefined, new FakeTeam((call) => ({ output: { notes: areasIn(call).map((area) => ({ area, text: '메모', sources: [`${area}/money.ts`, `${area}/format.ts`] })) } })));
     await svc.current();
     reader.ref = ref('b2');
-    reader.changed = { paths: ['src/domain/money.ts'] };
-    reader.content.set('src/domain/money.ts', 'h:new');
+    reader.fileList.push('src/domain/coupon.ts');
+    reader.changed = { paths: ['src/domain/coupon.ts'] };
     const got = await svc.current();
     expect(areasIn(team.calls[1]!)).toEqual(['src/domain']);
     expect(got?.basis.label()).toBe('main (b200000)');

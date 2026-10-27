@@ -26,12 +26,22 @@ function knowledge(): RepoKnowledge {
 }
 
 describe('RepoKnowledge', () => {
-  it('바뀐 파일을 근거로 쓴 메모만 낡음이 된다', () => {
+  it('있던 파일 내용만 바뀌면 메모는 그대로 두고 심볼 지도와 기준만 고친다(메서드 하나 추가로 다시 조사하지 않게)', () => {
     const k = knowledge();
     expect(k.staleAreas()).toEqual([]);
     k.applyChanges({ basis: ref('b2'), facts: facts(), changed: new Map([['src/domain/money.ts', ['Money', 'discount']]]) });
-    expect(k.staleAreas()).toEqual(['src/domain']);
+    expect(k.staleAreas()).toEqual([]);
+    expect(k.symbols.get('src/domain/money.ts')).toEqual(['Money', 'discount']);
     expect(k.basis.label()).toBe('main (b200000)');
+  });
+
+  it('메모가 있는 영역에 파일이 새로 생기거나 메모 근거 파일이 지워지면 낡음이 된다', () => {
+    const added = knowledge();
+    added.applyChanges({ basis: ref('b2'), facts: facts(), changed: new Map([['src/domain/coupon.ts', ['Coupon']]]) });
+    expect(added.staleAreas()).toEqual(['src/domain']);
+    const removed = knowledge();
+    removed.applyChanges({ basis: ref('b2'), facts: facts(), changed: new Map([['src/shared/format.ts', null]]) });
+    expect(removed.staleAreas()).toEqual(['src/shared']);
   });
 
   it('메모 없는 새 폴더에 파일이 생기면 그 영역도 낡음', () => {

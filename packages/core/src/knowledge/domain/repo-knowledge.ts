@@ -106,22 +106,26 @@ export class RepoKnowledge {
     return changedCount >= REBUILD_FILES || changedCount >= this.currentFacts.totalFiles * REBUILD_RATIO;
   }
 
-  /** changed: 바뀐 파일 → 새 심볼(지워진 파일은 null). 근거 파일이 바뀐 메모의 영역을 낡음으로 표시하고 기준을 바꾼다. */
+  /** changed: 바뀐 파일 → 새 심볼(지워진 파일은 null). 파일이 생기거나 지워진 영역을 낡음으로 표시하고 기준을 바꾼다. */
   applyChanges(p: { basis: RepoRef; facts: RepoFacts; changed: ReadonlyMap<string, readonly string[] | null>; hashes?: ReadonlyMap<string, string | null> }): void {
     for (const [path, hash] of p.hashes ?? []) {
       if (hash === null) this.hashMap.delete(path);
       else this.hashMap.set(path, hash);
     }
     for (const [path, symbols] of p.changed) {
+      // 메모는 영역의 역할과 관례라서, 있던 파일의 내용이 바뀐 정도로는 낡지 않는다(내보낸 이름은 심볼 지도가 따라간다).
+      // 파일이 새로 생기거나 지워져 영역의 모양이 바뀔 때만 다시 조사한다.
+      const known = this.fileSet.has(path);
       if (symbols === null) {
         this.symbolMap.delete(path);
         this.fileSet.delete(path);
+        if (known) this.staleSet.add(areaOf(path));
       } else {
         if (symbols.length > 0) this.symbolMap.set(path, symbols);
         else this.symbolMap.delete(path);
         this.fileSet.add(path);
+        if (!known) this.staleSet.add(areaOf(path));
       }
-      for (const note of this.noteMap.values()) if (note.sources.includes(path)) this.staleSet.add(note.area);
     }
     this.ref = p.basis;
     this.currentFacts = p.facts;

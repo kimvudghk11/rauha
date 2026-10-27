@@ -11,7 +11,8 @@ function sample(): RepoKnowledge {
     files: ['src/a.ts', 'src/b.json'],
   });
   k.writeNotes([{ area: 'src', text: '메모', sources: ['src/a.ts'] }]);
-  k.applyChanges({ basis: k.basis, facts: k.facts, changed: new Map([['src/a.ts', ['A', 'B']]]) });
+  // 새 파일이 생겨 영역이 낡음으로 표시된 상태까지 저장되는지 본다.
+  k.applyChanges({ basis: k.basis, facts: k.facts, changed: new Map([['src/c.ts', ['C']]]), hashes: new Map([['src/c.ts', 'h3']]) });
   return k;
 }
 
