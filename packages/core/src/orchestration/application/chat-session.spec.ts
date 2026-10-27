@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { MemoryPort } from '../../memory/application/memory.port.js';
 import type { MemoryEntry, MemoryNode, Recall } from '../../memory/domain/work-memory.js';
 import type { CheckedClaim } from '../domain/fact-check.js';
@@ -36,14 +36,21 @@ class FakeMemory implements MemoryPort {
 type Script = (call: MemberCall) => unknown;
 
 class FakeTeam implements TeamMemberPort {
-  readonly calls: { role: MemberRole; message: string }[] = [];
+  readonly calls: { role: MemberRole; message: string; signal: AbortSignal | undefined }[] = [];
+  readonly prepared: MemberRole[] = [];
+  /** 라우터가 이 약속이 풀릴 때까지 답하지 않게 한다(동시에 도는지 보려고). */
+  routerGate: Promise<void> = Promise.resolve();
   constructor(
     private readonly scripts: Partial<Record<MemberRole, Script[]>>,
     private readonly limitOn: MemberRole | null = null,
     private readonly blockReason: 'usage-limit' | 'login' = 'usage-limit',
   ) {}
+  prepare(call: Omit<MemberCall, 'userMessage' | 'signal'>): void {
+    this.prepared.push(call.role);
+  }
   async run(call: MemberCall): Promise<MemberResult> {
-    this.calls.push({ role: call.role, message: call.userMessage });
+    this.calls.push({ role: call.role, message: call.userMessage, signal: call.signal });
+    if (call.role === 'router') await this.routerGate;
     if (call.role === this.limitOn) {
       const limited = "You've hit your session limit · resets 9:40pm";
       return { output: null, error: limited, blocked: { reason: this.blockReason, message: limited }, fetched: [], usage: { model: call.setting.tier, durationMs: 1, costUsd: 0, turns: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, denials: [], endReason: 'error' } };
@@ -183,18 +190,59 @@ describe('ChatSession — 질문', () => {
     const memory = new FakeMemory();
     const team = new FakeTeam({
       router: [route('work'), route('question')],
-      answerer: [
-        (call) => {
-          expect(call.userMessage).toContain('<memory>');
-          expect(call.userMessage).toContain('Math.floor를 할인 후 금액에 씀');
-          return { answer: '정한 해석 때문입니다.', claims: [{ text: '할인 후 금액에서 버리기로 정했다', evidence: [{ ...blank, kind: 'record', text: 'Math.floor를 할인 후 금액에 씀' }] }] };
-        },
-      ],
+      answerer: [() => ({ answer: '정한 해석 때문입니다.', claims: [{ text: '할인 후 금액에서 버리기로 정했다', evidence: [{ ...blank, kind: 'record', text: 'Math.floor를 할인 후 금액에 씀' }] }] })],
     });
     const chat = session({ team, memory });
     await chat.handle('Money에 할인 넣어줘');
     const turn = await chat.handle('discount 왜 이렇게 짰어?');
+    const message = team.calls.filter((c) => c.role === 'answerer').at(-1)!.message;
+    expect(message).toContain('<memory>');
+    expect(message).toContain('Math.floor를 할인 후 금액에 씀');
     expect(turn.kind === 'answer' && turn.checked[0]!.isGuess).toBe(false);
+  });
+
+  it('근거가 필요 없는 짧은 질문은 근거 없이 답해도 된다', async () => {
+    const team = new FakeTeam({ router: [route('question')], answerer: [() => ({ answer: '안녕하세요.', claims: [] })] });
+    const turn = await session({ team }).handle('안녕');
+    expect(turn).toMatchObject({ kind: 'answer', answer: '안녕하세요.', checked: [] });
+  });
+});
+
+describe('ChatSession — 빠른 답', () => {
+  it('세션을 시작하면 라우터와 답변 팀원을 미리 띄워 둔다', () => {
+    const team = new FakeTeam({});
+    session({ team });
+    expect(team.prepared).toEqual(['router', 'answerer']);
+  });
+
+  it('라우터의 판정을 기다리지 않고 답변 팀원도 함께 시작한다', async () => {
+    let openGate = () => {};
+    const team = new FakeTeam({ router: [route('question')], answerer: [() => ({ answer: '네.', claims: [] })] });
+    team.routerGate = new Promise((resolve) => (openGate = resolve));
+    const pending = session({ team }).handle('이거 뭐야?');
+    await vi.waitFor(() => expect(team.calls.map((c) => c.role)).toEqual(['router', 'answerer']));
+    openGate();
+    expect(await pending).toMatchObject({ kind: 'answer', answer: '네.' });
+  });
+
+  it('작업 요청이면 미리 시작한 답변을 멈추고 답을 기억에 남기지 않는다', async () => {
+    const memory = new FakeMemory();
+    const team = new FakeTeam({ router: [route('work')], answerer: [() => ({ answer: '버릴 답', claims: [] })] });
+    const turn = await session({ team, memory }).handle('Money에 할인 넣어줘');
+    expect(turn.kind).toBe('work');
+    expect(team.calls.find((c) => c.role === 'answerer')!.signal!.aborted).toBe(true);
+    expect([...memory.nodes.values()].some((n) => n.kind === 'question')).toBe(false);
+  });
+
+  it('흐릿하게 지난 작업을 가리킨 질문은 고른 작업으로 다시 답한다', async () => {
+    const memory = new FakeMemory();
+    const team = new FakeTeam({ router: [route('work'), route('question', true, 'discount')], answerer: [() => ({ answer: '정한 해석 때문입니다.', claims: [] })] });
+    const chat = session({ team, memory });
+    await chat.handle('Money에 할인 넣어줘');
+    await chat.handle('아까 그거 왜 그렇게 했어?');
+    const answers = team.calls.filter((c) => c.role === 'answerer');
+    expect(answers.at(-2)!.signal!.aborted).toBe(true);
+    expect(answers.at(-1)!.message).toContain('Money에 퍼센트 할인 discount 추가');
   });
 });
 
@@ -275,7 +323,7 @@ describe('ChatSession — 사용 한도', () => {
     const turn = await session({ team, loops }).handle('ECS on EC2와 Fargate 차이 알려줘');
     expect(turn).toMatchObject({ kind: 'blocked', reason: 'login' });
     expect(loops.runs).toEqual([]);
-    expect(team.calls.map((c) => c.role)).toEqual(['router']);
+    expect(team.calls.filter((c) => c.role === 'answerer').every((c) => c.signal!.aborted)).toBe(true);
   });
 });
 

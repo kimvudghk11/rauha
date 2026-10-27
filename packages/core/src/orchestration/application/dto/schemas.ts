@@ -174,9 +174,9 @@ export const ANSWER_SCHEMA: Record<string, unknown> = {
   required: ['answer', 'claims'],
   properties: {
     answer: str,
+    // 인사나 시각처럼 확인할 사실이 없는 답도 있다. 하나 이상을 강제하면 근거를 만들려고 파일·웹을 쓸데없이 연다.
     claims: {
       type: 'array',
-      minItems: 1,
       maxItems: 10,
       items: { type: 'object', additionalProperties: false, required: ['text', 'evidence'], properties: { text: str, evidence: evidenceList(4) } },
     },

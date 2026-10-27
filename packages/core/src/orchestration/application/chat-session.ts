@@ -7,7 +7,7 @@ import type { MemberRole, RoleSettingsDto } from './dto/role-settings.dto.js';
 import { RouteDto } from './dto/route.dto.js';
 import { ANSWER_SCHEMA, ROUTE_SCHEMA } from './dto/schemas.js';
 import type { RunContextBlocks, RunOutcome } from './minimal-loop.service.js';
-import type { AccountBlock, MemberResult, ProgressPort, TeamMemberPort, UserPort, WorkspacePort } from './ports.js';
+import type { AccountBlock, MemberResult, PreparedCall, ProgressPort, TeamMemberPort, UserPort, WorkspacePort } from './ports.js';
 
 export type { RunContextBlocks };
 
@@ -73,17 +73,32 @@ export class ChatSession {
 
   private constructor(private readonly deps: ChatSessionDeps) {}
 
+  /** 매 입력마다 부르는 라우터·답변 팀원은 미리 띄워 둔다(띄우는 데만 2초쯤 걸린다). */
   static start(deps: ChatSessionDeps): ChatSession {
-    return new ChatSession(deps);
+    const session = new ChatSession(deps);
+    deps.team.prepare?.(session.callFor('router', ROUTE_SCHEMA));
+    deps.team.prepare?.(session.callFor('answerer', ANSWER_SCHEMA));
+    return session;
   }
 
+  /**
+   * 라우터의 판정을 기다리지 않고 답변 팀원도 함께 시작한다. 질문이면 판정 시간만큼 빨리 답하고,
+   * 작업이거나 지난 작업을 골라야 하는 질문이면 미리 시작한 답변은 멈추고 버린다.
+   */
   async handle(input: string): Promise<TurnOutcome> {
+    const started = this.deps.now();
     const conversation = this.conversation();
+    const early = new AbortController();
+    const asked = this.askAnswerer(input, null, early.signal);
+    // 라우터를 기다리는 동안 실패해도 처리 안 된 거절로 프로세스가 죽지 않게. 쓰기로 하면 answer()가 await에서 다시 받는다.
+    asked.catch(() => undefined);
     const routed = await this.member('router', [conversation !== null ? `<conversation>\n${conversation}\n</conversation>` : '', `<message>\n${input}\n</message>`], ROUTE_SCHEMA);
-    if (routed.blocked) return { kind: 'blocked', ...routed.blocked };
     const route = RouteDto.read(routed.output);
+    if (routed.blocked || route.mode === 'work' || route.refersToPast) early.abort();
+    if (routed.blocked) return { kind: 'blocked', ...routed.blocked };
     const past = route.refersToPast ? await this.pickPast(route.pastQuery ?? input) : null;
-    return route.mode === 'question' ? this.answer(input, past) : this.work(input, conversation, past);
+    if (route.mode === 'work') return this.work(input, conversation, past);
+    return this.answer(input, route.refersToPast ? this.askAnswerer(input, past) : asked, started);
   }
 
   clear(): void {
@@ -117,15 +132,21 @@ export class ChatSession {
 
   // ── 질문 ──────────────────────────────────────────────────
 
-  private async answer(input: string, past: Recall | null): Promise<TurnOutcome> {
-    const started = this.deps.now();
+  /** 답변 팀원 호출만. 답을 기억에 남기는 일은 이 답을 쓰기로 정한 뒤 answer()가 한다. */
+  private async askAnswerer(input: string, past: Recall | null, signal?: AbortSignal): Promise<{ result: MemberResult; recalls: Recall[] }> {
     const recalls = past !== null ? [past] : await this.deps.memory.search(input, CANDIDATES);
     const block = recallBlock(recalls, MEMORY_CHARS);
     const result = await this.member(
       'answerer',
       [`<today>${this.deps.today()}</today>`, `<now>${this.deps.nowText()}</now>`, block !== '' ? `<memory>\n기억된 지난 작업과 그때의 결정입니다.\n${block}\n</memory>` : '', `<question>\n${input}\n</question>`],
       ANSWER_SCHEMA,
+      signal,
     );
+    return { result, recalls };
+  }
+
+  private async answer(input: string, asked: Promise<{ result: MemberResult; recalls: Recall[] }>, started: number): Promise<TurnOutcome> {
+    const { result, recalls } = await asked;
     if (result.blocked) return { kind: 'blocked', ...result.blocked };
     const dto = this.readAnswer(result.output);
     const claims = dto?.claims() ?? [];
@@ -164,13 +185,17 @@ export class ChatSession {
       .join('\n');
   }
 
-  private async member(role: MemberRole, parts: readonly string[], outputSchema: Record<string, unknown>): Promise<MemberResult> {
-    const setting = this.deps.roles.get(role);
+  private callFor(role: MemberRole, outputSchema: Record<string, unknown>): PreparedCall {
+    return { role, setting: this.deps.roles.get(role), outputSchema, canWrite: () => false };
+  }
+
+  private async member(role: MemberRole, parts: readonly string[], outputSchema: Record<string, unknown>, signal?: AbortSignal): Promise<MemberResult> {
+    const call = this.callFor(role, outputSchema);
     // 질문을 나누고 답하는 건 사용자에게 한 가지 일로 보이므로 누가 하는지 밝히지 않는다.
     this.deps.progress.step('작업 중…', role);
-    const result = await this.deps.team.run({ role, setting, userMessage: parts.filter((p) => p !== '').join('\n\n'), outputSchema, canWrite: () => false });
+    const result = await this.deps.team.run({ ...call, userMessage: parts.filter((p) => p !== '').join('\n\n'), ...(signal !== undefined ? { signal } : {}) });
     this.costUsd += result.usage.costUsd;
-    this.calls[setting.tier] += 1;
+    this.calls[call.setting.tier] += 1;
     return result;
   }
 

@@ -34,6 +34,12 @@ describe('PromptLibrary', () => {
     expect(lib.system('reviewer')).toBe('C\n\nR');
   });
 
+  it('라우터·답변 팀원은 작업용 공통 앞부분 없이 자기 프롬프트만 쓴다', async () => {
+    const lib = await PromptLibrary.load(folder({ '_common.md': 'C', 'intake.md': 'I', 'tester.md': 'T', 'implementer.md': 'M', 'reviewer.md': 'R', 'router.md': 'O', 'answerer.md': 'A' }));
+    expect(lib.system('router')).toBe('O');
+    expect(lib.system('answerer')).toBe('A');
+  });
+
   it('역할 프롬프트가 없으면 알려 준다', async () => {
     await expect(PromptLibrary.load(folder({ '_common.md': 'C' }))).rejects.toThrow(/intake\.md/);
   });

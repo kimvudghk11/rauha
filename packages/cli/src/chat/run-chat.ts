@@ -227,6 +227,7 @@ export async function runChat(options: ChatOptions): Promise<number> {
 
   await app.waitUntilExit();
   usageTimer.stop();
+  team.close();
   memory.close();
   if (restartAfterExit) return relaunch(spawn, process.execPath, process.execArgv, process.argv[1]!, process.argv.slice(2));
   return 0;

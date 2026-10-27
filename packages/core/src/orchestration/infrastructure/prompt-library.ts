@@ -6,6 +6,8 @@ import { DomainError } from '../../shared/domain-error.js';
 import type { MemberRole } from '../application/dto/role-settings.dto.js';
 
 const ROLES: readonly MemberRole[] = ['intake', 'tester', 'implementer', 'reviewer', 'router', 'answerer'];
+/** 업무 지시서를 받아 일하는 팀원. 공통 앞부분(_common.md)은 이들에게만 붙인다. 라우터·답변 팀원에게는 맞지 않는 지침이라 입력만 길어진다. */
+const WORK_ROLES: ReadonlySet<MemberRole> = new Set(['intake', 'tester', 'implementer', 'reviewer']);
 
 /**
  * 팀원 시스템 프롬프트. 실험하기 쉽도록 코드가 아니라 파일(`prompts/*.md`)에서 읽는다.
@@ -35,7 +37,10 @@ export class PromptLibrary {
     const settled = await Promise.allSettled(ROLES.map((role) => read(`${role}.md`)));
     const missing = settled.find((s): s is PromiseRejectedResult => s.status === 'rejected');
     if (missing !== undefined) throw missing.reason;
-    const entries = ROLES.map((role, i) => [role, `${common}\n\n${(settled[i] as PromiseFulfilledResult<string>).value}`] as const);
+    const entries = ROLES.map((role, i) => {
+      const own = (settled[i] as PromiseFulfilledResult<string>).value;
+      return [role, WORK_ROLES.has(role) ? `${common}\n\n${own}` : own] as const;
+    });
     const prompts = Object.fromEntries(entries) as Record<MemberRole, string>;
     const hash = createHash('sha256').update(JSON.stringify(entries)).digest('hex').slice(0, 8);
     return new PromptLibrary(prompts, hash);

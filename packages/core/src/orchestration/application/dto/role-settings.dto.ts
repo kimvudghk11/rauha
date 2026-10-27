@@ -10,6 +10,8 @@ export interface RoleSetting {
   readonly maxTurns: number;
   readonly maxBudgetUsd: number;
   readonly tools: readonly string[];
+  /** 프로젝트 설정(CLAUDE.md 등)을 읽는지. 입력 종류만 가르는 라우터는 읽지 않아 빨리 끝난다. */
+  readonly readsProject: boolean;
 }
 
 const READ_TOOLS = ['Read', 'Grep', 'Glob', 'WebSearch', 'WebFetch'];
@@ -37,15 +39,15 @@ export class RoleSettingsDto {
 
   static defaults(): RoleSettingsDto {
     return new RoleSettingsDto({
-      intake: { tier: 'sonnet', effort: 'low', maxTurns: 15, maxBudgetUsd: 0.5, tools: READ_TOOLS },
-      tester: { tier: 'haiku', effort: 'medium', maxTurns: 30, maxBudgetUsd: 0.5, tools: WRITE_TOOLS },
-      implementer: { tier: 'haiku', effort: 'medium', maxTurns: 40, maxBudgetUsd: 1, tools: WRITE_TOOLS },
+      intake: { tier: 'sonnet', effort: 'low', maxTurns: 15, maxBudgetUsd: 0.5, tools: READ_TOOLS, readsProject: true },
+      tester: { tier: 'haiku', effort: 'medium', maxTurns: 30, maxBudgetUsd: 0.5, tools: WRITE_TOOLS, readsProject: true },
+      implementer: { tier: 'haiku', effort: 'medium', maxTurns: 40, maxBudgetUsd: 1, tools: WRITE_TOOLS, readsProject: true },
       // 리뷰어는 읽기만 한다. 같은 모델은 같은 실수를 놓치기 쉬워서 구현보다 한 단계 위(sonnet).
-      reviewer: { tier: 'sonnet', effort: 'medium', maxTurns: 25, maxBudgetUsd: 1, tools: READ_TOOLS },
-      // 라우터는 입력 종류만 가른다. 도구 없이 짧게.
-      router: { tier: 'haiku', effort: 'low', maxTurns: 2, maxBudgetUsd: 0.05, tools: [] },
+      reviewer: { tier: 'sonnet', effort: 'medium', maxTurns: 25, maxBudgetUsd: 1, tools: READ_TOOLS, readsProject: true },
+      // 라우터는 입력 종류만 가른다. 도구도 프로젝트 설정도 없이 짧게.
+      router: { tier: 'haiku', effort: 'low', maxTurns: 2, maxBudgetUsd: 0.05, tools: [], readsProject: false },
       // 질문에는 코드나 공식 문서를 읽고 답하되 파일은 쓰지 않는다. 일반 기술 질문은 문서 여러 장을 열어 봐야 해서 턴·예산을 넉넉히.
-      answerer: { tier: 'sonnet', effort: 'medium', maxTurns: 25, maxBudgetUsd: 1, tools: READ_TOOLS },
+      answerer: { tier: 'sonnet', effort: 'medium', maxTurns: 25, maxBudgetUsd: 1, tools: READ_TOOLS, readsProject: true },
     });
   }
 

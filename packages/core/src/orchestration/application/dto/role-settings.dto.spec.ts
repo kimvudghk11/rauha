@@ -48,6 +48,12 @@ describe('RoleSettingsDto', () => {
     expect(roles.get('answerer').tools).not.toContain('Write');
   });
 
+  it('라우터는 프로젝트 설정(CLAUDE.md)을 읽지 않고, 나머지 팀원은 읽는다', () => {
+    const roles = RoleSettingsDto.defaults();
+    expect(roles.get('router').readsProject).toBe(false);
+    for (const role of ['intake', 'tester', 'implementer', 'reviewer', 'answerer'] as const) expect(roles.get(role).readsProject).toBe(true);
+  });
+
   it('답변 팀원은 공식 문서를 찾아 읽을 수 있고, 여러 페이지를 볼 만큼 턴과 노력을 갖는다', () => {
     const answerer = RoleSettingsDto.defaults().get('answerer');
     expect(answerer.tools).toEqual(expect.arrayContaining(['WebSearch', 'WebFetch']));

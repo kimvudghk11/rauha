@@ -1,6 +1,6 @@
-import { query, type SDKResultMessage } from '@anthropic-ai/claude-agent-sdk';
+import { query, startup, type Options, type SDKMessage, type SDKResultMessage, type WarmQuery } from '@anthropic-ai/claude-agent-sdk';
 import { MODEL_ID } from '../domain/team.js';
-import type { AccountBlock, MemberCall, MemberResult, MemberUsage, TeamMemberPort } from '../application/ports.js';
+import type { AccountBlock, MemberCall, MemberResult, MemberUsage, PreparedCall, TeamMemberPort } from '../application/ports.js';
 import type { PromptLibrary } from './prompt-library.js';
 import { createFetchLog } from './fetch-log.js';
 import { createToolGuard, type PermissionAsker } from './tool-guard.js';
@@ -15,6 +15,19 @@ export interface AgentSdkTeamMemberOptions {
   readonly ask: PermissionAsker;
 }
 
+/** 호출 하나가 쓰는 것들. 미리 띄운 프로세스는 띄울 때 이것까지 정해진다. */
+interface Session {
+  readonly controller: AbortController;
+  readonly fetchLog: ReturnType<typeof createFetchLog>;
+  readonly stderr: string[];
+}
+
+/** 미리 띄워 둔 프로세스. 메시지만 보내면 바로 일을 시작한다. */
+interface Spare extends Session {
+  readonly call: PreparedCall;
+  readonly warm: Promise<WarmQuery>;
+}
+
 /**
  * 팀원 한 명 = Agent SDK query() 한 번. 역할 프롬프트는 짧은 자체 문자열로 넣어
  * (claude_code preset 대신) 앞부분을 고정하고 캐시가 잘 먹게 한다.
@@ -24,7 +37,10 @@ export class AgentSdkTeamMember implements TeamMemberPort {
   private readonly remembered = new Set<string>();
   /** 지금 돌고 있는 호출들. cancel이 한꺼번에 멈춘다. */
   private readonly running = new Set<AbortController>();
+  /** 역할·설정별로 하나씩 미리 띄워 둔 프로세스 */
+  private readonly spares = new Map<string, Spare>();
   private cancelled = false;
+  private closed = false;
 
   constructor(private readonly options: AgentSdkTeamMemberOptions) {}
 
@@ -38,43 +54,47 @@ export class AgentSdkTeamMember implements TeamMemberPort {
     this.cancelled = false;
   }
 
+  /** 프로세스를 띄우고 초기화하는 시간(2초쯤)을 사용자가 입력하는 동안 미리 쓴다. 이미 하나 있으면 그대로 둔다. */
+  prepare(call: PreparedCall): void {
+    const key = spareKey(call);
+    if (this.closed || this.spares.has(key)) return;
+    const session = newSession();
+    const warm = startup({ options: this.sdkOptions(call, session) });
+    // 띄우다 실패하면 버린다. 그 역할은 다음 호출에서 평소처럼 새로 띄운다.
+    warm.catch(() => {
+      if (this.spares.get(key)?.warm === warm) this.spares.delete(key);
+    });
+    this.spares.set(key, { ...session, call, warm });
+  }
+
+  /** 미리 띄운 프로세스를 모두 닫는다. 대화 화면을 닫을 때 부른다. */
+  close(): void {
+    this.closed = true;
+    for (const spare of this.spares.values()) {
+      spare.controller.abort();
+      spare.warm.then((w) => w.close(), () => undefined);
+    }
+    this.spares.clear();
+  }
+
   async run(call: MemberCall): Promise<MemberResult> {
     const model = MODEL_ID[call.setting.tier];
     const started = Date.now();
-    const stderr: string[] = [];
-    const fetchLog = createFetchLog();
-    if (this.cancelled) return { output: null, error: CANCELLED.message, usage: emptyUsage(model, 0), fetched: [], blocked: CANCELLED };
-    const controller = new AbortController();
+    if (this.cancelled || call.signal?.aborted === true) return { output: null, error: CANCELLED.message, usage: emptyUsage(model, 0), fetched: [], blocked: CANCELLED };
+    const spare = this.takeSpare(call);
+    let opened: Session & { messages: AsyncIterable<SDKMessage> };
+    try {
+      opened = (spare !== null ? await this.claim(spare, call.userMessage) : null) ?? this.open(call);
+    } catch (error) {
+      return { output: null, error: (error as Error).message, usage: emptyUsage(model, Date.now() - started), fetched: [], blocked: accountBlock((error as Error).message) };
+    }
+    const { controller, fetchLog, stderr } = opened;
+    const stop = () => controller.abort();
+    call.signal?.addEventListener('abort', stop, { once: true });
     this.running.add(controller);
     let result: SDKResultMessage | null = null;
     try {
-      const messages = query({
-        prompt: call.userMessage,
-        options: {
-          model,
-          abortController: controller,
-          cwd: this.options.cwd,
-          env: this.options.env,
-          systemPrompt: this.options.prompts.system(call.role),
-          tools: [...call.setting.tools],
-          allowedTools: [...call.setting.tools],
-          permissionMode: 'dontAsk',
-          settingSources: ['project'],
-          effort: call.setting.effort,
-          maxTurns: call.setting.maxTurns,
-          maxBudgetUsd: call.setting.maxBudgetUsd,
-          outputFormat: { type: 'json_schema', schema: call.outputSchema },
-          hooks: {
-            PreToolUse: [{ hooks: [createToolGuard({ root: this.options.cwd, role: call.role, canWrite: call.canWrite, ask: this.options.ask, remembered: this.remembered })] }],
-            PostToolUse: [{ hooks: [fetchLog.hook] }],
-          },
-          stderr: (data) => {
-            stderr.push(data);
-            if (stderr.length > 50) stderr.shift();
-          },
-        },
-      });
-      for await (const message of messages) {
+      for await (const message of opened.messages) {
         if (message.type === 'result') result = message;
       }
     } catch (error) {
@@ -89,6 +109,9 @@ export class AgentSdkTeamMember implements TeamMemberPort {
       };
     } finally {
       this.running.delete(controller);
+      call.signal?.removeEventListener('abort', stop);
+      // 쓴 만큼 다시 채워 둔다. 다음 입력이 올 때쯤엔 준비가 끝나 있다.
+      if (spare !== null) this.prepare(spare.call);
     }
 
     const fetched = fetchLog.entries();
@@ -101,9 +124,66 @@ export class AgentSdkTeamMember implements TeamMemberPort {
     }
     return { output: result.structured_output ?? null, error: result.structured_output === undefined ? '구조화 출력이 없습니다.' : null, usage, fetched };
   }
+
+  private takeSpare(call: MemberCall): Spare | null {
+    const key = spareKey(call);
+    const spare = this.spares.get(key) ?? null;
+    this.spares.delete(key);
+    return spare;
+  }
+
+  /** 미리 띄운 프로세스에 메시지를 보낸다. 띄우기에 실패했으면 null(새로 띄운다). */
+  private async claim(spare: Spare, prompt: string): Promise<(Session & { messages: AsyncIterable<SDKMessage> }) | null> {
+    try {
+      const warm = await spare.warm;
+      return { ...spare, messages: warm.query(prompt) };
+    } catch {
+      return null;
+    }
+  }
+
+  private open(call: MemberCall): Session & { messages: AsyncIterable<SDKMessage> } {
+    const session = newSession();
+    return { ...session, messages: query({ prompt: call.userMessage, options: this.sdkOptions(call, session) }) };
+  }
+
+  private sdkOptions(call: PreparedCall, session: Session): Options {
+    return {
+      model: MODEL_ID[call.setting.tier],
+      abortController: session.controller,
+      cwd: this.options.cwd,
+      env: this.options.env,
+      systemPrompt: this.options.prompts.system(call.role),
+      tools: [...call.setting.tools],
+      allowedTools: [...call.setting.tools],
+      permissionMode: 'dontAsk',
+      settingSources: call.setting.readsProject ? ['project'] : [],
+      effort: call.setting.effort,
+      maxTurns: call.setting.maxTurns,
+      maxBudgetUsd: call.setting.maxBudgetUsd,
+      outputFormat: { type: 'json_schema', schema: call.outputSchema },
+      hooks: {
+        PreToolUse: [{ hooks: [createToolGuard({ root: this.options.cwd, role: call.role, canWrite: call.canWrite, ask: this.options.ask, remembered: this.remembered })] }],
+        PostToolUse: [{ hooks: [session.fetchLog.hook] }],
+      },
+      stderr: (data) => {
+        session.stderr.push(data);
+        if (session.stderr.length > 50) session.stderr.shift();
+      },
+    };
+  }
 }
 
 const CANCELLED: AccountBlock = { reason: 'cancelled', message: '사용자가 작업을 멈췄습니다.' };
+
+function newSession(): Session {
+  return { controller: new AbortController(), fetchLog: createFetchLog(), stderr: [] };
+}
+
+/** 미리 띄운 프로세스는 띄울 때의 설정이 고정되므로, 역할·설정·출력 형식이 모두 같을 때만 쓴다. */
+function spareKey(call: PreparedCall): string {
+  return JSON.stringify([call.role, call.setting, call.outputSchema]);
+}
 
 function emptyUsage(model: string, durationMs: number): MemberUsage {
   return { model, durationMs, costUsd: 0, turns: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, denials: [], endReason: 'error' };

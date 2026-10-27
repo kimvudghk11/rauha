@@ -12,7 +12,12 @@ export interface MemberCall {
   readonly outputSchema: Record<string, unknown>;
   /** 작업 폴더 기준 상대 경로를 이 역할이 쓸 수 있는지(WritePolicy). */
   readonly canWrite: (relPath: string) => boolean;
+  /** 이 호출만 멈출 때. 판정을 기다리지 않고 미리 시작한 답변을 버릴 때 쓴다. */
+  readonly signal?: AbortSignal;
 }
+
+/** 미리 띄워 둘 호출. 보낼 메시지만 아직 모른다. */
+export type PreparedCall = Omit<MemberCall, 'userMessage' | 'signal'>;
 
 export interface MemberUsage {
   readonly model: string;
@@ -54,6 +59,8 @@ export interface AccountBlock {
 
 export interface TeamMemberPort {
   run(call: MemberCall): Promise<MemberResult>;
+  /** 같은 역할·설정으로 곧 부를 호출을 미리 띄워 둔다(대화 모드에서 기다리는 시간을 줄인다). 쓴 뒤에도 다시 띄워 둔다. */
+  prepare?(call: PreparedCall): void;
 }
 
 export interface FileChange {
