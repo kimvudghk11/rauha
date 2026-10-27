@@ -3,6 +3,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { DomainError, loadProfileConfig, type MemberRole } from '@rauha/core';
 import { parseArgs } from './args.js';
 import { terminalAsker, terminalUser } from './ask.js';
@@ -12,6 +13,7 @@ import { runChat } from './chat/run-chat.js';
 import { LiveLine } from './live-line.js';
 import { mascotView } from './mascot.js';
 import { rememberRun, runOnce } from './run.js';
+import { runSetup } from './setup.js';
 import { isRauhaRepo, nodeExec, relaunch, repoRoot, runUpdate } from './update.js';
 
 const VERSION = '0.0.0';
@@ -24,10 +26,11 @@ const HELP = `rauha — 터미널에서 팀장과 대화하는 클로드 팀
   rauha -p "<요청>" --quick    리뷰·사실 점검 없이 검증 통과로 끝냄 (bench에도 쓸 수 있음)
   rauha whoami                현재 프로필과 Claude Code 설정 폴더 확인
   rauha login                 이 프로필의 Claude Code 로그인 (브라우저 인증)
+  rauha setup                 어느 폴더에서든 rauha로 부를 수 있게 설치 (처음 한 번, 저장소에서 yarn rauha setup)
   rauha update                최신 버전으로 갱신(새 커밋 내려받기·설치·빌드)하고 바로 다시 실행
                               (대화 중에는 /update)
   rauha bench [--only <id>] [--compare]
-                              연습용 프로젝트에서 고정 요청 묶음 실행 (rauha 저장소 루트)
+                              연습용 프로젝트(rauha 저장소의 examples/)에서 고정 요청 묶음 실행
                               --compare: 요청마다 사다리(haiku부터)와 구현 sonnet 고정을 비교
   rauha --profile <이름> ...   프로필 직접 지정 (기본: 폴더 규칙 → personal)
 
@@ -104,6 +107,9 @@ async function run(argv: readonly string[]): Promise<number> {
     }
     case 'login':
       return login(command.profile);
+    case 'setup':
+      log('어느 폴더에서든 rauha를 부를 수 있게 할게요.');
+      return runSetup({ entry: fileURLToPath(import.meta.url), home: homedir(), log });
     case 'update': {
       if (!isRauhaRepo()) {
         log('rauha가 저장소에서 실행 중이 아니라 갱신할 수 없어요. 저장소에서 yarn rauha update를 실행해 주세요.');
@@ -120,7 +126,8 @@ async function run(argv: readonly string[]): Promise<number> {
     }
     case 'bench': {
       const { profile } = await resolveProfile(command.profile);
-      const report = await runBench({ repoRoot: workDir, profile, home: homedir(), only: command.only, compare: command.compare, quick: command.quick, log });
+      // 연습용 프로젝트는 rauha 저장소 안에 있다. 어느 폴더에서 불러도 저장소를 쓴다.
+      const report = await runBench({ repoRoot: repoRoot(), profile, home: homedir(), only: command.only, compare: command.compare, quick: command.quick, log });
       process.stdout.write(`${report}\n`);
       return 0;
     }

@@ -16,6 +16,12 @@ describe('parseArgs', () => {
   });
 });
 
+describe('parseArgs — setup', () => {
+  it('setup은 어느 폴더에서든 rauha를 부를 수 있게 하는 명령이다', () => {
+    expect(parseArgs(['setup'])).toEqual({ kind: 'setup' });
+  });
+});
+
 describe('parseArgs — update', () => {
   it('update는 최신으로 갱신한 뒤 다시 띄우는 명령이다', () => {
     expect(parseArgs(['update'])).toEqual({ kind: 'update', profile: null });

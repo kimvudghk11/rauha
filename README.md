@@ -29,9 +29,12 @@ yarn test                # 테스트
 yarn typecheck           # 타입 검사
 yarn build               # dist 빌드
 yarn rauha whoami        # CLI 실행
+yarn rauha setup         # 처음 한 번: 어느 폴더에서든 rauha로 부를 수 있게 한다
 ```
 
-전역 명령으로 쓰려면 빌드 후 `packages/cli`에서 `npm link`(또는 `yarn link`)한다.
+`rauha setup`은 PATH에 있는 폴더(Windows는 `%APPDATA%\npm`, macOS·Linux는 `~/.local/bin`)에 이 저장소의 빌드 결과를 부르는 실행 파일을 둔다. 그 뒤로는 작업할 프로젝트 폴더에서 `rauha`만 입력하면 된다. `rauha update`로 갱신하면 같은 실행 파일이 새 버전을 부른다.
+
+같은 폴더에서는 작업이 한 번에 하나만 돈다(다른 rauha가 작업 중이면 시작하지 않고 알린다). 같은 프로젝트에서 작업 두 개를 동시에 돌리려면 `git worktree add ../<이름> -b <브랜치>`로 폴더를 하나 더 만들어 거기서 띄운다.
 
 ## 구조
 
