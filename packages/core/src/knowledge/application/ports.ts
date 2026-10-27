@@ -9,6 +9,8 @@ export interface RepoReaderPort {
   /** 코드 파일은 내보낸 이름, 코드가 아니면 빈 목록, 없는 파일은 null */
   symbolsOf(paths: readonly string[]): Promise<Map<string, readonly string[] | null>>;
   changedSince(basis: RepoRef): Promise<{ readonly paths: string[] } | 'rebuild'>;
+  /** 파일 내용 해시. 없는 파일은 null */
+  hashes(paths: readonly string[]): Promise<Map<string, string | null>>;
 }
 
 export interface KnowledgeStorePort {

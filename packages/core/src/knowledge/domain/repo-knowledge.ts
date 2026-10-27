@@ -21,6 +21,10 @@ export interface AreaNote {
 const REBUILD_FILES = 200;
 const REBUILD_RATIO = 0.3;
 
+function present(hashes: ReadonlyMap<string, string | null> | undefined): Map<string, string> {
+  return new Map([...(hashes ?? [])].filter((e): e is [string, string] => e[1] !== null));
+}
+
 /** 파일이 속한 영역: 폴더 앞 두 단계. 루트 파일은 '.'. */
 export function areaOf(path: string): string {
   const dirs = path.split('/').slice(0, -1);
@@ -39,16 +43,35 @@ export class RepoKnowledge {
     private readonly fileSet: Set<string>,
     private readonly noteMap: Map<string, AreaNote>,
     private readonly staleSet: Set<string>,
+    /** 파일 → 지식에 반영한 내용 해시. 같은 내용이 다시 "바뀜"으로 보고돼도 낡음으로 치지 않으려고. */
+    private readonly hashMap: Map<string, string>,
   ) {}
 
-  /** files: 지식이 아는 파일 전체(메모 근거 검증용). 없으면 심볼 지도의 파일만. */
-  static create(p: { basis: RepoRef; facts: RepoFacts; symbols: ReadonlyMap<string, readonly string[]>; files?: readonly string[] }): RepoKnowledge {
-    return new RepoKnowledge(p.basis, p.facts, new Map(p.symbols), new Set(p.files ?? p.symbols.keys()), new Map(), new Set());
+  /** files: 지식이 아는 파일 전체(메모 근거 검증용). 없으면 심볼 지도의 파일만. hashes: 파일 내용 해시. */
+  static create(p: { basis: RepoRef; facts: RepoFacts; symbols: ReadonlyMap<string, readonly string[]>; files?: readonly string[]; hashes?: ReadonlyMap<string, string | null> }): RepoKnowledge {
+    return new RepoKnowledge(p.basis, p.facts, new Map(p.symbols), new Set(p.files ?? p.symbols.keys()), new Map(), new Set(), present(p.hashes));
   }
 
   /** 저장해 둔 지식을 되살린다(DTO가 쓴다). */
-  static restore(p: { basis: RepoRef; facts: RepoFacts; symbols: ReadonlyMap<string, readonly string[]>; files: readonly string[]; notes: readonly AreaNote[]; stale: readonly string[] }): RepoKnowledge {
-    return new RepoKnowledge(p.basis, p.facts, new Map(p.symbols), new Set(p.files), new Map(p.notes.map((n) => [n.area, n])), new Set(p.stale));
+  static restore(p: {
+    basis: RepoRef;
+    facts: RepoFacts;
+    symbols: ReadonlyMap<string, readonly string[]>;
+    files: readonly string[];
+    notes: readonly AreaNote[];
+    stale: readonly string[];
+    hashes: ReadonlyMap<string, string>;
+  }): RepoKnowledge {
+    return new RepoKnowledge(p.basis, p.facts, new Map(p.symbols), new Set(p.files), new Map(p.notes.map((n) => [n.area, n])), new Set(p.stale), new Map(p.hashes));
+  }
+
+  get hashes(): ReadonlyMap<string, string> {
+    return this.hashMap;
+  }
+
+  /** 보고된 파일 중 지식에 반영한 내용과 실제로 다른 것(지워졌거나 처음 보는 파일 포함). */
+  changedFiles(hashes: ReadonlyMap<string, string | null>): string[] {
+    return [...hashes].filter(([path, hash]) => hash === null || this.hashMap.get(path) !== hash).map(([path]) => path).sort();
   }
 
   get basis(): RepoRef {
@@ -84,7 +107,11 @@ export class RepoKnowledge {
   }
 
   /** changed: 바뀐 파일 → 새 심볼(지워진 파일은 null). 근거 파일이 바뀐 메모의 영역을 낡음으로 표시하고 기준을 바꾼다. */
-  applyChanges(p: { basis: RepoRef; facts: RepoFacts; changed: ReadonlyMap<string, readonly string[] | null> }): void {
+  applyChanges(p: { basis: RepoRef; facts: RepoFacts; changed: ReadonlyMap<string, readonly string[] | null>; hashes?: ReadonlyMap<string, string | null> }): void {
+    for (const [path, hash] of p.hashes ?? []) {
+      if (hash === null) this.hashMap.delete(path);
+      else this.hashMap.set(path, hash);
+    }
     for (const [path, symbols] of p.changed) {
       if (symbols === null) {
         this.symbolMap.delete(path);

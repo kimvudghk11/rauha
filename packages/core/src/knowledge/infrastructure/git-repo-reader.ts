@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -71,6 +72,14 @@ export class GitRepoReader {
     return new Map(entries);
   }
 
+  /** 파일 내용 해시(git blob 해시). 없는 파일은 null. */
+  async hashes(paths: readonly string[]): Promise<Map<string, string | null>> {
+    const present = paths.filter((p) => existsSync(join(this.root, p)));
+    const out = present.length > 0 ? (await this.gitWithInput(['hash-object', '--stdin-paths'], present.join('\n'))).split('\n') : [];
+    const found = new Map(present.map((p, i) => [p, out[i]?.trim() || null] as const));
+    return new Map(paths.map((p) => [p, found.get(p) ?? null] as const));
+  }
+
   /**
    * 기준 이후 바뀐 파일(커밋된 것 + 커밋 안 한 것 + 새 파일). 기준이 지금 HEAD의 조상이 아니면
    * 갈라진 지점 기준으로 양쪽을 합친다. 기준 커밋이 저장소에 없으면 'rebuild'.
@@ -115,6 +124,12 @@ export class GitRepoReader {
     } catch {
       return null;
     }
+  }
+
+  private async gitWithInput(args: readonly string[], input: string): Promise<string> {
+    const child = run('git', ['-c', 'core.quotepath=false', ...args], { cwd: this.root, maxBuffer: 64 * 1024 * 1024 });
+    child.child.stdin?.end(input);
+    return (await child).stdout;
   }
 
   private async git(args: readonly string[], trim = true): Promise<string> {

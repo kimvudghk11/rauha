@@ -9,6 +9,7 @@ interface KnowledgeJson {
   readonly files: readonly string[];
   readonly notes: readonly AreaNote[];
   readonly stale: readonly string[];
+  readonly hashes: readonly (readonly [string, string])[];
 }
 
 const isString = (v: unknown): v is string => typeof v === 'string';
@@ -49,6 +50,7 @@ export class RepoKnowledgeDto {
       files: k.files,
       notes: k.notes,
       stale: k.stale,
+      hashes: [...k.hashes.entries()],
     });
   }
 
@@ -61,7 +63,9 @@ export class RepoKnowledgeDto {
     const notes = input['notes'];
     const validSymbols = Array.isArray(symbols) && symbols.every((s) => Array.isArray(s) && s.length === 2 && isString(s[0]) && isStringList(s[1]));
     const validNotes = Array.isArray(notes) && notes.every((n) => isRecord(n) && isString(n['area']) && isString(n['text']) && isStringList(n['sources']));
-    if (facts === null || !validSymbols || !validNotes || !isStringList(input['files']) || !isStringList(input['stale'])) return null;
+    const hashes = input['hashes'];
+    const validHashes = Array.isArray(hashes) && hashes.every((h) => Array.isArray(h) && h.length === 2 && isString(h[0]) && isString(h[1]));
+    if (facts === null || !validSymbols || !validNotes || !validHashes || !isStringList(input['files']) || !isStringList(input['stale'])) return null;
     return new RepoKnowledgeDto({
       version: 1,
       basis: { branch: basis['branch'] as string | null, commit: basis['commit'], dirty: basis['dirty'] },
@@ -70,12 +74,13 @@ export class RepoKnowledgeDto {
       files: input['files'],
       notes: (notes as AreaNote[]).map((n) => ({ area: n.area, text: n.text, sources: n.sources })),
       stale: input['stale'],
+      hashes: (hashes as [string, string][]).map(([path, hash]) => [path, hash] as const),
     });
   }
 
   toEntity(): RepoKnowledge {
     const j = this.json;
-    return RepoKnowledge.restore({ basis: RepoRef.of(j.basis), facts: j.facts, symbols: new Map(j.symbols), files: j.files, notes: j.notes, stale: j.stale });
+    return RepoKnowledge.restore({ basis: RepoRef.of(j.basis), facts: j.facts, symbols: new Map(j.symbols), files: j.files, notes: j.notes, stale: j.stale, hashes: new Map(j.hashes) });
   }
 
   toJson(): string {

@@ -29,6 +29,11 @@ class FakeReader implements RepoReaderPort {
   async changedSince() {
     return this.changed;
   }
+  /** 내용 해시. 기본은 경로와 같은 값, 바꾸고 싶으면 content에 넣는다. */
+  readonly content = new Map<string, string>();
+  async hashes(paths: readonly string[]) {
+    return new Map(paths.map((p) => [p, this.fileList.includes(p) ? (this.content.get(p) ?? `h:${p}`) : null] as const));
+  }
 }
 
 class FakeStore implements KnowledgeStorePort {
@@ -83,11 +88,23 @@ describe('KnowledgeService', () => {
     expect(store.saves).toBe(1);
   });
 
+  it('커밋 안 한 변경이 그대로 남아 있으면 다시 조사하지 않는다', async () => {
+    const { svc, reader, team } = service(undefined, undefined, new FakeTeam((call) => ({ output: { notes: areasIn(call).map((area) => ({ area, text: '메모', sources: [`${area}/money.ts`] })) } })));
+    await svc.current();
+    reader.ref = ref('a1', true);
+    reader.changed = { paths: ['src/domain/money.ts'] };
+    reader.content.set('src/domain/money.ts', 'h:new');
+    await svc.current();
+    await svc.current();
+    expect(team.calls).toHaveLength(2);
+  });
+
   it('바뀐 파일의 영역만 다시 조사한다', async () => {
     const { svc, reader, team } = service(undefined, undefined, new FakeTeam((call) => ({ output: { notes: areasIn(call).map((area) => ({ area, text: '메모', sources: [`${area}/money.ts`, `${area}/format.ts`] })) } })));
     await svc.current();
     reader.ref = ref('b2');
     reader.changed = { paths: ['src/domain/money.ts'] };
+    reader.content.set('src/domain/money.ts', 'h:new');
     const got = await svc.current();
     expect(areasIn(team.calls[1]!)).toEqual(['src/domain']);
     expect(got?.basis.label()).toBe('main (b200000)');

@@ -33,10 +33,11 @@ export class KnowledgeService implements KnowledgePort {
     const ref = await reader.current();
     if (ref === null) return null;
     const loaded = await store.load();
+    const loadedLabel = loaded?.basis.label() ?? null;
     const refreshed = loaded === null ? null : await this.followChanges(loaded, ref);
     const knowledge = refreshed ?? (await this.build(ref));
     const surveyed = await this.survey(knowledge);
-    if (loaded === null || refreshed !== loaded || surveyed || knowledge.basis !== loaded.basis) await store.save(knowledge);
+    if (refreshed === null || surveyed || knowledge.basis.label() !== loadedLabel) await store.save(knowledge);
     return { block: knowledge.toBlock(this.deps.repoName), basis: knowledge.basis };
   }
 
@@ -44,27 +45,37 @@ export class KnowledgeService implements KnowledgePort {
     const { reader, store } = this.deps;
     const [ref, knowledge] = await Promise.all([reader.current(), store.load()]);
     if (ref === null || knowledge === null) return;
-    knowledge.applyChanges({ basis: ref, facts: await reader.facts(await reader.files()), changed: await reader.symbolsOf(paths) });
+    await this.apply(knowledge, ref, paths);
     await store.save(knowledge);
   }
 
-  /** 기준 이후 바뀐 파일을 반영한 지식. 바뀐 게 없으면 그대로, 다시 만들어야 하면 null. */
+  /**
+   * 기준 이후 실제로 내용이 바뀐 파일을 반영한 지식. 바뀐 게 없으면 그대로, 다시 만들어야 하면 null.
+   * 커밋 안 한 변경이 그대로 남아 있으면 git은 매번 "바뀜"으로 보고하므로 내용 해시로 다시 거른다.
+   */
   private async followChanges(knowledge: RepoKnowledge, ref: RepoRef): Promise<RepoKnowledge | null> {
     const same = knowledge.basis.commit === ref.commit && !ref.dirty && !knowledge.basis.dirty;
     if (same) return knowledge;
-    const changed = await this.deps.reader.changedSince(knowledge.basis);
-    if (changed === 'rebuild' || knowledge.needsRebuild(changed.paths.length)) return null;
-    const files = await this.deps.reader.files();
-    knowledge.applyChanges({ basis: ref, facts: await this.deps.reader.facts(files), changed: await this.deps.reader.symbolsOf(changed.paths) });
+    const reported = await this.deps.reader.changedSince(knowledge.basis);
+    if (reported === 'rebuild') return null;
+    const changed = knowledge.changedFiles(await this.deps.reader.hashes(reported.paths));
+    if (knowledge.needsRebuild(changed.length)) return null;
+    await this.apply(knowledge, ref, changed);
     return knowledge;
+  }
+
+  private async apply(knowledge: RepoKnowledge, ref: RepoRef, paths: readonly string[]): Promise<void> {
+    const { reader } = this.deps;
+    const [facts, changed, hashes] = await Promise.all([reader.files().then((files) => reader.facts(files)), reader.symbolsOf(paths), reader.hashes(paths)]);
+    knowledge.applyChanges({ basis: ref, facts, changed, hashes });
   }
 
   private async build(ref: RepoRef): Promise<RepoKnowledge> {
     this.deps.progress.step('저장소를 처음 파악하는 중이에요');
     const files = await this.deps.reader.files();
-    const symbols = await this.deps.reader.symbolsOf(files);
+    const [symbols, facts, hashes] = await Promise.all([this.deps.reader.symbolsOf(files), this.deps.reader.facts(files), this.deps.reader.hashes(files)]);
     const exported = new Map([...symbols].filter((e): e is [string, readonly string[]] => e[1] !== null && e[1].length > 0));
-    return RepoKnowledge.create({ basis: ref, facts: await this.deps.reader.facts(files), symbols: exported, files });
+    return RepoKnowledge.create({ basis: ref, facts, symbols: exported, files, hashes });
   }
 
   /** 낡은 영역 메모를 조사 팀원에게 맡긴다. 막히거나 실패하면 메모 없이 둔다(다음에 다시). 메모를 썼으면 true. */

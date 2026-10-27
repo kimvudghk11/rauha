@@ -89,6 +89,13 @@ describe('GitRepoReader', () => {
     expect(await reader.changedSince(basis)).toEqual({ paths: [] });
   });
 
+  it('파일 내용 해시를 읽고 없는 파일은 null', async () => {
+    const { reader } = repo();
+    const hashes = await reader.hashes(['src/domain/money.ts', 'src/domain/gone.ts']);
+    expect(hashes.get('src/domain/money.ts')).toMatch(/^[0-9a-f]{40}$/);
+    expect(hashes.get('src/domain/gone.ts')).toBeNull();
+  });
+
   it('package.json 스크립트와 패키지 관리자, 지시 파일, 영역을 읽는다', async () => {
     const { reader } = repo();
     const facts = await reader.facts(await reader.files());

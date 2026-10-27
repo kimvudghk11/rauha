@@ -41,6 +41,14 @@ describe('RepoKnowledge', () => {
     expect(k.staleAreas()).toEqual(['src/coupon']);
   });
 
+  it('내용이 그대로인 파일은 바뀐 것으로 치지 않는다(커밋 안 한 변경이 남아 있어도 매번 다시 조사하지 않게)', () => {
+    const k = RepoKnowledge.create({ basis: ref('a'), facts: facts(), symbols: new Map(), files: ['src/domain/money.ts'], hashes: new Map([['src/domain/money.ts', 'h1']]) });
+    expect(k.changedFiles(new Map([['src/domain/money.ts', 'h1'], ['src/domain/cart.ts', 'h2']]))).toEqual(['src/domain/cart.ts']);
+    k.applyChanges({ basis: ref('a'), facts: facts(), changed: new Map([['src/domain/cart.ts', ['Cart']]]), hashes: new Map([['src/domain/cart.ts', 'h2']]) });
+    expect(k.changedFiles(new Map([['src/domain/cart.ts', 'h2']]))).toEqual([]);
+    expect(k.changedFiles(new Map([['src/domain/cart.ts', null]]))).toEqual(['src/domain/cart.ts']);
+  });
+
   it('지운 파일은 심볼 지도에서 빠진다', () => {
     const k = knowledge();
     k.applyChanges({ basis: ref('b2'), facts: facts(), changed: new Map([['src/domain/cart.ts', null]]) });
