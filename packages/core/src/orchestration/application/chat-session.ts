@@ -4,6 +4,7 @@ import { citedPaths, FactCheck, normalizeUrl, type CheckedClaim } from '../domai
 import type { ModelTier } from '../domain/team.js';
 import { AnswerDto } from './dto/answer.dto.js';
 import type { MemberRole, RoleSettingsDto } from './dto/role-settings.dto.js';
+import type { ChatSnapshot } from './dto/chat-snapshot.dto.js';
 import { FilesBlockDto } from './dto/files-block.dto.js';
 import { ReviewReportDto } from './dto/review-report.dto.js';
 import { RouteDto, type Route } from './dto/route.dto.js';
@@ -83,6 +84,20 @@ export class ChatSession {
     deps.team.prepare?.(session.callFor('router', ROUTE_SCHEMA));
     deps.team.prepare?.(session.callFor('answerer', ANSWER_SCHEMA));
     return session;
+  }
+
+  /** 저장해 둔 대화를 이어 연다(rauha --continue, /update 뒤). 앞 대화와 이어 일할 파일을 그대로 쓴다. */
+  static resume(deps: ChatSessionDeps, snapshot: ChatSnapshot): ChatSession {
+    const session = ChatSession.start(deps);
+    session.turns = snapshot.turns.map((t) => ({ input: t.input, result: t.result }));
+    session.carried = new Map(snapshot.carried);
+    session.lastTitle = snapshot.lastTitle;
+    return session;
+  }
+
+  /** 다시 열 때 필요한 상태. savedAt: ISO 시각 */
+  snapshot(savedAt: string): ChatSnapshot {
+    return { version: 1, turns: [...this.turns], carried: [...this.carried], lastTitle: this.lastTitle, savedAt };
   }
 
   /**

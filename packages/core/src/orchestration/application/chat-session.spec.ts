@@ -129,10 +129,16 @@ class FakeLoops {
 
 const route = (mode: 'work' | 'question', refersToPast = false, pastQuery: string | null = null) => () => ({ mode, refersToPast, pastQuery });
 
-function session(p: { team: FakeTeam; loops?: FakeLoops; memory?: FakeMemory; user?: UserPort; files?: Record<string, string>; steps?: string[]; changes?: FileChange[] }) {
+type SessionParts = { team: FakeTeam; loops?: FakeLoops; memory?: FakeMemory; user?: UserPort; files?: Record<string, string>; steps?: string[]; changes?: FileChange[] };
+
+function session(p: SessionParts) {
+  return ChatSession.start(sessionDeps(p));
+}
+
+function sessionDeps(p: SessionParts) {
   let clock = Date.parse('2026-10-25T07:00:00.000Z');
   let id = 0;
-  return ChatSession.start({
+  return {
     newLoop: (p.loops ?? new FakeLoops()).newLoop,
     team: p.team,
     workspace: { readFile: async (path: string) => p.files?.[path] ?? null, reviewChanges: async () => p.changes ?? [] },
@@ -144,7 +150,7 @@ function session(p: { team: FakeTeam; loops?: FakeLoops; memory?: FakeMemory; us
     newId: () => `id${(id += 1)}`,
     today: () => '2026-10-25',
     nowText: () => '2026년 10월 25일 일요일 오후 11:40 (Asia/Seoul)',
-  });
+  };
 }
 
 // ── 테스트 ───────────────────────────────────────────────────
@@ -391,6 +397,19 @@ describe('ChatSession — 세션', () => {
     expect([...loops.runs[1]!.carried]).toEqual([['src/money.ts', 'modified:h1']]);
     expect(loops.runs[1]!.context.conversation).toContain('Money에 할인 넣어줘');
     expect(chat.status().carriedFiles).toBe(2);
+  });
+
+  it('이어 간 세션은 앞 대화와 이어 일할 파일을 그대로 쓴다', async () => {
+    const loops = new FakeLoops();
+    const team = new FakeTeam({ router: [route('work')] });
+    const first = session({ team, loops });
+    await first.handle('Money에 할인 넣어줘');
+    const saved = first.snapshot('2026-10-27T10:00:00.000Z');
+    const resumed = ChatSession.resume(sessionDeps({ team, loops }), saved);
+    await resumed.handle('에러 메시지만 바꿔줘');
+    expect(loops.runs[1]!.context.conversation).toContain('Money에 할인 넣어줘');
+    expect([...loops.runs[1]!.carried]).toEqual([['src/money.ts', 'modified:h1']]);
+    expect(resumed.status()).toMatchObject({ turns: 2, lastTitle: 'Money에 퍼센트 할인 discount 추가' });
   });
 
   it('clear는 세션 대화만 비우고 기억과 이어 일할 파일은 남긴다', async () => {
