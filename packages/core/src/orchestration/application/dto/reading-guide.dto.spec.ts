@@ -40,6 +40,7 @@ const base: ReadingGuideProps = {
 describe('ReadingGuideDto', () => {
   it('안내서는 읽는 순서·결정·직접 해 볼 것·검증 결과를 담는다', () => {
     const md = ReadingGuideDto.create(base).toMarkdown();
+    expect(md).not.toContain('작업 기준');
     expect(md).toContain('[personal] Money 할인 적용 · 완료(리뷰 전) · 2분 14초 · haiku 2회, sonnet 1회');
     expect(md).toContain('1. src/domain/money.ts:30');
     expect(md).toContain('새 메서드');
@@ -61,6 +62,7 @@ describe('ReadingGuideDto', () => {
     });
     const md = ReadingGuideDto.create({ ...base, explanation: e }).toMarkdown();
     expect(md).toContain('  - 할인액을 버림한다. 테스트가 900을 기대한다.');
+    expect(ReadingGuideDto.create({ ...base, basis: 'main (a1b2c3d)' }).toMarkdown()).toContain('작업 기준: main (a1b2c3d) · 고친 곳: 작업 트리(커밋 안 함)');
     expect(md).not.toContain('..');
   });
 

@@ -40,7 +40,8 @@ export function describeTurn(turn: TurnOutcome, view: MascotView | null): Printa
         decided: outcome.assumptions.filter((a) => !a.confirmed).map((a) => `${a.question} → ${a.chosen}`),
         todo: outcome.facts.unconfirmed.map((c) => c.text),
       };
-      return ['', view.finale(outcome.status), '', (columns: number) => view.resultCard(card, columns), ''];
+      const basis = outcome.basis !== null ? [`  작업 기준: ${outcome.basis} · 고친 곳: 작업 트리(커밋 안 함)`, ''] : [];
+      return ['', view.finale(outcome.status), '', (columns: number) => view.resultCard(card, columns), '', ...basis];
     }
     case 'answer': {
       // 근거를 확인하지 못한 주장 목록은 답을 읽는 데 방해만 돼서 보여 주지 않는다(사용자 결정).
@@ -51,6 +52,7 @@ export function describeTurn(turn: TurnOutcome, view: MascotView | null): Printa
         ...turn.answer.split('\n').map((line) => (line === '' ? '' : `  ${titled(line, view)}`)),
         '',
         ...(sources.length > 0 ? ['  출처', ...sources.map((s) => `  - ${s}`), ''] : []),
+        ...(turn.basis !== null ? [`  읽은 기준: ${turn.basis}`] : []),
         // 확인된 근거가 없으면 "0개"를 쓰지 않는다(날짜·시각처럼 근거가 필요 없는 답에서 불안만 준다).
         `  ${verified.length > 0 ? `근거 확인됨 ${verified.length}개 · ` : ''}${formatElapsed(turn.durationMs)}`,
         '',

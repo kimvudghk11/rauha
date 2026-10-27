@@ -6,7 +6,7 @@ import { ChatSession, FileChatSnapshots, GitWorkspace, loadSecretPolicy, readPla
 import { FACT_ANSWERED, FACT_OPTIONS, PERMISSION_ANSWERED, PERMISSION_OPTIONS, toFactAnswer, toPermissionAnswer } from '../ask.js';
 import { mascotView } from '../mascot.js';
 import { createNotifier, NOTIFY_AFTER_MS, notifyWhile } from '../notify.js';
-import { createLoop, createTeam, definedEnv, loadPrompts, openMemory, projectRoot, roleSettings } from '../run.js';
+import { createKnowledge, createLoop, createTeam, definedEnv, loadPrompts, openMemory, projectRoot, roleSettings } from '../run.js';
 import { ChatApp } from './chat-app.js';
 import { chatProgress } from './chat-progress.js';
 import { ChatStore } from './chat-store.js';
@@ -110,8 +110,10 @@ export async function runChat(options: ChatOptions): Promise<number> {
   let restartAfterExit = false;
   const snapshots = new FileChatSnapshots(profile.sessionsDir(home), projectRoot(workDir));
   const saved = options.resume ? await snapshots.load() : null;
+  const knowledge = createKnowledge(ctx, team);
   const sessionDeps = {
-    newLoop: (carried: ReadonlyMap<string, string>) => createLoop(ctx, prompts, team, carried),
+    knowledge,
+    newLoop: (carried: ReadonlyMap<string, string>) => createLoop(ctx, prompts, team, carried, knowledge),
     team,
     workspace: new GitWorkspace(workDir, loadSecretPolicy(workDir)),
     memory,

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { RepoRef } from '../../knowledge/domain/repo-ref.js';
 import type { MemoryPort } from '../../memory/application/memory.port.js';
 import type { MemoryEntry, MemoryNode, Recall } from '../../memory/domain/work-memory.js';
 import type { CheckedClaim } from '../domain/fact-check.js';
@@ -111,6 +112,7 @@ function outcome(over: Partial<RunOutcome> = {}): RunOutcome {
     assumptions: [{ question: '버림 대상', chosen: '할인 후 금액에서 버림', confirmed: false }],
     explanation: null,
     logDir: '/runs/x',
+    basis: null,
     guide: { toMarkdown: () => '# 안내서', toTerminal: () => '# 안내서' } as unknown as RunOutcome['guide'],
     ...over,
   };
@@ -211,6 +213,27 @@ describe('ChatSession — 질문', () => {
     const team = new FakeTeam({ router: [route('question')], answerer: [() => ({ answer: '안녕하세요.', claims: [] })] });
     const turn = await session({ team }).handle('안녕');
     expect(turn).toMatchObject({ kind: 'answer', answer: '안녕하세요.', checked: [] });
+  });
+});
+
+describe('ChatSession — 저장소 지식', () => {
+  const knowledge = {
+    current: async () => ({ block: '<repo_knowledge repo="shop" basis="main (a1b2c3d)">\n요약\n</repo_knowledge>', basis: RepoRef.of({ branch: 'main', commit: 'a1b2c3d'.padEnd(40, '0'), dirty: false }) }),
+    noteChanged: async () => undefined,
+  };
+
+  it('답변 팀원은 지식 묶음을 받고 답에 읽은 기준이 붙는다', async () => {
+    const team = new FakeTeam({ router: [route('question')], answerer: [() => ({ answer: '네.', claims: [] })] });
+    const turn = await ChatSession.start({ ...sessionDeps({ team }), knowledge }).handle('Money는 뭐야?');
+    const message = team.calls.find((c) => c.role === 'answerer')!.message;
+    expect(message.startsWith('<repo_knowledge')).toBe(true);
+    expect(turn).toMatchObject({ kind: 'answer', basis: 'main (a1b2c3d)' });
+  });
+
+  it('라우터는 지식을 받지 않는다(빨라야 해서)', async () => {
+    const team = new FakeTeam({ router: [route('question')], answerer: [() => ({ answer: '네.', claims: [] })] });
+    await ChatSession.start({ ...sessionDeps({ team }), knowledge }).handle('Money는 뭐야?');
+    expect(team.calls.find((c) => c.role === 'router')!.message).not.toContain('<repo_knowledge');
   });
 });
 

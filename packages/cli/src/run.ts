@@ -1,9 +1,13 @@
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import {
   AgentSdkTeamMember,
+  FileKnowledgeStore,
   FileRunLog,
+  GitRepoReader,
+  KnowledgeService,
+  type KnowledgePort,
   FileWorkLock,
   projectLockFile,
   GitWorkspace,
@@ -106,8 +110,23 @@ export function roleSettings(roleEnv?: Readonly<Record<string, string>>): RoleSe
   return RoleSettingsDto.defaults().withEnv({ ...process.env, ...roleEnv });
 }
 
+/**
+ * 저장소 지식. 작업 폴더마다 하나(하위 폴더에서 띄우면 그 폴더 기준). 대화 세션과 그 안의 작업이 같은 것을 쓴다.
+ * 지식 파일은 프로필 폴더 아래에 두고 저장소 안에는 만들지 않는다.
+ */
+export function createKnowledge(ctx: Pick<RunContext, 'root' | 'profile' | 'home' | 'progress' | 'roleEnv'>, team: TeamMemberPort): KnowledgeService {
+  return new KnowledgeService({
+    reader: new GitRepoReader(ctx.root, loadSecretPolicy(ctx.root)),
+    store: new FileKnowledgeStore(ctx.profile.knowledgeDir(ctx.home), ctx.root),
+    team,
+    roles: roleSettings(ctx.roleEnv),
+    progress: ctx.progress,
+    repoName: basename(projectRoot(ctx.root)),
+  });
+}
+
 /** 요청 하나를 돌릴 최소 루프 조립. -p와 대화 세션이 같이 쓴다. */
-export function createLoop(ctx: RunContext, prompts: PromptLibrary, team: TeamMemberPort, carried?: ReadonlyMap<string, string>): MinimalLoopService {
+export function createLoop(ctx: RunContext, prompts: PromptLibrary, team: TeamMemberPort, carried?: ReadonlyMap<string, string>, knowledge?: KnowledgePort): MinimalLoopService {
   const runId = randomUUID();
   return new MinimalLoopService({
     team,
@@ -125,12 +144,14 @@ export function createLoop(ctx: RunContext, prompts: PromptLibrary, team: TeamMe
     threePass: ctx.threePass ?? true,
     lock: new FileWorkLock(projectLockFile(join(ctx.home, '.rauha', 'locks'), projectRoot(ctx.root))),
     ...(carried !== undefined ? { carried } : {}),
+    ...(knowledge !== undefined ? { knowledge } : {}),
   });
 }
 
 /** 어댑터를 조립해서 최소 루프를 한 번 돌린다. */
 export async function runOnce(request: string, ctx: RunContext): Promise<RunResult> {
   const prompts = await loadPrompts();
-  const service = createLoop(ctx, prompts, createTeam(ctx, prompts));
+  const team = createTeam(ctx, prompts);
+  const service = createLoop(ctx, prompts, team, undefined, createKnowledge(ctx, team));
   return { outcome: await service.run(request), promptHash: prompts.hash };
 }

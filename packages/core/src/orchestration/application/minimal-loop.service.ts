@@ -1,3 +1,4 @@
+import type { KnowledgePort } from '../../knowledge/application/ports.js';
 import { DomainError } from '../../shared/domain-error.js';
 import { citedPaths, FactCheck, normalizeUrl, ReviewFindings, type CheckedClaim } from '../domain/fact-check.js';
 import type { ModelTier, TeamRole } from '../domain/team.js';
@@ -72,6 +73,8 @@ export interface RunOutcome {
   readonly assumptions: readonly SettledAssumption[];
   readonly explanation: ExplanationDto | null;
   readonly logDir: string;
+  /** 작업을 시작할 때 본 기준(`main (a1b2c3d)`). 저장소 지식이 없으면 null. */
+  readonly basis: string | null;
 }
 
 /** 대화 세션이 접수 팀장에게 함께 넘기는 맥락 */
@@ -150,6 +153,8 @@ export interface MinimalLoopDeps {
   readonly threePass: boolean;
   /** 같은 폴더의 다른 rauha와 작업이 겹치지 않게 하는 잠금. 없으면 잠그지 않는다. */
   readonly lock?: WorkLockPort;
+  /** 저장소 지식. 있으면 접수 팀장이 파일 목록 대신 받고, 끝나면 바뀐 파일을 알린다. */
+  readonly knowledge?: KnowledgePort;
 }
 
 const NO_LOCK: HeldLock = { release: async () => undefined };
@@ -189,6 +194,9 @@ class RunTally {
  * 불러서 결과를 엔티티 메서드에 넘기기만 한다.
  */
 export class MinimalLoopService {
+  /** 이번 실행이 본 기준. 루프는 요청 하나마다 새로 만들어지므로 여기 둔다. */
+  private basis: string | null = null;
+
   constructor(private readonly deps: MinimalLoopDeps) {}
 
   async run(request: string, context: RunContextBlocks = NO_CONTEXT): Promise<RunOutcome> {
@@ -225,7 +233,7 @@ export class MinimalLoopService {
   private async execute(request: string, tally: RunTally, started: number, current: RunProgress, context: RunContextBlocks): Promise<RunOutcome> {
     const { workspace, checks, log, progress } = this.deps;
     progress.step('기준선 검사와 팀장 접수를 함께 시작합니다');
-    const [baselineResults, intake] = await Promise.all([checks.runSuite(), this.intake(request, tally, context)]);
+    const [baselineResults, intake] = await Promise.all([checks.runSuite(), this.knowledgeBlock().then((known) => this.intake(request, tally, context, known))]);
     const baseline = Verification.of(baselineResults);
     await log.recordChecks('baseline', baselineResults);
 
@@ -414,8 +422,19 @@ export class MinimalLoopService {
    * 접수 → 해석이 갈리는 지점 중 사용자가 꼭 정해야 하는 것만 확인 → 다른 해석을 고르면 확정해서 한 번 더 접수.
    * 나머지와 물어볼 화면이 없을 때는 추천 해석으로 진행하고, 알아서 정한 해석으로 안내서에 남긴다.
    */
-  private async intake(request: string, tally: RunTally, context: RunContextBlocks): Promise<{ dto: IntakeDto; order: WorkOrder; assumptions: SettledAssumption[] } | null> {
-    const first = await this.intakeOnce(request, [], tally, context);
+  /** 저장소 지식 묶음. 없거나(지식 없음, git 아님) 읽다 실패하면 null — 그때는 지금처럼 파일 목록을 쓴다. */
+  private async knowledgeBlock(): Promise<string | null> {
+    try {
+      const known = (await this.deps.knowledge?.current()) ?? null;
+      this.basis = known?.basis.label() ?? null;
+      return known?.block ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async intake(request: string, tally: RunTally, context: RunContextBlocks, known: string | null): Promise<{ dto: IntakeDto; order: WorkOrder; assumptions: SettledAssumption[] } | null> {
+    const first = await this.intakeOnce(request, [], tally, context, known);
     if (first === null || first.dto.assumptions.length === 0) return first === null ? null : { ...first, assumptions: [] };
 
     const { user, progress } = this.deps;
@@ -428,7 +447,7 @@ export class MinimalLoopService {
     const settled = first.dto.settleAssumptions(picks);
     if (!settled.some((s) => s.changed)) return { ...first, assumptions: settled.map(toSettled) };
 
-    const second = await this.intakeOnce(request, settled, tally, context);
+    const second = await this.intakeOnce(request, settled, tally, context, known);
     if (second === null) return null;
     return { ...second, assumptions: [...settled.map(toSettled), ...second.dto.settleAssumptions(null).map(toSettled)] };
   }
@@ -438,12 +457,15 @@ export class MinimalLoopService {
     clarifications: readonly SettledAssumptionChoice[],
     tally: RunTally,
     context: RunContextBlocks,
+    known: string | null,
   ): Promise<{ dto: IntakeDto; order: WorkOrder } | null> {
-    const files = await this.deps.workspace.listFiles();
+    // 저장소 지식이 있으면 전체 파일 목록 대신 그것을 맨 앞에 둔다(같은 저장소면 앞부분이 같아 캐시가 맞는다).
+    const files = known === null ? await this.deps.workspace.listFiles() : [];
     let feedback: string | null = null;
     for (let attempt = 1; attempt <= INTAKE_ATTEMPTS; attempt += 1) {
       const message = [
         `<today>${this.deps.today()}</today>`,
+        known ?? '',
         context.conversation !== null
           ? `<conversation>\n이번 세션의 앞 대화입니다. 요청이 이걸 가리키면 이어서 해석하세요.\n${context.conversation}\n</conversation>`
           : '',
@@ -451,7 +473,7 @@ export class MinimalLoopService {
           ? `<past_work>\n사용자가 이어서 고치려고 고른 지난 작업입니다. 바꾼 파일·결정·정한 해석을 존중하세요.\n${context.pastWork}\n</past_work>`
           : '',
         `<request>\n${request}\n</request>`,
-        `<project_files>\n${files.join('\n')}\n</project_files>`,
+        known === null ? `<project_files>\n${files.join('\n')}\n</project_files>` : '',
         clarifications.length > 0
           ? `<clarifications>\n사용자가 직접 정한 해석입니다. 이대로 수용 기준을 쓰고, 이 지점은 assumptions에 다시 넣지 마세요.\n${clarifications.map((c) => `- ${c.question} → ${c.chosen}`).join('\n')}\n</clarifications>`
           : '',
@@ -567,6 +589,8 @@ export class MinimalLoopService {
     const facts = props.facts ?? new ReviewState().summary();
     const after = await this.deps.workspace.snapshot();
     const changedInRun = this.deps.workspace.changesBetween(props.start, after);
+    // 방금 rauha가 바꾼 파일을 지식에 바로 알린다(모델 없이 심볼·기준만). 실패해도 결과는 그대로.
+    if (changedInRun.length > 0) await this.deps.knowledge?.noteChanged(changedInRun.map((c) => c.path)).catch(() => undefined);
     const { tally } = props;
     const durationMs = this.deps.now() - props.started;
     const guideProps = {
@@ -582,6 +606,7 @@ export class MinimalLoopService {
       changes: changedInRun,
       assumptions: props.assumptions,
       facts,
+      basis: this.basis,
     };
     const summary = {
       title: props.title,
@@ -615,6 +640,7 @@ export class MinimalLoopService {
       assumptions: props.assumptions,
       explanation: props.explanation ?? null,
       logDir,
+      basis: this.basis,
     };
   }
 }

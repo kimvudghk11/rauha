@@ -1,3 +1,4 @@
+import type { KnowledgePort } from '../../knowledge/application/ports.js';
 import type { MemoryPort } from '../../memory/application/memory.port.js';
 import { continuable, recallBlock, WorkMemory, type MemoryEntry, type Recall } from '../../memory/domain/work-memory.js';
 import { citedPaths, FactCheck, normalizeUrl, type CheckedClaim } from '../domain/fact-check.js';
@@ -21,7 +22,8 @@ const CANDIDATES = 3;
 
 export type TurnOutcome =
   | { readonly kind: 'work'; readonly outcome: RunOutcome }
-  | { readonly kind: 'answer'; readonly answer: string; readonly checked: readonly CheckedClaim[]; readonly costUsd: number; readonly durationMs: number }
+  /** basis: 답이 읽은 기준(`main (a1b2c3d)`). 저장소 지식이 없으면 null. */
+  | { readonly kind: 'answer'; readonly answer: string; readonly checked: readonly CheckedClaim[]; readonly costUsd: number; readonly durationMs: number; readonly basis: string | null }
   /** /review: 사용자의 변경을 리뷰어가 본 결과. target null = 커밋 안 한 변경. files가 비면 리뷰어를 부르지 않았다. */
   | { readonly kind: 'review'; readonly target: string | null; readonly files: readonly string[]; readonly checked: readonly CheckedClaim[]; readonly summary: string; readonly durationMs: number }
   /** 계정 문제(사용 한도, 로그인 안 됨)로 막힘. 사용 한도면 message에 풀리는 시각이 들어 있다. */
@@ -41,6 +43,14 @@ export interface ChatSessionDeps {
   readonly today: () => string;
   /** 지금 날짜와 시각을 사람이 읽는 글로(시간대 포함). 컴퓨터 시계에서 읽은 값이라 답변 팀원이 그대로 쓴다. */
   readonly nowText: () => string;
+  /** 저장소 지식. 있으면 답변 팀원 메시지 맨 앞에 넣고 답에 기준을 밝힌다. 라우터에는 넣지 않는다. */
+  readonly knowledge?: KnowledgePort;
+}
+
+/** 답변 팀원에게 넘길 저장소 지식 묶음과 그 기준 */
+interface Known {
+  readonly block: string;
+  readonly basis: string;
 }
 
 interface Turn {
@@ -61,6 +71,7 @@ export function workMemoryFrom(outcome: RunOutcome, p: { id: string; at: string;
     decisions: outcome.facts.checked.filter((c) => c.kind === 'decision').map((c) => ({ text: c.text, verified: !c.isGuess, rejected: null })),
     assumptions: outcome.assumptions.map((a) => ({ question: a.question, chosen: a.chosen })),
     extendsWork: p.extendsWork,
+    basis: outcome.basis,
   });
 }
 
@@ -108,7 +119,9 @@ export class ChatSession {
     const started = this.deps.now();
     const conversation = this.conversation();
     const early = new AbortController();
-    const asked = this.askAnswerer(input, null, early.signal);
+    // 저장소 지식은 라우터와 함께 읽는다. 답변 팀원만 기다린다(라우터는 지식이 필요 없다).
+    const known = this.knowledgeOf();
+    const asked = known.then((k) => this.askAnswerer(input, null, k, early.signal));
     // 라우터를 기다리는 동안 실패해도 처리 안 된 거절로 프로세스가 죽지 않게. 쓰기로 하면 answer()가 await에서 다시 받는다.
     asked.catch(() => undefined);
     const routed = await this.member('router', [conversation !== null ? `<conversation>\n${conversation}\n</conversation>` : '', `<message>\n${input}\n</message>`], ROUTE_SCHEMA);
@@ -117,7 +130,7 @@ export class ChatSession {
     if (routed.blocked) return { kind: 'blocked', ...routed.blocked };
     const past = route.refersToPast ? await this.pickPast(route.pastQuery ?? input, route.mode) : null;
     if (route.mode === 'work') return this.work(input, conversation, past);
-    return this.answer(input, route.refersToPast ? this.askAnswerer(input, past) : asked, started);
+    return this.answer(input, route.refersToPast ? this.askAnswerer(input, past, await known) : asked, started);
   }
 
   clear(): void {
@@ -152,20 +165,30 @@ export class ChatSession {
   // ── 질문 ──────────────────────────────────────────────────
 
   /** 답변 팀원 호출만. 답을 기억에 남기는 일은 이 답을 쓰기로 정한 뒤 answer()가 한다. */
-  private async askAnswerer(input: string, past: Recall | null, signal?: AbortSignal): Promise<{ result: MemberResult; recalls: Recall[] }> {
+  private async askAnswerer(input: string, past: Recall | null, known: Known | null, signal?: AbortSignal): Promise<{ result: MemberResult; recalls: Recall[]; basis: string | null }> {
     const recalls = past !== null ? [past] : await this.deps.memory.search(input, CANDIDATES);
     const block = recallBlock(recalls, MEMORY_CHARS);
     const result = await this.member(
       'answerer',
-      [`<today>${this.deps.today()}</today>`, `<now>${this.deps.nowText()}</now>`, block !== '' ? `<memory>\n기억된 지난 작업과 그때의 결정입니다.\n${block}\n</memory>` : '', `<question>\n${input}\n</question>`],
+      [known?.block ?? '', `<today>${this.deps.today()}</today>`, `<now>${this.deps.nowText()}</now>`, block !== '' ? `<memory>\n기억된 지난 작업과 그때의 결정입니다.\n${block}\n</memory>` : '', `<question>\n${input}\n</question>`],
       ANSWER_SCHEMA,
       signal,
     );
-    return { result, recalls };
+    return { result, recalls, basis: known?.basis ?? null };
   }
 
-  private async answer(input: string, asked: Promise<{ result: MemberResult; recalls: Recall[] }>, started: number): Promise<TurnOutcome> {
-    const { result, recalls } = await asked;
+  /** 저장소 지식. 없거나(git 아님) 읽다 실패하면 null — 그때는 지식 없이 답한다. */
+  private async knowledgeOf(): Promise<Known | null> {
+    try {
+      const known = (await this.deps.knowledge?.current()) ?? null;
+      return known === null ? null : { block: known.block, basis: known.basis.label() };
+    } catch {
+      return null;
+    }
+  }
+
+  private async answer(input: string, asked: Promise<{ result: MemberResult; recalls: Recall[]; basis: string | null }>, started: number): Promise<TurnOutcome> {
+    const { result, recalls, basis } = await asked;
     if (result.blocked) return { kind: 'blocked', ...result.blocked };
     const dto = this.readAnswer(result.output);
     const claims = dto?.claims() ?? [];
@@ -178,9 +201,9 @@ export class ChatSession {
       records: recalls.flatMap((r) => r.neighbors.filter((n) => n.kind === 'decision' || n.kind === 'assumption').map((n) => n.text)),
     }).all();
     const answer = dto?.answer ?? '답을 만들지 못했어요. 질문을 조금 더 구체적으로 다시 해 주세요.';
-    await this.deps.memory.save(WorkMemory.fromAnswer({ id: this.deps.newId(), at: this.at(), question: input, answer, citedFiles: citedPaths(claims) }));
+    await this.deps.memory.save(WorkMemory.fromAnswer({ id: this.deps.newId(), at: this.at(), question: input, answer, citedFiles: citedPaths(claims), basis }));
     this.turns.push({ input, result: `답: ${answer.slice(0, 120)}` });
-    return { kind: 'answer', answer, checked, costUsd: result.usage.costUsd, durationMs: this.deps.now() - started };
+    return { kind: 'answer', answer, checked, costUsd: result.usage.costUsd, durationMs: this.deps.now() - started, basis };
   }
 
   // ── 내 변경 검토 (/review) ───────────────────────────────

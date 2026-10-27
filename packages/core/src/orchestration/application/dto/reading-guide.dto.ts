@@ -20,6 +20,8 @@ export interface ReadingGuideProps {
   readonly verdict: VerificationVerdict | null;
   readonly changes: readonly FileChange[];
   readonly logDir: string | null;
+  /** 작업을 시작할 때 본 기준(`main (a1b2c3d)`). 저장소 지식이 없으면 없음. */
+  readonly basis?: string | null;
   /** 해석이 갈린 지점과 실제로 따른 해석. confirmed = 사용자가 직접 확인했는지. */
   readonly assumptions: readonly SettledAssumption[];
   /** 사실 점검 결과. 3단 작업이 아니면 없음. */
@@ -135,6 +137,7 @@ export class ReadingGuideDto {
     const state = p.status === 'complete' ? (reviewed ? `완료(리뷰 ${facts.reviewRounds}회)` : '완료(리뷰 전)') : '멈춤';
     const lines: string[] = [
       `${p.badge} ${p.title} · ${state} · ${formatDuration(p.durationMs)} · ${tiers}`,
+      ...(p.basis ? [`작업 기준: ${p.basis} · 고친 곳: 작업 트리(커밋 안 함)`] : []),
     ];
 
     // 가정은 맨 위에: 해석이 다르면 코드를 읽기 전에 알아야 한다.

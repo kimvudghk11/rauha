@@ -51,10 +51,12 @@ export class WorkMemory {
     decisions: readonly { text: string; verified: boolean; rejected: string | null }[];
     assumptions: readonly { question: string; chosen: string }[];
     extendsWork: string | null;
+    /** 작업을 시작할 때 본 기준(`main (a1b2c3d)`). 모르면 없음. */
+    basis?: string | null;
   }): MemoryEntry {
     const workId = `work:${p.id}:0`;
     const nodes: MemoryNode[] = [
-      { id: workId, kind: 'work', text: `${p.title}${p.status === 'stopped' ? ' (멈춤)' : ''}\n요청: ${p.request}`, at: p.at },
+      { id: workId, kind: 'work', text: `${p.title}${p.status === 'stopped' ? ' (멈춤)' : ''}\n요청: ${p.request}${basisLine(p.basis)}`, at: p.at },
     ];
     const edges: MemoryEdge[] = [];
     const link = (node: MemoryNode, kind: MemoryEdgeKind) => {
@@ -72,12 +74,12 @@ export class WorkMemory {
     return { nodes, edges };
   }
 
-  static fromAnswer(p: { id: string; at: string; question: string; answer: string; citedFiles: readonly string[] }): MemoryEntry {
+  static fromAnswer(p: { id: string; at: string; question: string; answer: string; citedFiles: readonly string[]; basis?: string | null }): MemoryEntry {
     const questionId = `question:${p.id}:0`;
     const answerId = `answer:${p.id}:0`;
     return {
       nodes: [
-        { id: questionId, kind: 'question', text: p.question, at: p.at },
+        { id: questionId, kind: 'question', text: `${p.question}${basisLine(p.basis)}`, at: p.at },
         { id: answerId, kind: 'answer', text: p.answer, at: p.at },
         ...p.citedFiles.map((path): MemoryNode => ({ id: `file:${path}`, kind: 'file', text: path, at: p.at })),
       ],
@@ -87,6 +89,11 @@ export class WorkMemory {
       ],
     };
   }
+}
+
+/** 기억 점 글 끝에 붙이는 기준 줄. 첫 줄(제목)은 그대로 두어 후보 목록 모양이 바뀌지 않게. */
+function basisLine(basis: string | null | undefined): string {
+  return basis ? `\n기준: ${basis}` : '';
 }
 
 const LABEL: Partial<Record<MemoryNodeKind, string>> = { decision: '결정', assumption: '정한 해석', test: '잠근 테스트' };

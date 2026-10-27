@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import type { KnowledgePort } from '../../knowledge/application/ports.js';
+import { RepoRef } from '../../knowledge/domain/repo-ref.js';
 import { DomainError } from '../../shared/domain-error.js';
 import { TestRun } from '../domain/test-run.js';
 import type { CheckedClaim } from '../domain/fact-check.js';
@@ -175,6 +177,13 @@ const implementWrong: Script = (_c, ws) => {
   return { ...report, explanation };
 };
 
+function fakeKnowledge(noted: string[]): KnowledgePort {
+  return {
+    current: async () => ({ block: '<repo_knowledge repo="shop" basis="main (a1b2c3d)">\n요약\n</repo_knowledge>', basis: RepoRef.of({ branch: 'main', commit: 'a1b2c3d'.padEnd(40, '0'), dirty: false }) }),
+    noteChanged: async (paths) => void noted.push(...paths),
+  };
+}
+
 function deps(ws: FakeWorkspace, team: FakeTeam) {
   return {
     threePass: false,
@@ -260,6 +269,26 @@ describe('MinimalLoopService', () => {
     const dirty = new FakeWorkspace(['src/a.ts']);
     await expect(new MinimalLoopService({ ...deps(dirty, new FakeTeam(dirty, {})), lock }).run('할인')).rejects.toThrow(DomainError);
     expect(released).toEqual(['x', 'x']);
+  });
+
+  it('지식이 있으면 접수 팀장은 파일 목록 대신 지식 묶음을 맨 앞에 받는다', async () => {
+    const ws = new FakeWorkspace();
+    const team = new FakeTeam(ws, { intake: [() => intake()], tester: [writeTest], implementer: [implement] });
+    await new MinimalLoopService({ ...deps(ws, team), knowledge: fakeKnowledge([]) }).run('Money에 할인 추가');
+    const message = team.log.find((c) => c.role === 'intake')!.message;
+    expect(message).toContain('<repo_knowledge repo="shop"');
+    expect(message).not.toContain('<project_files>');
+    expect(message.indexOf('<repo_knowledge')).toBeLessThan(message.indexOf('<request>'));
+  });
+
+  it('결과에 작업 기준 커밋을 남기고, 끝나면 바뀐 파일을 지식에 알린다', async () => {
+    const noted: string[] = [];
+    const ws = new FakeWorkspace();
+    const team = new FakeTeam(ws, { intake: [() => intake()], tester: [writeTest], implementer: [implement] });
+    const outcome = await new MinimalLoopService({ ...deps(ws, team), knowledge: fakeKnowledge(noted) }).run('Money에 할인 추가');
+    expect(outcome.basis).toBe('main (a1b2c3d)');
+    expect(outcome.guide.toMarkdown()).toContain('작업 기준: main (a1b2c3d)');
+    expect(noted.sort()).toEqual(['src/money.spec.ts', 'src/money.ts']);
   });
 
   it('테스트 팀원은 접수 팀장이 고른 파일의 현재 내용을 받는다', async () => {

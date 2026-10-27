@@ -51,6 +51,11 @@ describe('WorkMemory', () => {
     expect(kinds(entry.nodes)).toEqual(['answer', 'file', 'question']);
     expect(entry.edges.map((e) => e.kind).sort()).toEqual(['answered', 'cites']);
   });
+
+  it('기억에 기준 커밋을 남긴다', () => {
+    const answer = WorkMemory.fromAnswer({ id: 'q2', at: '2026-10-25T16:00:00.000Z', question: '왜?', answer: '이유', citedFiles: [], basis: 'main (a1b2c3d)' });
+    expect(answer.nodes.find((n) => n.kind === 'question')!.text).toBe('왜?\n기준: main (a1b2c3d)');
+  });
 });
 
 describe('continuable', () => {
