@@ -27,6 +27,11 @@ export interface Recall {
   readonly neighbors: readonly MemoryNode[];
 }
 
+/** 작업 요청이 "아까 그거"로 이어서 고칠 수 있는 기억은 작업뿐이다. 질문과 답은 고칠 대상이 아니다. */
+export function continuable(recalls: readonly Recall[], limit: number): Recall[] {
+  return recalls.filter((r) => r.work.kind === 'work').slice(0, limit);
+}
+
 /**
  * 기억 그래프를 만드는 규칙. 모델이 짐작한 연결은 넣지 않고, 실행에서 실제로 일어난 일
  * (바뀐 파일, 잠근 테스트, 근거가 확인된 결정, 확정된 해석, 사용자가 고른 원래 작업)로만 점과 선을 만든다.

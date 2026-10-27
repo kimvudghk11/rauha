@@ -1,10 +1,10 @@
 import type { MemoryPort } from '../../memory/application/memory.port.js';
-import { recallBlock, WorkMemory, type MemoryEntry, type Recall } from '../../memory/domain/work-memory.js';
+import { continuable, recallBlock, WorkMemory, type MemoryEntry, type Recall } from '../../memory/domain/work-memory.js';
 import { citedPaths, FactCheck, normalizeUrl, type CheckedClaim } from '../domain/fact-check.js';
 import type { ModelTier } from '../domain/team.js';
 import { AnswerDto } from './dto/answer.dto.js';
 import type { MemberRole, RoleSettingsDto } from './dto/role-settings.dto.js';
-import { RouteDto } from './dto/route.dto.js';
+import { RouteDto, type Route } from './dto/route.dto.js';
 import { ANSWER_SCHEMA, ROUTE_SCHEMA } from './dto/schemas.js';
 import type { RunContextBlocks, RunOutcome } from './minimal-loop.service.js';
 import type { AccountBlock, MemberResult, PreparedCall, ProgressPort, TeamMemberPort, UserPort, WorkspacePort } from './ports.js';
@@ -96,7 +96,7 @@ export class ChatSession {
     const route = RouteDto.read(routed.output);
     if (routed.blocked || route.mode === 'work' || route.refersToPast) early.abort();
     if (routed.blocked) return { kind: 'blocked', ...routed.blocked };
-    const past = route.refersToPast ? await this.pickPast(route.pastQuery ?? input) : null;
+    const past = route.refersToPast ? await this.pickPast(route.pastQuery ?? input, route.mode) : null;
     if (route.mode === 'work') return this.work(input, conversation, past);
     return this.answer(input, route.refersToPast ? this.askAnswerer(input, past) : asked, started);
   }
@@ -167,9 +167,10 @@ export class ChatSession {
   // ── 지난 작업 고르기 ─────────────────────────────────────
 
   /** 흐릿하게 가리킨 지난 작업을 기억에서 찾아 사용자에게 고르게 한다. 하나여도 묻는다. 화면이 없으면 새 작업. */
-  private async pickPast(query: string): Promise<Recall | null> {
+  private async pickPast(query: string, mode: Route['mode']): Promise<Recall | null> {
     if (!this.deps.user.interactive) return null;
-    const candidates = await this.deps.memory.search(query, CANDIDATES);
+    // 작업이면 질문·답을 걸러 낸 뒤에도 후보가 남도록 넉넉히 찾는다.
+    const candidates = mode === 'work' ? continuable(await this.deps.memory.search(query, CANDIDATES * 3), CANDIDATES) : await this.deps.memory.search(query, CANDIDATES);
     if (candidates.length === 0) return null;
     const picked = await this.deps.user.pickPast(candidates.map((c) => ({ id: c.work.id, title: c.work.text.split('\n')[0]!, at: c.work.at })));
     return candidates.find((c) => c.work.id === picked) ?? null;

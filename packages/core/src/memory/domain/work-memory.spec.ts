@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { recallBlock, WorkMemory, type MemoryNode } from './work-memory.js';
+import { continuable, recallBlock, WorkMemory, type MemoryNode } from './work-memory.js';
 
 const work = (over: Partial<Parameters<typeof WorkMemory.fromWork>[0]> = {}) =>
   WorkMemory.fromWork({
@@ -50,6 +50,14 @@ describe('WorkMemory', () => {
     const entry = WorkMemory.fromAnswer({ id: 'q1', at: '2026-10-25T16:00:00.000Z', question: '왜 floor야?', answer: '정한 해석 때문', citedFiles: ['src/domain/money.ts'] });
     expect(kinds(entry.nodes)).toEqual(['answer', 'file', 'question']);
     expect(entry.edges.map((e) => e.kind).sort()).toEqual(['answered', 'cites']);
+  });
+});
+
+describe('continuable', () => {
+  it('이어서 고칠 수 있는 기억은 작업뿐이다(질문과 답은 뺀다)', () => {
+    const node = (id: string, kind: MemoryNode['kind']): MemoryNode => ({ id, kind, text: id, at: '2026-10-25T00:00:00.000Z' });
+    const recalls = [{ work: node('q', 'question'), neighbors: [] }, { work: node('w', 'work'), neighbors: [] }];
+    expect(continuable(recalls, 3).map((r) => r.work.id)).toEqual(['w']);
   });
 });
 

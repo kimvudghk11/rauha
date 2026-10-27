@@ -271,6 +271,20 @@ describe('ChatSession — 작업과 기억', () => {
     expect(memory.edges.some((e) => e.kind === 'extends' && e.to === 'work:id1:0')).toBe(true);
   });
 
+  it('흐릿하게 가리킨 작업 요청에는 지난 질문이 아니라 지난 작업만 후보로 보여 준다', async () => {
+    const memory = new FakeMemory();
+    const user = new FakeUser(true);
+    const team = new FakeTeam({
+      router: [route('work'), route('question'), route('work', true, '할인')],
+      answerer: [() => ({ answer: '버립니다.', claims: [] })],
+    });
+    const chat = session({ team, memory, user });
+    await chat.handle('Money에 할인 넣어줘');
+    await chat.handle('할인은 원 미만을 어떻게 해?');
+    await chat.handle('아까 그 할인에 음수도 막아줘');
+    expect(user.pastAsked.at(-1)!.map((c) => c.title)).toEqual(['Money에 퍼센트 할인 discount 추가']);
+  });
+
   it('후보를 새 작업으로 고르면 보충 선을 만들지 않는다', async () => {
     const memory = new FakeMemory();
     const loops = new FakeLoops();
