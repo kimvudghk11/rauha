@@ -1,8 +1,11 @@
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { join } from 'node:path';
 import {
   AgentSdkTeamMember,
   FileRunLog,
+  FileWorkLock,
+  projectLockFile,
   GitWorkspace,
   MinimalLoopService,
   NodeChecks,
@@ -110,6 +113,7 @@ export function createLoop(ctx: RunContext, prompts: PromptLibrary, team: TeamMe
     badge: ctx.profile.badge(),
     requireClean: ctx.requireClean,
     threePass: ctx.threePass ?? true,
+    lock: new FileWorkLock(projectLockFile(join(ctx.home, '.rauha', 'locks'), projectRoot(ctx.root))),
     ...(carried !== undefined ? { carried } : {}),
   });
 }

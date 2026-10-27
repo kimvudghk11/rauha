@@ -28,6 +28,8 @@ import type {
   WorkspacePort,
   WorkspaceSnapshot,
   FileChange,
+  HeldLock,
+  WorkLockPort,
 } from './ports.js';
 
 const INTAKE_ATTEMPTS = 2;
@@ -145,7 +147,11 @@ export interface MinimalLoopDeps {
   readonly carried?: ReadonlyMap<string, string>;
   /** 1차 구현 → 리뷰어 재검증·2차 구현 → 사실 점검. false(--quick)면 검증 통과로 완료. */
   readonly threePass: boolean;
+  /** 같은 폴더의 다른 rauha와 작업이 겹치지 않게 하는 잠금. 없으면 잠그지 않는다. */
+  readonly lock?: WorkLockPort;
 }
+
+const NO_LOCK: HeldLock = { release: async () => undefined };
 
 /** 한 번 실행하는 동안의 기록. 판정에는 쓰지 않는다. */
 class RunTally {
@@ -185,6 +191,21 @@ export class MinimalLoopService {
   constructor(private readonly deps: MinimalLoopDeps) {}
 
   async run(request: string, context: RunContextBlocks = NO_CONTEXT): Promise<RunOutcome> {
+    const held = this.deps.lock === undefined ? NO_LOCK : await this.deps.lock.acquire();
+    if (held === null) {
+      throw new DomainError(
+        'BUSY_WORKTREE',
+        '다른 rauha가 이 폴더에서 작업 중이에요. 그 작업이 끝나고 커밋한 뒤 요청하거나, 동시에 하려면 git worktree로 다른 폴더를 만들어 거기서 rauha를 띄우세요.',
+      );
+    }
+    try {
+      return await this.runLocked(request, context);
+    } finally {
+      await held.release();
+    }
+  }
+
+  private async runLocked(request: string, context: RunContextBlocks): Promise<RunOutcome> {
     const started = this.deps.now();
     const { workspace } = this.deps;
     const dirty = await workspace.dirtyFiles();

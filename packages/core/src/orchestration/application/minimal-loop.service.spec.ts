@@ -172,6 +172,24 @@ const implementWrong: Script = (_c, ws) => {
   return { ...report, explanation };
 };
 
+function deps(ws: FakeWorkspace, team: FakeTeam) {
+  return {
+    threePass: false,
+    team,
+    workspace: ws,
+    checks: new FakeChecks(ws),
+    log: new FakeLog(),
+    progress: { step: () => {} },
+    roles: RoleSettingsDto.defaults(),
+    user: new FakeUser(false),
+    newId: () => 'w1',
+    now: () => 0,
+    today: () => '2026-10-25',
+    badge: '[personal]',
+    requireClean: true,
+  };
+}
+
 function service(
   ws: FakeWorkspace,
   team: FakeTeam,
@@ -220,6 +238,25 @@ describe('MinimalLoopService', () => {
     expect(outcome.guide.toMarkdown()).toContain('src/money.ts:3');
     expect(outcome.logDir).toBe('/runs/x');
     expect(log.labels).toEqual(['baseline', 'red-1', 'green-1']);
+  });
+
+  it('다른 rauha가 같은 폴더에서 작업 중이면 팀원을 부르지 않고 알린다', async () => {
+    const ws = new FakeWorkspace();
+    const team = new FakeTeam(ws, { intake: [() => intake()] });
+    const loop = new MinimalLoopService({ ...deps(ws, team), lock: { acquire: async () => null } });
+    await expect(loop.run('Money에 할인 추가')).rejects.toThrow(/다른 rauha/);
+    expect(team.calls).toEqual([]);
+  });
+
+  it('작업이 끝나면 성공이든 실패든 잠금을 푼다', async () => {
+    const released: string[] = [];
+    const lock = { acquire: async () => ({ release: async () => void released.push('x') }) };
+    const ws = new FakeWorkspace();
+    const team = new FakeTeam(ws, { intake: [() => intake()], tester: [writeTest], implementer: [implement] });
+    await new MinimalLoopService({ ...deps(ws, team), lock }).run('Money에 할인 추가');
+    const dirty = new FakeWorkspace(['src/a.ts']);
+    await expect(new MinimalLoopService({ ...deps(dirty, new FakeTeam(dirty, {})), lock }).run('할인')).rejects.toThrow(DomainError);
+    expect(released).toEqual(['x', 'x']);
   });
 
   it('테스트 팀원은 접수 팀장이 고른 파일의 현재 내용을 받는다', async () => {

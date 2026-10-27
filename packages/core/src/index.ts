@@ -72,6 +72,7 @@ export { GitWorkspace } from './orchestration/infrastructure/git-workspace.js';
 export { readPlanUsage } from './orchestration/infrastructure/agent-sdk-plan-usage.js';
 export { NodeChecks, NodeProject, type PackageManager } from './orchestration/infrastructure/node-checks.js';
 export { FileRunLog } from './orchestration/infrastructure/file-run-log.js';
+export { FileWorkLock, projectLockFile } from './orchestration/infrastructure/file-work-lock.js';
 export {
   createToolGuard,
   type PermissionAnswer,

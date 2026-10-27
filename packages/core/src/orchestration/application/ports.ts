@@ -63,6 +63,15 @@ export interface TeamMemberPort {
   prepare?(call: PreparedCall): void;
 }
 
+export interface HeldLock {
+  release(): Promise<void>;
+}
+
+/** 한 폴더에서 동시에 두 작업이 돌지 않게 하는 잠금. 다른 rauha가 잡고 있으면 null. */
+export interface WorkLockPort {
+  acquire(): Promise<HeldLock | null>;
+}
+
 export interface FileChange {
   readonly path: string;
   readonly kind: 'added' | 'modified' | 'deleted';
