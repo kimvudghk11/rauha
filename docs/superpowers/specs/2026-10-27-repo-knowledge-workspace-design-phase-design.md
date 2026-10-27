@@ -218,6 +218,8 @@
 | 변경을 따로 두고 승인 뒤 반영 | Plandex(누적 diff 검토 샌드박스) | 작업 트리에 바로 쓰고 사용자가 커밋 | 하지 않음(지금 방식 유지) |
 | 여러 모델 공급자 | opencode, Cline, OpenHands | Claude만 | 하지 않음(구독 안에서 쓰는 게 목표) |
 
+GitHub 별 수(2026-10-27 확인): superpowers 30.6만, opencode 22.2만, Gemini CLI 10.9만, OpenHands 9.2만, claude-flow 8.0만, Cline 7.1만, Goose 5.6만, Aider 5.0만, Continue 3.6만(읽기 전용, 관리 중단), Roo Code 2.4만(2026-05-15 보관), Plandex 1.6만. Gemini CLI(대화 저장·이어 가기, 샌드박스, MCP, 폴더별 신뢰 설정), Goose(MCP 확장 70개 이상), Aider(수정 뒤 자동 린트·테스트)에서 확인한 기능은 위 표의 행과 겹친다.
+
 rauha가 이미 앞선 것(다른 곳에서 같은 형태를 확인하지 못한 것): 테스트를 코드가 잠그고 코드가 판정하는 TDD, 팀원 주장의 근거를 코드가 확인하는 사실 점검, haiku부터 시작해 실패하면 올리는 승격 사다리, 폴더 규칙으로 계정을 나누는 프로필.
 
 ### 9.2 이번에 같이 넣는 것 (결정)
@@ -233,4 +235,4 @@ rauha가 이미 앞선 것(다른 곳에서 같은 형태를 확인하지 못한
 - Kiro: [docs](https://kiro.dev/docs/), [specs](https://kiro.dev/docs/specs/), [steering](https://kiro.dev/docs/steering/)
 - Codex CLI: [learn.chatgpt.com/docs/codex/cli](https://learn.chatgpt.com/docs/codex/cli)
 - Aider: [repo map](https://aider.chat/docs/repomap.html)
-- GitHub: [opencode](https://github.com/sst/opencode), [Cline](https://github.com/cline/cline), [OpenHands](https://github.com/All-Hands-AI/OpenHands), [superpowers](https://github.com/obra/superpowers), [claude-flow(Ruflo)](https://github.com/ruvnet/claude-flow), [Plandex](https://github.com/plandex-ai/plandex)
+- GitHub: [opencode](https://github.com/sst/opencode), [Cline](https://github.com/cline/cline), [OpenHands](https://github.com/All-Hands-AI/OpenHands), [superpowers](https://github.com/obra/superpowers), [claude-flow(Ruflo)](https://github.com/ruvnet/claude-flow), [Plandex](https://github.com/plandex-ai/plandex), [Gemini CLI](https://github.com/google-gemini/gemini-cli), [Goose](https://github.com/block/goose), [Aider](https://github.com/Aider-AI/aider), [Continue](https://github.com/continuedev/continue), [Roo Code](https://github.com/RooCodeInc/Roo-Code)
