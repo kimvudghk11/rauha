@@ -22,6 +22,7 @@ const HELP = `rauha — 터미널에서 팀장과 대화하는 클로드 팀
 
 사용법
   rauha                       대화 모드: 요청과 질문을 이어서 주고받음 (/help로 명령 보기)
+  rauha --continue            지난 대화를 이어서 열기 (-c)
   rauha -p "<요청>"            한 번 실행: 접수 → 테스트 → 구현 → 검증 → 리뷰·사실 점검 → 읽기 안내서
   rauha -p "<요청>" --quick    리뷰·사실 점검 없이 검증 통과로 끝냄 (bench에도 쓸 수 있음)
   rauha whoami                현재 프로필과 Claude Code 설정 폴더 확인
@@ -132,7 +133,7 @@ async function run(argv: readonly string[]): Promise<number> {
     case 'chat': {
       const { profile } = await resolveProfile(command.profile);
       if (command.prompt === null || command.prompt.trim() === '') {
-        return runChat({ workDir, profile, home: homedir(), version: VERSION, threePass: !command.quick });
+        return runChat({ workDir, profile, home: homedir(), version: VERSION, threePass: !command.quick, resume: command.resume });
       }
       const view = process.stderr.isTTY ? mascotView(process.stderr.getColorDepth(), `v${VERSION}`, profile.badge()) : null;
       log(view ? view.banner(workDir, process.stderr.columns ?? 80) : `${profile.badge()} ${workDir}`);

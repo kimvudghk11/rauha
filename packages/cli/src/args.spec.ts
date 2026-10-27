@@ -3,7 +3,7 @@ import { parseArgs } from './args.js';
 
 describe('parseArgs', () => {
   it('인자가 없으면 대화 모드', () => {
-    expect(parseArgs([])).toEqual({ kind: 'chat', profile: null, prompt: null, quick: false });
+    expect(parseArgs([])).toEqual({ kind: 'chat', profile: null, prompt: null, quick: false, resume: false });
   });
 
   it('whoami 와 --profile', () => {
@@ -12,7 +12,12 @@ describe('parseArgs', () => {
   });
 
   it('-p 는 한 번 실행 모드', () => {
-    expect(parseArgs(['-p', '고쳐줘'])).toEqual({ kind: 'chat', profile: null, prompt: '고쳐줘', quick: false });
+    expect(parseArgs(['-p', '고쳐줘'])).toEqual({ kind: 'chat', profile: null, prompt: '고쳐줘', quick: false, resume: false });
+  });
+
+  it('-c, --continue는 지난 대화를 이어서 연다', () => {
+    expect(parseArgs(['-c'])).toMatchObject({ kind: 'chat', resume: true });
+    expect(parseArgs(['--continue'])).toMatchObject({ kind: 'chat', resume: true });
   });
 });
 

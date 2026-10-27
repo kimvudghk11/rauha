@@ -1,6 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
-import { isRauhaRepo, nodeExec, relaunch, runUpdate, type Exec } from './update.js';
+import { isRauhaRepo, nodeExec, relaunch, runUpdate, withContinue, type Exec } from './update.js';
+
+describe('withContinue', () => {
+  it('/update 뒤 다시 띄울 때 지난 대화를 이어 가도록 --continue를 더한다(이미 있으면 그대로)', () => {
+    expect(withContinue([])).toEqual(['--continue']);
+    expect(withContinue(['-c'])).toEqual(['-c']);
+    expect(withContinue(['--profile', 'work'])).toEqual(['--profile', 'work', '--continue']);
+  });
+});
 
 describe('nodeExec', () => {
   function fakeSpawn() {

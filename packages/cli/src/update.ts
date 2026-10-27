@@ -117,7 +117,12 @@ export function nodeExec(spawn: typeof nodeSpawn = nodeSpawn, platform: string =
     });
 }
 
-type Spawn = (command: string, args: readonly string[], options: SpawnOptions) => { on(event: 'exit', listener: (code: number | null) => void): unknown; on(event: 'error', listener: () => void): unknown };
+/** /update 뒤 다시 띄울 때 지난 대화를 이어 가게 --continue를 더한다. 이미 있으면 그대로. */
+export function withContinue(args: readonly string[]): string[] {
+  return args.includes('-c') || args.includes('--continue') ? [...args] : [...args, '--continue'];
+}
+
+type Spawn =(command: string, args: readonly string[], options: SpawnOptions) => { on(event: 'exit', listener: (code: number | null) => void): unknown; on(event: 'error', listener: () => void): unknown };
 
 /**
  * 같은 node·같은 실행 파일·같은 인자로 rauha를 다시 띄우고 터미널(입출력)을 넘겨준다. 끝나면 그 종료 코드를 돌려준다.

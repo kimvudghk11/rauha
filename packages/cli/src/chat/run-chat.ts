@@ -2,18 +2,18 @@ import { render } from 'ink';
 import React from 'react';
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
-import { ChatSession, GitWorkspace, loadSecretPolicy, readPlanUsage, type PermissionAsker, type PlanUsage, type Profile, type UserPort } from '@rauha/core';
+import { ChatSession, FileChatSnapshots, GitWorkspace, loadSecretPolicy, readPlanUsage, type PermissionAsker, type PlanUsage, type Profile, type UserPort } from '@rauha/core';
 import { FACT_ANSWERED, FACT_OPTIONS, PERMISSION_ANSWERED, PERMISSION_OPTIONS, toFactAnswer, toPermissionAnswer } from '../ask.js';
 import { mascotView } from '../mascot.js';
 import { createNotifier, NOTIFY_AFTER_MS, notifyWhile } from '../notify.js';
-import { createLoop, createTeam, definedEnv, loadPrompts, openMemory, roleSettings } from '../run.js';
+import { createLoop, createTeam, definedEnv, loadPrompts, openMemory, projectRoot, roleSettings } from '../run.js';
 import { ChatApp } from './chat-app.js';
 import { chatProgress } from './chat-progress.js';
 import { ChatStore } from './chat-store.js';
 import { HELP_TEXT, parseCommand } from './commands.js';
 import { parkingStream } from './cursor-park.js';
 import { describeTurn } from './describe-turn.js';
-import { isRauhaRepo, nodeExec, relaunch, repoRoot, runUpdate } from '../update.js';
+import { isRauhaRepo, nodeExec, relaunch, repoRoot, runUpdate, withContinue } from '../update.js';
 import { startRefreshing } from './status-refresh.js';
 import { statusLine, usageLines } from './usage-view.js';
 
@@ -24,6 +24,8 @@ export interface ChatOptions {
   readonly version: string;
   /** false면 리뷰·사실 점검 없이(--quick) */
   readonly threePass: boolean;
+  /** 지난 대화를 이어서 연다(--continue) */
+  readonly resume: boolean;
 }
 
 const columns = () => process.stderr.columns ?? 80;
@@ -106,8 +108,10 @@ export async function runChat(options: ChatOptions): Promise<number> {
   let lastGuide: string | null = null;
   /** /update로 갱신을 마쳐 화면을 닫은 뒤 다시 띄워야 하는지 */
   let restartAfterExit = false;
-  const session = ChatSession.start({
-    newLoop: (carried) => createLoop(ctx, prompts, team, carried),
+  const snapshots = new FileChatSnapshots(profile.sessionsDir(home), projectRoot(workDir));
+  const saved = options.resume ? await snapshots.load() : null;
+  const sessionDeps = {
+    newLoop: (carried: ReadonlyMap<string, string>) => createLoop(ctx, prompts, team, carried),
     team,
     workspace: new GitWorkspace(workDir, loadSecretPolicy(workDir)),
     memory,
@@ -118,7 +122,10 @@ export async function runChat(options: ChatOptions): Promise<number> {
     newId: () => crypto.randomUUID(),
     today: () => new Date().toISOString().slice(0, 10),
     nowText: () => `${new Date().toLocaleString('ko-KR', { dateStyle: 'full', timeStyle: 'short' })} (${Intl.DateTimeFormat().resolvedOptions().timeZone})`,
-  });
+  };
+  const session = saved !== null ? ChatSession.resume(sessionDeps, saved) : ChatSession.start(sessionDeps);
+  /** 입력 하나를 마칠 때마다 남겨 두어 --continue로 이어 연다. 저장 실패는 대화를 막지 않는다. */
+  const remember = () => void snapshots.save(session.snapshot(new Date().toISOString())).catch(() => undefined);
 
   const screen = parkingStream(process.stderr);
   const app = render(
@@ -132,6 +139,11 @@ export async function runChat(options: ChatOptions): Promise<number> {
     }),
     { stdout: screen.stream, exitOnCtrlC: false },
   );
+
+  if (options.resume) {
+    const s = session.status();
+    store.print(saved !== null ? `  지난 대화를 이어요 · 대화 ${s.turns}번 · 마지막 작업: ${s.lastTitle ?? '없음'}` : '  이어 갈 대화가 없어서 새로 시작해요.');
+  }
 
   // Ctrl+C: 일하는 중이면 그 작업만 멈춘다(팀원 호출을 끊고 기다리던 질문은 거절로 닫는다).
   // 쉬는 중이면 2초 안에 한 번 더 눌러야 끝난다.
@@ -157,6 +169,7 @@ export async function runChat(options: ChatOptions): Promise<number> {
       switch (command.kind) {
         case 'clear':
           session.clear();
+          remember();
           store.print('  대화를 비웠어요. 지난 작업 기억은 남아 있어요.');
           return;
         case 'status': {
@@ -200,6 +213,7 @@ export async function runChat(options: ChatOptions): Promise<number> {
             store.print(`rauha: ${(error as Error).message}`);
           } finally {
             store.setBusy(false);
+            remember();
           }
           return;
         case 'help':
@@ -226,6 +240,7 @@ export async function runChat(options: ChatOptions): Promise<number> {
       store.print(`rauha: ${(error as Error).message}`);
     } finally {
       store.setBusy(false);
+      remember();
       void usageTimer.now();
     }
   }
@@ -244,6 +259,6 @@ export async function runChat(options: ChatOptions): Promise<number> {
   usageTimer.stop();
   team.close();
   memory.close();
-  if (restartAfterExit) return relaunch(spawn, process.execPath, process.execArgv, process.argv[1]!, process.argv.slice(2));
+  if (restartAfterExit) return relaunch(spawn, process.execPath, process.execArgv, process.argv[1]!, withContinue(process.argv.slice(2)));
   return 0;
 }

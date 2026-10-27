@@ -56,7 +56,7 @@ function localDate(d: Date): string {
 }
 
 /** 기억은 git 저장소 최상위마다 하나. 하위 폴더에서 실행해도 같은 프로젝트 기억을 쓴다. */
-function projectRoot(dir: string): string {
+export function projectRoot(dir: string): string {
   try {
     return execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: dir, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim() || dir;
   } catch {

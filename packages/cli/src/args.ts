@@ -6,7 +6,8 @@ export type Command =
   | { kind: 'update'; profile: string | null }
   | { kind: 'setup' }
   | { kind: 'bench'; profile: string | null; only: string | null; compare: boolean; quick: boolean }
-  | { kind: 'chat'; profile: string | null; prompt: string | null; quick: boolean };
+  /** resume: 지난 대화를 이어서 연다(-c, --continue). -p와 함께 쓰면 무시된다. */
+  | { kind: 'chat'; profile: string | null; prompt: string | null; quick: boolean; resume: boolean };
 
 /** 지금 필요한 만큼만 읽는 작은 인자 파서. 명령이 늘면 그때 라이브러리로 바꾼다. */
 export function parseArgs(argv: readonly string[]): Command {
@@ -15,6 +16,7 @@ export function parseArgs(argv: readonly string[]): Command {
   let only: string | null = null;
   let compare = false;
   let quick = false;
+  let resume = false;
   const positional: string[] = [];
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -31,6 +33,8 @@ export function parseArgs(argv: readonly string[]): Command {
       compare = true;
     } else if (arg === '--quick') {
       quick = true;
+    } else if (arg === '-c' || arg === '--continue') {
+      resume = true;
     } else if (arg === '-p' || arg === '--print') {
       prompt = argv[++i] ?? '';
     } else {
@@ -43,5 +47,5 @@ export function parseArgs(argv: readonly string[]): Command {
   if (positional[0] === 'update') return { kind: 'update', profile };
   if (positional[0] === 'setup') return { kind: 'setup' };
   if (positional[0] === 'bench') return { kind: 'bench', profile, only, compare, quick };
-  return { kind: 'chat', profile, prompt, quick };
+  return { kind: 'chat', profile, prompt, quick, resume };
 }
