@@ -132,6 +132,8 @@ export interface UserPort {
   confirmFact(claim: CheckedClaim): Promise<FactAnswer>;
   /** "아까 그 기능"의 후보 중 하나를 고르게 한다. null = 새 작업. */
   pickPast(candidates: readonly PastCandidate[]): Promise<string | null>;
+  /** 여러 저장소 작업 공간에서 어느 저장소 일인지 고르게 한다. 고른 이름, 고르지 않으면 null. 없으면 묻지 않는다. */
+  pickRepo?(candidates: readonly { readonly name: string; readonly root: string }[]): Promise<string | null>;
 }
 
 /** 기억에서 찾은 지난 작업 후보 */
