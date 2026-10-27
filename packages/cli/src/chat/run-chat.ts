@@ -2,7 +2,7 @@ import { render } from 'ink';
 import React from 'react';
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
-import { ChatSession, GitWorkspace, readPlanUsage, type PermissionAsker, type PlanUsage, type Profile, type UserPort } from '@rauha/core';
+import { ChatSession, GitWorkspace, loadSecretPolicy, readPlanUsage, type PermissionAsker, type PlanUsage, type Profile, type UserPort } from '@rauha/core';
 import { FACT_ANSWERED, FACT_OPTIONS, PERMISSION_ANSWERED, PERMISSION_OPTIONS, toFactAnswer, toPermissionAnswer } from '../ask.js';
 import { mascotView } from '../mascot.js';
 import { createNotifier, NOTIFY_AFTER_MS, notifyWhile } from '../notify.js';
@@ -109,7 +109,7 @@ export async function runChat(options: ChatOptions): Promise<number> {
   const session = ChatSession.start({
     newLoop: (carried) => createLoop(ctx, prompts, team, carried),
     team,
-    workspace: new GitWorkspace(workDir),
+    workspace: new GitWorkspace(workDir, loadSecretPolicy(workDir)),
     memory,
     user,
     progress,

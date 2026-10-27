@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { SecretPolicy } from '../domain/secret-policy.js';
 import { createToolGuard, type PermissionAnswer, type PermissionRequest, type ToolGuardOptions } from './tool-guard.js';
 
 const ROOT = 'E:/work/app';
@@ -27,6 +28,7 @@ function guardWith(answers: PermissionAnswer[], overrides: Partial<ToolGuardOpti
     role: 'implementer',
     canWrite: () => true,
     remembered: new Set(),
+    secrets: SecretPolicy.defaults(),
     ask: async (request) => {
       asked.push(request);
       return answers.shift() ?? { kind: 'deny', note: null };
@@ -37,6 +39,26 @@ function guardWith(answers: PermissionAnswer[], overrides: Partial<ToolGuardOpti
 }
 
 describe('createToolGuard', () => {
+  it('비밀 파일은 읽기·쓰기·셸 모두 묻지 않고 거절한다', async () => {
+    const { guard, asked } = guardWith([{ kind: 'allow' }]);
+    for (const [tool, toolInput] of [
+      ['Read', { file_path: 'E:\\work\\app\\.env' }],
+      ['Write', { file_path: 'E:/work/app/certs/server.pem' }],
+      ['Grep', { pattern: 'KEY', path: '.env.local' }],
+      ['Bash', { command: 'cat .env' }],
+    ] as const) {
+      const out = await guard(input(tool, toolInput), 't1', opts);
+      expect(decision(out)).toBe('deny');
+      expect(output(out)?.permissionDecisionReason).toContain('비밀 파일');
+    }
+    expect(asked).toEqual([]);
+  });
+
+  it('예시 파일은 그대로 읽게 둔다', async () => {
+    const { guard } = guardWith([]);
+    expect(await guard(input('Read', { file_path: 'E:/work/app/.env.example' }), 't1', opts)).toEqual({});
+  });
+
   it('잠긴 테스트 쓰기는 묻지 않고 거절한다', async () => {
     const { guard, asked } = guardWith([], { canWrite: (p) => !p.endsWith('.spec.ts') });
     const out = await guard(input('Edit', { file_path: 'E:\\work\\app\\src\\a.spec.ts' }), 't1', opts);

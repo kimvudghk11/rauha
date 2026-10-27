@@ -1,4 +1,5 @@
 import { query, startup, type Options, type SDKMessage, type SDKResultMessage, type WarmQuery } from '@anthropic-ai/claude-agent-sdk';
+import type { SecretPolicy } from '../domain/secret-policy.js';
 import { MODEL_ID } from '../domain/team.js';
 import type { AccountBlock, MemberCall, MemberResult, MemberUsage, PreparedCall, TeamMemberPort } from '../application/ports.js';
 import type { PromptLibrary } from './prompt-library.js';
@@ -13,6 +14,8 @@ export interface AgentSdkTeamMemberOptions {
   readonly env: Record<string, string>;
   readonly prompts: PromptLibrary;
   readonly ask: PermissionAsker;
+  /** 팀원이 읽지도 쓰지도 못하는 비밀 파일 규칙 */
+  readonly secrets: SecretPolicy;
 }
 
 /** 호출 하나가 쓰는 것들. 미리 띄운 프로세스는 띄울 때 이것까지 정해진다. */
@@ -163,7 +166,7 @@ export class AgentSdkTeamMember implements TeamMemberPort {
       maxBudgetUsd: call.setting.maxBudgetUsd,
       outputFormat: { type: 'json_schema', schema: call.outputSchema },
       hooks: {
-        PreToolUse: [{ hooks: [createToolGuard({ root: this.options.cwd, role: call.role, canWrite: call.canWrite, ask: this.options.ask, remembered: this.remembered })] }],
+        PreToolUse: [{ hooks: [createToolGuard({ root: this.options.cwd, role: call.role, canWrite: call.canWrite, ask: this.options.ask, remembered: this.remembered, secrets: this.options.secrets })] }],
         PostToolUse: [{ hooks: [session.fetchLog.hook] }],
       },
       stderr: (data) => {

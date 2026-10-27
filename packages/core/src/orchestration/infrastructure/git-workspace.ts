@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { relativeToRoot } from '../../shared/path-pattern.js';
 import type { FileChange, WorkspacePort, WorkspaceSnapshot } from '../application/ports.js';
+import { SecretPolicy } from '../domain/secret-policy.js';
 
 const run = promisify(execFile);
 const IGNORED = /(^|\/)node_modules\//;
@@ -31,7 +32,11 @@ function kindOf(letter: string): FileChange['kind'] {
 export class GitWorkspace implements WorkspacePort {
   private base: string | null = null;
 
-  constructor(private readonly root: string) {}
+  constructor(
+    private readonly root: string,
+    /** 비밀 파일은 rauha도 읽지 않는다. 팀원 메시지(<files>)와 근거 확인에 내용이 들어가지 않게. */
+    private readonly secrets: SecretPolicy = SecretPolicy.defaults(),
+  ) {}
 
   async dirtyFiles(): Promise<string[] | null> {
     try {
@@ -59,10 +64,10 @@ export class GitWorkspace implements WorkspacePort {
     return [...new Set(out.split('\0').filter((p) => p !== '' && !IGNORED.test(p)))].sort().slice(0, MAX_LISTED_FILES);
   }
 
-  /** 근거 확인용. 작업 폴더 밖이나 없는 파일은 null. */
+  /** 근거 확인용. 작업 폴더 밖, 없는 파일, 비밀 파일은 null. */
   async readFile(path: string): Promise<string | null> {
     const rel = relativeToRoot(this.root, path);
-    if (rel === null) return null;
+    if (rel === null || this.secrets.isSecret(rel)) return null;
     try {
       return await readFile(join(this.root, rel), 'utf8');
     } catch {

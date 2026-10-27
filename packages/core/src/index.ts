@@ -74,6 +74,7 @@ export { NodeChecks, NodeProject, type PackageManager } from './orchestration/in
 export { FileRunLog } from './orchestration/infrastructure/file-run-log.js';
 export { SecretPolicy } from './orchestration/domain/secret-policy.js';
 export { RauhaIgnoreDto } from './orchestration/application/dto/rauha-ignore.dto.js';
+export { loadSecretPolicy } from './orchestration/infrastructure/load-secret-policy.js';
 export { FileWorkLock, projectLockFile } from './orchestration/infrastructure/file-work-lock.js';
 export {
   createToolGuard,

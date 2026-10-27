@@ -1,6 +1,7 @@
 import type { HookCallback } from '@anthropic-ai/claude-agent-sdk';
 import { relativeToRoot } from '../../shared/path-pattern.js';
 import type { MemberRole } from '../application/dto/role-settings.dto.js';
+import type { SecretPolicy } from '../domain/secret-policy.js';
 import { ToolRisk } from '../domain/tool-risk.js';
 
 const WRITE_TOOLS = new Set(['Edit', 'Write', 'NotebookEdit', 'MultiEdit']);
@@ -29,6 +30,34 @@ export interface ToolGuardOptions {
   readonly ask: PermissionAsker;
   /** 이번 실행 동안 계속 허락한 '도구 + 명령'. 팀원 호출마다 가드가 새로 만들어지므로 밖에서 하나를 넘겨 공유한다. */
   readonly remembered: Set<string>;
+  /** 읽지도 쓰지도 않는 비밀 파일 규칙(기본 목록 + .rauhaignore). */
+  readonly secrets: SecretPolicy;
+}
+
+/** 파일 경로를 받는 도구와 그 경로가 든 입력 이름 */
+const PATH_INPUTS: Readonly<Record<string, readonly string[]>> = {
+  Read: ['file_path'],
+  Edit: ['file_path'],
+  Write: ['file_path'],
+  MultiEdit: ['file_path'],
+  NotebookEdit: ['notebook_path'],
+  Grep: ['path'],
+  Glob: ['path'],
+};
+
+/** 도구 입력에서 비밀 파일을 찾는다. 경로는 작업 폴더 기준으로 바꿔 본다. 없으면 null. */
+function secretTouched(options: ToolGuardOptions, tool: string, toolInput: Record<string, unknown>): string | null {
+  if (tool === 'Bash' || tool === 'PowerShell') {
+    const command = toolInput['command'];
+    return typeof command === 'string' ? options.secrets.secretIn(command) : null;
+  }
+  for (const key of PATH_INPUTS[tool] ?? []) {
+    const value = toolInput[key];
+    if (typeof value !== 'string') continue;
+    const rel = relativeToRoot(options.root, value) ?? value;
+    if (options.secrets.isSecret(rel)) return value;
+  }
+  return null;
 }
 
 function decide(permissionDecision: 'allow' | 'deny', reason: string) {
@@ -39,6 +68,7 @@ function decide(permissionDecision: 'allow' | 'deny', reason: string) {
 
 /**
  * 팀원의 모든 도구 호출 앞에서 도는 PreToolUse 훅.
+ * 0) 비밀 파일은 읽기·쓰기·셸 모두 묻지 않고 거절한다.
  * 1) 역할 권한(잠긴 테스트, 범위 밖)은 묻지 않고 거절한다 — 판정의 공정성 문제라서.
  * 2) 위험 동작은 사용자에게 묻고, git commit·push는 언제나 거절한다.
  * 3) 나머지는 결정을 내리지 않고 SDK의 기본 흐름(allowedTools)에 맡긴다.
@@ -47,6 +77,11 @@ export function createToolGuard(options: ToolGuardOptions): HookCallback {
   return async (input) => {
     if (input.hook_event_name !== 'PreToolUse') return {};
     const toolInput = (input.tool_input ?? {}) as Record<string, unknown>;
+
+    const secret = secretTouched(options, input.tool_name, toolInput);
+    if (secret !== null) {
+      return decide('deny', `비밀 파일(${secret})은 rauha 팀원이 읽거나 쓸 수 없습니다(.rauhaignore와 기본 목록). 그 값 없이 할 수 있는 방법을 쓰세요.`);
+    }
 
     if (WRITE_TOOLS.has(input.tool_name)) {
       const path = toolInput['file_path'] ?? toolInput['notebook_path'];

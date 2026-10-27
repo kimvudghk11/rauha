@@ -32,6 +32,15 @@ describe('GitWorkspace.readFile', () => {
     expect(await ws.readFile(join(dir, 'secret.txt'))).toBeNull();
     expect(await ws.readFile('missing.ts')).toBeNull();
   });
+
+  it('비밀 파일은 rauha도 읽지 않는다(null)', async () => {
+    const dir = repo();
+    writeFileSync(join(dir, '.env'), 'SECRET=1');
+    writeFileSync(join(dir, '.env.example'), 'SECRET=');
+    const ws = new GitWorkspace(dir);
+    expect(await ws.readFile('.env')).toBeNull();
+    expect(await ws.readFile('.env.example')).toBe('SECRET=');
+  });
 });
 
 describe('GitWorkspace', () => {
