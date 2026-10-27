@@ -12,6 +12,11 @@ describe('Profile', () => {
     expect(profile.memoryDir('C:\\Users\\me')).toBe('C:/Users/me/.rauha/profiles/work/memory');
   });
 
+  it('저장소 지식은 프로필 폴더 아래 knowledge에 둔다', () => {
+    const profile = Profile.create({ name: 'work', claudeConfigDir: '~/.claude', sync: 'none' });
+    expect(profile.knowledgeDir('C:\\Users\\me')).toBe('C:/Users/me/.rauha/profiles/work/knowledge');
+  });
+
   it('이어 갈 대화는 프로필 폴더 아래 sessions에 둔다', () => {
     const profile = Profile.create({ name: 'work', claudeConfigDir: '~/.claude', sync: 'none' });
     expect(profile.sessionsDir('C:\\Users\\me')).toBe('C:/Users/me/.rauha/profiles/work/sessions');
