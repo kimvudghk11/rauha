@@ -32,6 +32,7 @@ export interface SettledAssumptionChoice {
 
 const KIND_LABEL: Readonly<Record<AcceptanceKind, string>> = { happy: '정상', error: '예외' };
 const MAX_ASSUMPTIONS = 3;
+const MAX_READ_FIRST = 5;
 
 function readAssumptions(obj: Record<string, unknown>): Assumption[] {
   const raw = obj['assumptions'] ?? [];
@@ -65,6 +66,8 @@ export class IntakeDto {
     readonly doneWhen: string,
     readonly forbidden: readonly string[],
     readonly assumptions: readonly Assumption[],
+    /** 팀장이 접수하며 읽은 파일 중 팀원도 먼저 봐야 할 것. rauha가 내용을 붙여 넘긴다. */
+    readonly readFirst: readonly string[],
   ) {}
 
   static from(input: unknown): IntakeDto {
@@ -95,6 +98,7 @@ export class IntakeDto {
       readString(obj, 'doneWhen', 'Intake'),
       readStringArray(obj, 'forbidden', 'Intake'),
       readAssumptions(obj),
+      obj['readFirst'] === undefined ? [] : readStringArray(obj, 'readFirst', 'Intake').slice(0, MAX_READ_FIRST),
     );
   }
 

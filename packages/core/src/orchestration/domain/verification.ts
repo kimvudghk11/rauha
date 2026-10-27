@@ -44,6 +44,14 @@ export class Verification {
     return this.checks;
   }
 
+  /** 이 프로젝트에 실제로 있는 검사 명령 목록. 팀원이 package.json을 뒤져 찾는 턴을 없앤다. */
+  commandsNote(): string {
+    return this.checks
+      .filter((c) => c.command !== null)
+      .map((c) => `- ${c.name}: ${c.command}`)
+      .join('\n');
+  }
+
   /** 기준선(작업 시작 전 결과)과 비교해서 새로 생긴 실패만 실패로 친다. */
   judge(baseline: Verification | null): VerificationVerdict {
     return VerificationVerdict.of(this.checks.map((check) => judgeCheck(check, baseline?.find(check.name) ?? null)));

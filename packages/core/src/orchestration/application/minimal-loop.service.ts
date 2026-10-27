@@ -8,6 +8,7 @@ import type { WorkOrder } from '../domain/work-order.js';
 import { WorkspaceState } from '../domain/workspace-state.js';
 import { WritePolicy } from '../domain/write-policy.js';
 import { MemberReportDto, type ExplanationDto } from './dto/explanation.dto.js';
+import { FilesBlockDto } from './dto/files-block.dto.js';
 import { IntakeDto, type SettledAssumptionChoice } from './dto/intake.dto.js';
 import { ReadingGuideDto, type FactsSummary, type RunStopReason, type SettledAssumption } from './dto/reading-guide.dto.js';
 
@@ -212,7 +213,14 @@ export class MinimalLoopService {
     const { dto, order, assumptions } = intake;
     current.title = order.title;
     current.assumptions = assumptions;
-    const brief = `<today>${this.deps.today()}</today>\n\n${dto.toBrief(order.difficulty.grade)}`;
+    const commands = baseline.commandsNote();
+    const brief = [
+      `<today>${this.deps.today()}</today>`,
+      dto.toBrief(order.difficulty.grade),
+      commands !== '' ? `<checks>\nrauha가 이 프로젝트에서 쓰는 검사 명령입니다.\n${commands}\n</checks>` : '',
+    ]
+      .filter((s) => s !== '')
+      .join('\n\n');
     progress.step(`업무: [${order.difficulty.grade}] ${order.title}`);
 
     const scope = this.deps.threePass ? RunScope.threePass() : RunScope.ladder();
@@ -240,7 +248,12 @@ export class MinimalLoopService {
 
       if (decision.assignment.role === 'tester') {
         const attempt = tally.attempts.tester + 1;
-        const message = [brief, '<task>위 수용 기준을 검사하는, 지금은 실패하는 테스트를 작성하세요.</task>', redFeedback ? `<previous_attempt>\n${redFeedback}\n</previous_attempt>` : '']
+        const message = [
+          brief,
+          await this.filesBlock(dto.readFirst),
+          '<task>위 수용 기준을 검사하는, 지금은 실패하는 테스트를 작성하세요.</task>',
+          redFeedback ? `<previous_attempt>\n${redFeedback}\n</previous_attempt>` : '',
+        ]
           .filter((s) => s !== '')
           .join('\n\n');
         await this.call('tester', message, TESTER_REPORT_SCHEMA, order, tally, decision.assignment.tier);
@@ -258,6 +271,7 @@ export class MinimalLoopService {
       const message = [
         brief,
         `<locked_tests>\n${lockedTests.join('\n')}\n</locked_tests>`,
+        await this.filesBlock([...lockedTests, ...dto.readFirst]),
         '<task>잠긴 테스트를 통과시키는 최소 구현을 하세요. 테스트 파일은 고칠 수 없습니다.</task>',
         handoff !== '' ? `<handoff>\n이전 시도의 실패 요약입니다.\n${handoff}\n</handoff>` : '',
         lastFailure !== null ? `<last_failure>\n지난 시도에서 rauha가 직접 본 실패 메시지입니다.\n${lastFailure}\n</last_failure>` : '',
@@ -316,12 +330,13 @@ export class MinimalLoopService {
     const { workspace, user } = this.deps;
     const state = p.state;
     state.rounds += 1;
-    const changed = workspace.changesBetween(p.start, await workspace.snapshot()).map((c) => `${c.kind} ${c.path}`);
+    const changes = workspace.changesBetween(p.start, await workspace.snapshot());
     const report = { decisions: p.explanation?.decisions ?? [], facts: p.explanation?.facts ?? [] };
     const message = [
       p.brief,
       `<locked_tests>\n${p.lockedTests.join('\n')}\n</locked_tests>`,
-      `<changed_files>\n${changed.join('\n')}\n</changed_files>`,
+      `<changed_files>\n${changes.map((c) => `${c.kind} ${c.path}`).join('\n')}\n</changed_files>`,
+      await this.filesBlock([...changes.filter((c) => c.kind !== 'deleted').map((c) => c.path), ...p.lockedTests]),
       `<implementer_report>\n${JSON.stringify(report, null, 2)}\n</implementer_report>`,
       '<task>위 변경을 처음 보는 눈으로 검토하세요. 근거가 확인되는 문제만 수정 요청이 됩니다.</task>',
     ].join('\n\n');
@@ -466,6 +481,12 @@ export class MinimalLoopService {
   }
 
   // ── 팀원 호출 ─────────────────────────────────────────────
+
+  /** 팀원이 먼저 볼 파일을 부르기 직전 내용으로 붙인다(팀원이 도구로 여는 턴을 줄인다). */
+  private async filesBlock(paths: readonly string[]): Promise<string> {
+    const files = await Promise.all(paths.map(async (path) => ({ path, content: await this.deps.workspace.readFile(path) })));
+    return FilesBlockDto.of(files).toBlock();
+  }
 
   /** tier: 상태 머신이 배정한 모델. 접수(팀장)는 배정이 없으므로 역할 기본값을 쓴다. */
   private async call(

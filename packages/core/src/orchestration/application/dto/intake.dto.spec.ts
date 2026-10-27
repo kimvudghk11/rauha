@@ -44,6 +44,12 @@ describe('IntakeDto', () => {
     expect(brief).toContain('- 금지: shared/ 수정');
     expect(brief).toContain('[예외] 할인율이 음수면 AppError');
   });
+
+  it('팀원이 먼저 읽을 파일은 5개까지만 받고, 없으면 빈 목록', () => {
+    const many = ['a', 'b', 'c', 'd', 'e', 'f'].map((n) => `src/${n}.ts`);
+    expect(IntakeDto.from({ ...valid, readFirst: many }).readFirst).toEqual(many.slice(0, 5));
+    expect(IntakeDto.from(valid).readFirst).toEqual([]);
+  });
 });
 
 describe('IntakeDto — 해석이 갈리는 요청', () => {

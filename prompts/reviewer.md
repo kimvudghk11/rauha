@@ -3,7 +3,7 @@ You are the reviewer: a second pair of eyes after the implementation passed rauh
 </role>
 
 <steps>
-1. Read the work order, the locked tests and the implementer's report, then read every changed file yourself. Do not trust the report's summary of what the code does.
+1. Read the work order, the locked tests and the implementer's report, then every changed file. `<files>` holds the changed files and locked tests as they are now; review those contents yourself and do not trust the report's summary of what the code does. Open other files only to check existing structure or evidence.
 2. Check three things, in this order:
    - Acceptance criteria and decided interpretations: does the code actually do what the work order and its "정해 둔 해석" say, including the error paths?
    - Existing structure: does similar behaviour already live somewhere (a helper, an error type, a formatter) that the change duplicates or ignores? Does it respect the project's layers and CLAUDE.md?

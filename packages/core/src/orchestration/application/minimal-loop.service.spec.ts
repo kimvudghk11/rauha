@@ -222,6 +222,41 @@ describe('MinimalLoopService', () => {
     expect(log.labels).toEqual(['baseline', 'red-1', 'green-1']);
   });
 
+  it('테스트 팀원은 접수 팀장이 고른 파일의 현재 내용을 받는다', async () => {
+    const ws = new FakeWorkspace();
+    const team = new FakeTeam(ws, { intake: [() => intake({ readFirst: ['src/money.ts'] })], tester: [writeTest], implementer: [implement] });
+    await service(ws, team, new FakeChecks(ws)).run('Money에 할인 추가');
+    expect(team.log.find((c) => c.role === 'tester')!.message).toContain('<file path="src/money.ts">\n1\tv1\n</file>');
+  });
+
+  it('팀원은 rauha가 쓰는 검사 명령을 받아 직접 찾지 않는다', async () => {
+    const ws = new FakeWorkspace();
+    const team = new FakeTeam(ws, { intake: [() => intake()], tester: [writeTest], implementer: [implement] });
+    await service(ws, team, new FakeChecks(ws)).run('Money에 할인 추가');
+    for (const role of ['tester', 'implementer'] as const) expect(team.log.find((c) => c.role === role)!.message).toContain('- tests: npm run test');
+  });
+
+  it('구현 팀원은 잠긴 테스트와 고른 파일을 부르기 직전 내용으로 받는다', async () => {
+    const ws = new FakeWorkspace();
+    const team = new FakeTeam(ws, { intake: [() => intake({ readFirst: ['src/money.ts'] })], tester: [writeTest], implementer: [implement] });
+    await service(ws, team, new FakeChecks(ws)).run('Money에 할인 추가');
+    const message = team.log.find((c) => c.role === 'implementer')!.message;
+    expect(message).toContain('<file path="src/money.spec.ts">\n1\ttest\n</file>');
+    expect(message).toContain('<file path="src/money.ts">');
+  });
+
+  it('리뷰어는 바뀐 파일의 지금 내용을 받는다', async () => {
+    const ws = new FakeWorkspace();
+    const team = new FakeTeam(ws, {
+      intake: [() => intake()],
+      tester: [writeTest],
+      implementer: [implement],
+      reviewer: [() => ({ verdict: 'pass', summary: '문제 없음', issues: [] })],
+    });
+    await service(ws, team, new FakeChecks(ws), new FakeLog(), new FakeUser(false), { step: () => {} }, true).run('Money에 할인 추가');
+    expect(team.log.find((c) => c.role === 'reviewer')!.message).toContain('<file path="src/money.ts">\n1\tv2\n</file>');
+  });
+
   it('팀원을 부를 때 진행 알림에 어느 팀원인지 함께 알린다', async () => {
     const ws = new FakeWorkspace();
     const team = new FakeTeam(ws, { intake: [() => intake()], tester: [writeTest], implementer: [implement] });

@@ -7,8 +7,13 @@ const strList = { type: 'array', items: str } as const;
 export const INTAKE_SCHEMA: Record<string, unknown> = {
   type: 'object',
   additionalProperties: false,
-  required: ['title', 'fileCount', 'crossModule', 'sensitive', 'scope', 'acceptance', 'doneWhen', 'forbidden', 'assumptions'],
+  required: ['title', 'fileCount', 'crossModule', 'sensitive', 'scope', 'acceptance', 'doneWhen', 'forbidden', 'assumptions', 'readFirst'],
   properties: {
+    readFirst: {
+      ...strList,
+      maxItems: 5,
+      description: '접수하며 읽은 파일 중 테스트·구현 팀원이 먼저 봐야 할 것(바뀔 코드, 바로 옆 테스트). rauha가 내용을 붙여 넘긴다. 작업 폴더 기준 정확한 경로',
+    },
     title: { ...str, description: '업무 한 줄 목표' },
     fileCount: { type: 'integer', minimum: 1, description: '바뀔 것으로 보이는 파일 수(테스트 포함)' },
     crossModule: { type: 'boolean', description: '모듈 경계를 넘는 변경인지' },

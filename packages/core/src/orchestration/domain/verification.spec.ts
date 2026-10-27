@@ -13,6 +13,11 @@ const check = (name: CheckResult['name'], status: CheckResult['status'], failure
 const lockedPass = check('locked-tests', 'pass');
 
 describe('Verification', () => {
+  it('팀원에게 알려 줄 검사 명령은 실제로 있는 검사만 적는다', () => {
+    const note = Verification.of([check('tests', 'pass'), check('typecheck', 'fail'), check('lint', 'skip')]).commandsNote();
+    expect(note).toBe('- tests: run tests\n- typecheck: run typecheck');
+  });
+
   it('잠긴 테스트가 통과하지 않으면 검증 실패', () => {
     expect(Verification.of([check('locked-tests', 'fail', ['a'])]).judge(null).isPassing()).toBe(false);
     expect(Verification.of([check('locked-tests', 'skip')]).judge(null).isPassing()).toBe(false);
