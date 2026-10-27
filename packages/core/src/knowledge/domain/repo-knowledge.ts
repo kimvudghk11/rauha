@@ -1,0 +1,145 @@
+import type { RepoRef } from './repo-ref.js';
+
+/** 코드가 계산하는 저장소 사실(모델 호출 없음). dirs는 영역(깊이 1~2 폴더, 루트는 '.')별 파일 수. */
+export interface RepoFacts {
+  readonly totalFiles: number;
+  readonly dirs: readonly { readonly path: string; readonly files: number }[];
+  readonly packageManager: string | null;
+  readonly scripts: Readonly<Record<string, string>>;
+  readonly instructionFiles: readonly string[];
+  readonly testPattern: string | null;
+}
+
+/** 영역 하나의 짧은 메모와 그 근거가 된 파일 */
+export interface AreaNote {
+  readonly area: string;
+  readonly text: string;
+  readonly sources: readonly string[];
+}
+
+/** 바뀐 파일이 이만큼이면 고치지 않고 처음부터 다시 만든다(스펙 3.3-6). */
+const REBUILD_FILES = 200;
+const REBUILD_RATIO = 0.3;
+
+/** 파일이 속한 영역: 폴더 앞 두 단계. 루트 파일은 '.'. */
+export function areaOf(path: string): string {
+  const dirs = path.split('/').slice(0, -1);
+  return dirs.length === 0 ? '.' : dirs.slice(0, 2).join('/');
+}
+
+/**
+ * 저장소 지식. 언제나 기준(RepoRef)이 붙고, 바뀐 파일을 받으면 그 파일을 근거로 쓴 메모와
+ * 메모 없는 새 영역을 낡음으로 표시한다. 메모를 다시 쓰는 일(모델 호출)은 서비스가 맡는다.
+ */
+export class RepoKnowledge {
+  private constructor(
+    private ref: RepoRef,
+    private currentFacts: RepoFacts,
+    private readonly symbolMap: Map<string, readonly string[]>,
+    private readonly fileSet: Set<string>,
+    private readonly noteMap: Map<string, AreaNote>,
+    private readonly staleSet: Set<string>,
+  ) {}
+
+  /** files: 지식이 아는 파일 전체(메모 근거 검증용). 없으면 심볼 지도의 파일만. */
+  static create(p: { basis: RepoRef; facts: RepoFacts; symbols: ReadonlyMap<string, readonly string[]>; files?: readonly string[] }): RepoKnowledge {
+    return new RepoKnowledge(p.basis, p.facts, new Map(p.symbols), new Set(p.files ?? p.symbols.keys()), new Map(), new Set());
+  }
+
+  /** 저장해 둔 지식을 되살린다(DTO가 쓴다). */
+  static restore(p: { basis: RepoRef; facts: RepoFacts; symbols: ReadonlyMap<string, readonly string[]>; files: readonly string[]; notes: readonly AreaNote[]; stale: readonly string[] }): RepoKnowledge {
+    return new RepoKnowledge(p.basis, p.facts, new Map(p.symbols), new Set(p.files), new Map(p.notes.map((n) => [n.area, n])), new Set(p.stale));
+  }
+
+  get basis(): RepoRef {
+    return this.ref;
+  }
+
+  get facts(): RepoFacts {
+    return this.currentFacts;
+  }
+
+  get symbols(): ReadonlyMap<string, readonly string[]> {
+    return this.symbolMap;
+  }
+
+  get files(): readonly string[] {
+    return [...this.fileSet].sort();
+  }
+
+  get notes(): readonly AreaNote[] {
+    return [...this.noteMap.values()];
+  }
+
+  get stale(): readonly string[] {
+    return [...this.staleSet].sort();
+  }
+
+  areas(): string[] {
+    return this.currentFacts.dirs.filter((d) => d.files > 0).map((d) => d.path);
+  }
+
+  needsRebuild(changedCount: number): boolean {
+    return changedCount >= REBUILD_FILES || changedCount >= this.currentFacts.totalFiles * REBUILD_RATIO;
+  }
+
+  /** changed: 바뀐 파일 → 새 심볼(지워진 파일은 null). 근거 파일이 바뀐 메모의 영역을 낡음으로 표시하고 기준을 바꾼다. */
+  applyChanges(p: { basis: RepoRef; facts: RepoFacts; changed: ReadonlyMap<string, readonly string[] | null> }): void {
+    for (const [path, symbols] of p.changed) {
+      if (symbols === null) {
+        this.symbolMap.delete(path);
+        this.fileSet.delete(path);
+      } else {
+        if (symbols.length > 0) this.symbolMap.set(path, symbols);
+        else this.symbolMap.delete(path);
+        this.fileSet.add(path);
+      }
+      for (const note of this.noteMap.values()) if (note.sources.includes(path)) this.staleSet.add(note.area);
+    }
+    this.ref = p.basis;
+    this.currentFacts = p.facts;
+    const areas = new Set(this.areas());
+    for (const area of [...this.noteMap.keys()]) if (!areas.has(area)) this.noteMap.delete(area);
+  }
+
+  /** 메모가 없거나 낡은 영역 */
+  staleAreas(): string[] {
+    return this.areas().filter((a) => !this.noteMap.has(a) || this.staleSet.has(a));
+  }
+
+  /** 같은 영역의 메모를 바꾸고 낡음 표시를 지운다. 근거 중 지식에 없는 파일(지어낸 경로)은 버린다. */
+  writeNotes(notes: readonly AreaNote[]): void {
+    for (const note of notes) {
+      this.noteMap.set(note.area, { area: note.area, text: note.text, sources: note.sources.filter((s) => this.fileSet.has(s)) });
+      this.staleSet.delete(note.area);
+    }
+  }
+
+  /** 팀원 메시지 맨 앞에 넣을 묶음. maxChars를 넘으면 심볼 지도의 파일을 뒤에서부터, 그래도 넘으면 메모를 뒤에서부터 뺀다. */
+  toBlock(repoName: string, maxChars = 12_000): string {
+    const f = this.currentFacts;
+    const open = `<repo_knowledge repo="${repoName}" basis="${this.ref.label()}">`;
+    const close = '</repo_knowledge>';
+    const head = [
+      open,
+      '기준 커밋의 저장소 요약입니다. 구조를 파악하는 데 먼저 쓰고, 코드 내용을 근거로 쓰기 전에는 실제 파일을 여세요.',
+      `영역(파일 수): ${f.dirs.map((d) => `${d.path} ${d.files}`).join(', ')} · 전체 ${f.totalFiles}개`,
+      `패키지 관리자: ${f.packageManager ?? '없음'} · 스크립트: ${Object.entries(f.scripts).map(([k, v]) => `${k}=${v}`).join(', ') || '없음'}`,
+      `지시 파일: ${f.instructionFiles.join(', ') || '없음'} · 테스트 파일: ${f.testPattern ?? '없음'}`,
+    ];
+    const notes = this.notes.map((n) => `- ${n.area}: ${n.text}${n.sources.length > 0 ? ` (근거: ${n.sources.join(', ')})` : ''}`);
+    const symbols = [...this.symbolMap.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([path, names]) => `${path}: ${names.join(', ')}`);
+    const size = (lines: readonly string[]) => lines.join('\n').length + 1 + close.length;
+
+    const lines = [...head, ...(notes.length > 0 ? ['영역 메모:', ...notes] : [])];
+    while (size(lines) > maxChars && lines.length > head.length) lines.pop();
+    if (symbols.length > 0 && size([...lines, '심볼:', symbols[0]!]) <= maxChars) {
+      lines.push('심볼:');
+      for (const line of symbols) {
+        if (size([...lines, line]) > maxChars) break;
+        lines.push(line);
+      }
+    }
+    return [...lines, close].join('\n');
+  }
+}
