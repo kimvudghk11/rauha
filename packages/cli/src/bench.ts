@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { cp, mkdir, readFile, symlink, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readdir, readFile, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DomainError, type Profile, type RunOutcome } from '@rauha/core';
@@ -34,6 +34,10 @@ export interface BenchRow {
   readonly costUsd: number;
   readonly firstTry: boolean;
   readonly logDir: string | null;
+  /** 접수 팀장 호출들의 토큰(입력·캐시·출력). 저장소 지식이 접수를 얼마나 줄이는지 본다. */
+  readonly intakeTokens: number;
+  /** 저장소 지식 조사 팀원 토큰 */
+  readonly surveyTokens: number;
 }
 
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -50,7 +54,23 @@ function tokens(n: number): string {
   return n >= 1000 ? `${Math.round(n / 1000)}k` : String(n);
 }
 
-function toRow(id: string, variant: BenchVariant, outcome: RunOutcome): BenchRow {
+/** 실행 기록(calls/*-intake-*.json)에서 접수 팀장 토큰을 더한다. 기록이 없으면 0. */
+export async function intakeTokensIn(logDir: string): Promise<number> {
+  let names: string[] = [];
+  try {
+    names = await readdir(join(logDir, 'calls'));
+  } catch {
+    return 0;
+  }
+  let total = 0;
+  for (const name of names.filter((n) => /-intake-\d+\.json$/.test(n))) {
+    const usage = (JSON.parse(await readFile(join(logDir, 'calls', name), 'utf8')) as { usage?: Record<string, number> }).usage ?? {};
+    total += (usage['inputTokens'] ?? 0) + (usage['cacheReadTokens'] ?? 0) + (usage['outputTokens'] ?? 0);
+  }
+  return total;
+}
+
+function toRow(id: string, variant: BenchVariant, outcome: RunOutcome, intakeTokens: number, surveyTokens: number): BenchRow {
   return {
     id,
     variant,
@@ -64,6 +84,8 @@ function toRow(id: string, variant: BenchVariant, outcome: RunOutcome): BenchRow
     costUsd: outcome.costUsd,
     firstTry: outcome.status === 'complete' && outcome.implementerAttempts === 1,
     logDir: outcome.logDir,
+    intakeTokens,
+    surveyTokens,
   };
 }
 
@@ -89,6 +111,17 @@ export async function freshSandbox(source: string, target: string, nodeModules: 
   git('commit', '-qm', 'bench start');
 }
 
+/** --same-repo: 다음 요청이 깨끗한 작업 트리에서 시작하도록 bench 복사본에 커밋한다. */
+function commitAll(copy: string, id: string): void {
+  const git = (...args: string[]) => execFileSync('git', ['-c', 'user.name=rauha-bench', '-c', 'user.email=bench@rauha.local', ...args], { cwd: copy, stdio: 'ignore' });
+  git('add', '-A');
+  try {
+    git('commit', '-qm', `bench: ${id}`);
+  } catch {
+    // 바뀐 게 없으면 커밋할 것도 없다.
+  }
+}
+
 function summary(rows: readonly BenchRow[]): string {
   const done = rows.filter((r) => r.result === '완료');
   const avg = rows.length > 0 ? rows.reduce((n, r) => n + r.seconds, 0) / rows.length : 0;
@@ -100,7 +133,7 @@ function summary(rows: readonly BenchRow[]): string {
 /** 결과 표. sonnet 고정 행이 있으면 비교 표로 그리고, 변형별 합계 줄을 따로 낸다. */
 export function benchTable(rows: readonly BenchRow[], promptHash: string, startedAt: Date): string {
   const compare = rows.some((r) => r.variant === 'sonnet');
-  const head = ['요청', ...(compare ? ['변형'] : []), '결과', '시도', '승격', '시간', 'haiku 토큰', 'sonnet 토큰', '추정 비용'];
+  const head = ['요청', ...(compare ? ['변형'] : []), '결과', '시도', '승격', '시간', 'haiku 토큰', 'sonnet 토큰', '접수 토큰', '조사 토큰', '추정 비용'];
   const body = rows.map((r) => [
     r.id,
     ...(compare ? [VARIANT_LABEL[r.variant]] : []),
@@ -110,6 +143,8 @@ export function benchTable(rows: readonly BenchRow[], promptHash: string, starte
     clock(r.seconds),
     tokens(r.haikuTokens),
     tokens(r.sonnetTokens),
+    tokens(r.intakeTokens),
+    tokens(r.surveyTokens),
     `$${r.costUsd.toFixed(3)}`,
   ]);
   const widths = head.map((h, i) => Math.max(h.length, ...body.map((b) => (b[i] as string).length)));
@@ -130,6 +165,8 @@ export async function runBench(props: {
   compare: boolean;
   /** 리뷰·사실 점검 없이 돌린다(1단계 숫자와 비교용) */
   quick: boolean;
+  /** 요청을 연습 저장소 하나에서 이어서 돌린다. 요청 사이에 bench가 커밋한다(bench 복사본은 rauha가 커밋하는 유일한 곳). */
+  sameRepo: boolean;
   log: (line: string) => void;
 }): Promise<string> {
   const sandbox = join(props.repoRoot, 'examples', 'sandbox');
@@ -153,11 +190,11 @@ export async function runBench(props: {
     for (const variant of variants) {
       // 구독 한도에 걸린 뒤의 실행은 전부 같은 오류라 측정이 되지 않는다.
       if (limited) continue;
-      const copy = benchCopyDir(stamp(startedAt), props.compare ? `${req.id}-${variant}` : req.id);
-      await freshSandbox(sandbox, copy, join(props.repoRoot, 'node_modules'));
+      const copy = props.sameRepo ? benchCopyDir(stamp(startedAt), 'same-repo') : benchCopyDir(stamp(startedAt), props.compare ? `${req.id}-${variant}` : req.id);
+      if (!props.sameRepo || !existsSync(copy)) await freshSandbox(sandbox, copy, join(props.repoRoot, 'node_modules'));
       props.log(`── ${req.id}${props.compare ? ` [${VARIANT_LABEL[variant]}]` : ''}: ${req.request}`);
       try {
-        const { outcome, promptHash: hash } = await runOnce(req.request, {
+        const { outcome, promptHash: hash, knowledgeTokens } = await runOnce(req.request, {
           root: copy,
           profile: props.profile,
           home: props.home,
@@ -169,7 +206,8 @@ export async function runBench(props: {
           threePass: !props.quick,
         });
         promptHash = hash;
-        rows.push(toRow(req.id, variant, outcome));
+        rows.push(toRow(req.id, variant, outcome, await intakeTokensIn(outcome.logDir), knowledgeTokens));
+        if (props.sameRepo) commitAll(copy, req.id);
         props.log(`   → ${outcome.status === 'complete' ? '완료' : `멈춤(${outcome.stopReason})`} · ${outcome.logDir}`);
         if (outcome.stopReason === 'usage-limit' || outcome.stopReason === 'login-required') {
           limited = true;
@@ -190,6 +228,8 @@ export async function runBench(props: {
           costUsd: 0,
           firstTry: false,
           logDir: null,
+          intakeTokens: 0,
+          surveyTokens: 0,
         });
       }
     }

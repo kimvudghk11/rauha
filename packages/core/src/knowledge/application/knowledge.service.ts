@@ -26,7 +26,14 @@ export interface KnowledgeServiceDeps {
  * → 낡은 영역만 조사 팀원(haiku)이 다시 쓰기 → 저장. 바뀐 게 없으면 모델도 저장도 하지 않는다.
  */
 export class KnowledgeService implements KnowledgePort {
+  /** 조사 팀원에게 쓴 토큰(입력·캐시·출력). bench가 지식을 만드는 데 든 몫을 따로 보여 준다. */
+  private tokens = 0;
+
   constructor(private readonly deps: KnowledgeServiceDeps) {}
+
+  spentTokens(): number {
+    return this.tokens;
+  }
 
   async current(): Promise<{ block: string; basis: RepoRef } | null> {
     const { reader, store } = this.deps;
@@ -91,6 +98,7 @@ export class KnowledgeService implements KnowledgePort {
       outputSchema: SURVEY_SCHEMA,
       canWrite: () => false,
     });
+    this.tokens += result.usage.inputTokens + result.usage.cacheReadTokens + result.usage.outputTokens;
     if (result.blocked || result.output === null) return false;
     try {
       const wanted = new Set(areas);

@@ -78,6 +78,8 @@ describe('KnowledgeService', () => {
     expect(got?.block).toContain('basis="main (a100000)"');
     expect(got?.block).toContain('src/domain 메모');
     expect(steps).toContain('저장소를 처음 파악하는 중이에요');
+    // 조사 팀원 토큰(입력 1 + 출력 1)을 센다. bench가 지식을 만드는 데 든 토큰을 따로 보여 준다.
+    expect(svc.spentTokens()).toBe(2);
   });
 
   it('기준과 같고 바뀐 게 없으면 팀원을 부르지 않고 저장도 하지 않는다', async () => {

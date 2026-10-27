@@ -5,7 +5,8 @@ export type Command =
   | { kind: 'login'; profile: string | null }
   | { kind: 'update'; profile: string | null }
   | { kind: 'setup' }
-  | { kind: 'bench'; profile: string | null; only: string | null; compare: boolean; quick: boolean }
+  /** sameRepo: 요청을 연습 저장소 하나에서 이어서 돌린다(저장소 지식 효과 측정) */
+  | { kind: 'bench'; profile: string | null; only: string | null; compare: boolean; quick: boolean; sameRepo: boolean }
   /** resume: 지난 대화를 이어서 연다(-c, --continue). -p와 함께 쓰면 무시된다. */
   | { kind: 'chat'; profile: string | null; prompt: string | null; quick: boolean; resume: boolean };
 
@@ -17,6 +18,7 @@ export function parseArgs(argv: readonly string[]): Command {
   let compare = false;
   let quick = false;
   let resume = false;
+  let sameRepo = false;
   const positional: string[] = [];
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -35,6 +37,8 @@ export function parseArgs(argv: readonly string[]): Command {
       quick = true;
     } else if (arg === '-c' || arg === '--continue') {
       resume = true;
+    } else if (arg === '--same-repo') {
+      sameRepo = true;
     } else if (arg === '-p' || arg === '--print') {
       prompt = argv[++i] ?? '';
     } else {
@@ -46,6 +50,6 @@ export function parseArgs(argv: readonly string[]): Command {
   if (positional[0] === 'login') return { kind: 'login', profile };
   if (positional[0] === 'update') return { kind: 'update', profile };
   if (positional[0] === 'setup') return { kind: 'setup' };
-  if (positional[0] === 'bench') return { kind: 'bench', profile, only, compare, quick };
+  if (positional[0] === 'bench') return { kind: 'bench', profile, only, compare, quick, sameRepo };
   return { kind: 'chat', profile, prompt, quick, resume };
 }

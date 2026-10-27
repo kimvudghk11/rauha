@@ -33,6 +33,7 @@ const HELP = `rauha — 터미널에서 팀장과 대화하는 클로드 팀
   rauha bench [--only <id>] [--compare]
                               연습용 프로젝트(rauha 저장소의 examples/)에서 고정 요청 묶음 실행
                               --compare: 요청마다 사다리(haiku부터)와 구현 sonnet 고정을 비교
+                              --same-repo: 요청을 한 저장소에서 이어서 돌려 저장소 지식 효과를 잼
   rauha --profile <이름> ...   프로필 직접 지정 (기본: 폴더 규칙 → personal)
 
 환경 변수
@@ -126,7 +127,7 @@ async function run(argv: readonly string[]): Promise<number> {
     case 'bench': {
       const { profile } = await resolveProfile(command.profile);
       // 연습용 프로젝트는 rauha 저장소 안에 있다. 어느 폴더에서 불러도 저장소를 쓴다.
-      const report = await runBench({ repoRoot: repoRoot(), profile, home: homedir(), only: command.only, compare: command.compare, quick: command.quick, log });
+      const report = await runBench({ repoRoot: repoRoot(), profile, home: homedir(), only: command.only, compare: command.compare, quick: command.quick, sameRepo: command.sameRepo, log });
       process.stdout.write(`${report}\n`);
       return 0;
     }

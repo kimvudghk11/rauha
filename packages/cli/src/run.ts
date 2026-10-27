@@ -48,6 +48,8 @@ export interface RunContext {
 export interface RunResult {
   readonly outcome: RunOutcome;
   readonly promptHash: string;
+  /** 이번 실행에서 저장소 지식 조사에 쓴 토큰 */
+  readonly knowledgeTokens: number;
 }
 
 export function definedEnv(env: NodeJS.ProcessEnv): Record<string, string> {
@@ -152,6 +154,7 @@ export function createLoop(ctx: RunContext, prompts: PromptLibrary, team: TeamMe
 export async function runOnce(request: string, ctx: RunContext): Promise<RunResult> {
   const prompts = await loadPrompts();
   const team = createTeam(ctx, prompts);
-  const service = createLoop(ctx, prompts, team, undefined, createKnowledge(ctx, team));
-  return { outcome: await service.run(request), promptHash: prompts.hash };
+  const knowledge = createKnowledge(ctx, team);
+  const service = createLoop(ctx, prompts, team, undefined, knowledge);
+  return { outcome: await service.run(request), promptHash: prompts.hash, knowledgeTokens: knowledge.spentTokens() };
 }

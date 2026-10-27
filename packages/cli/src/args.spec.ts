@@ -41,8 +41,12 @@ describe('parseArgs — 1단계 명령', () => {
   });
 
   it('bench 와 --only', () => {
-    expect(parseArgs(['bench'])).toEqual({ kind: 'bench', profile: null, only: null, compare: false, quick: false });
-    expect(parseArgs(['bench', '--only', 'discount'])).toEqual({ kind: 'bench', profile: null, only: 'discount', compare: false, quick: false });
+    expect(parseArgs(['bench'])).toEqual({ kind: 'bench', profile: null, only: null, compare: false, quick: false, sameRepo: false });
+    expect(parseArgs(['bench', '--only', 'discount'])).toEqual({ kind: 'bench', profile: null, only: 'discount', compare: false, quick: false, sameRepo: false });
+  });
+
+  it('bench --same-repo는 요청을 한 저장소에서 이어서 돌린다', () => {
+    expect(parseArgs(['bench', '--same-repo'])).toMatchObject({ kind: 'bench', sameRepo: true });
   });
 
   it('--quick은 리뷰와 사실 점검을 건너뛴다', () => {
@@ -51,6 +55,6 @@ describe('parseArgs — 1단계 명령', () => {
   });
 
   it('bench --compare는 사다리와 sonnet 고정을 비교하는 실행이다', () => {
-    expect(parseArgs(['bench', '--compare'])).toEqual({ kind: 'bench', profile: null, only: null, compare: true, quick: false });
+    expect(parseArgs(['bench', '--compare'])).toEqual({ kind: 'bench', profile: null, only: null, compare: true, quick: false, sameRepo: false });
   });
 });

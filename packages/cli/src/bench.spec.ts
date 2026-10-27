@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { benchCopyDir, benchTable, freshSandbox, type BenchRow } from './bench.js';
+import { benchCopyDir, benchTable, freshSandbox, intakeTokensIn, type BenchRow } from './bench.js';
 
 const row = (over: Partial<BenchRow>): BenchRow => ({
   id: 'discount',
@@ -18,6 +18,8 @@ const row = (over: Partial<BenchRow>): BenchRow => ({
   costUsd: 0.03,
   firstTry: true,
   logDir: null,
+  intakeTokens: 22_000,
+  surveyTokens: 0,
   ...over,
 });
 const at = new Date('2026-10-25T06:00:00Z');
@@ -43,6 +45,14 @@ describe('bench 표', () => {
     expect(text.split('\n').find((l) => l.startsWith('discount'))).toContain('승격');
   });
 
+  it('접수 토큰과 저장소 조사 토큰을 요청마다 보여 준다(저장소 지식 효과를 재려고)', () => {
+    const text = benchTable([row({ intakeTokens: 12_000, surveyTokens: 30_000 })], 'abc', at);
+    const lines = text.split('\n');
+    expect(lines[1]).toContain('접수 토큰');
+    expect(lines[1]).toContain('조사 토큰');
+    expect(lines.find((l) => l.startsWith('discount'))).toMatch(/12k\s+30k/);
+  });
+
   it('비교가 아니면 변형 열 없이 지금 모양을 쓴다', () => {
     const text = benchTable([row({})], 'abc', at);
     expect(text).not.toContain('sonnet 고정');
@@ -53,6 +63,20 @@ describe('bench 표', () => {
 const dirs: string[] = [];
 afterEach(() => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+});
+
+describe('실행 기록에서 접수 토큰 읽기', () => {
+  it('접수 팀장 호출들의 입력·캐시·출력 토큰을 더하고, 기록이 없으면 0', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'rauha-benchlog-'));
+    dirs.push(dir);
+    mkdirSync(join(dir, 'calls'));
+    const usage = (input: number, cache: number, output: number) => JSON.stringify({ usage: { inputTokens: input, cacheReadTokens: cache, outputTokens: output } });
+    writeFileSync(join(dir, 'calls', '01-intake-1.json'), usage(1000, 9000, 500));
+    writeFileSync(join(dir, 'calls', '02-tester-1.json'), usage(5, 5, 5));
+    writeFileSync(join(dir, 'calls', '03-intake-2.json'), usage(100, 0, 0));
+    expect(await intakeTokensIn(dir)).toBe(10_600);
+    expect(await intakeTokensIn(join(dir, 'none'))).toBe(0);
+  });
 });
 
 describe('bench 연습용 복사본', () => {
