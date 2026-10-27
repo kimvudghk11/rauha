@@ -42,6 +42,11 @@ export class Profile {
     return `${toPosixPath(home)}/.rauha/profiles/${this.name}/memory`;
   }
 
+  /** 이어 갈 대화(rauha --continue) 폴더. 대화 내용이 섞이거나 밖으로 나가지 않게 프로필 폴더 아래에 둔다. */
+  sessionsDir(home: string): string {
+    return `${toPosixPath(home)}/.rauha/profiles/${this.name}/sessions`;
+  }
+
   canSync(): boolean {
     return this.sync !== 'none';
   }

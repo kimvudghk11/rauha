@@ -1,15 +1,13 @@
-import { createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import Database from 'better-sqlite3';
-import { toPosixPath } from '../../shared/path-pattern.js';
+import { projectKey } from '../../shared/project-key.js';
 import type { MemoryPort } from '../application/memory.port.js';
 import type { MemoryEntry, MemoryNode, MemoryNodeKind, Recall } from '../domain/work-memory.js';
 
 /** 프로젝트마다 다른 파일. 경로 표기(대소문자, \ 와 /) 차이는 같은 프로젝트로 본다. */
 export function projectMemoryFile(memoryDir: string, projectRoot: string): string {
-  const key = createHash('sha256').update(toPosixPath(projectRoot).toLowerCase()).digest('hex').slice(0, 12);
-  return join(memoryDir, `${key}.db`);
+  return join(memoryDir, `${projectKey(projectRoot)}.db`);
 }
 
 const SCHEMA = `

@@ -1,13 +1,11 @@
-import { createHash } from 'node:crypto';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { toPosixPath } from '../../shared/path-pattern.js';
+import { projectKey } from '../../shared/project-key.js';
 import type { HeldLock, WorkLockPort } from '../application/ports.js';
 
 /** 프로젝트마다 다른 잠금 파일. 경로 표기(대소문자, \ 와 /) 차이는 같은 프로젝트로 본다. 프로필이 달라도 같은 폴더면 같은 잠금이다. */
 export function projectLockFile(locksDir: string, projectRoot: string): string {
-  const key = createHash('sha256').update(toPosixPath(projectRoot).toLowerCase()).digest('hex').slice(0, 12);
-  return join(locksDir, `${key}.lock`);
+  return join(locksDir, `${projectKey(projectRoot)}.lock`);
 }
 
 /** 그 프로세스가 아직 살아 있는지. 권한이 없어 확인을 거절당해도 살아 있는 것이다. */
