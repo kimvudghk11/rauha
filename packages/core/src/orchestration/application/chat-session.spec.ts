@@ -37,7 +37,7 @@ class FakeMemory implements MemoryPort {
 type Script = (call: MemberCall) => unknown;
 
 class FakeTeam implements TeamMemberPort {
-  readonly calls: { role: MemberRole; message: string; signal: AbortSignal | undefined }[] = [];
+  readonly calls: { role: MemberRole; message: string; signal: AbortSignal | undefined; dirs: readonly string[] | undefined }[] = [];
   readonly prepared: MemberRole[] = [];
   /** 라우터가 이 약속이 풀릴 때까지 답하지 않게 한다(동시에 도는지 보려고). */
   routerGate: Promise<void> = Promise.resolve();
@@ -50,7 +50,7 @@ class FakeTeam implements TeamMemberPort {
     this.prepared.push(call.role);
   }
   async run(call: MemberCall): Promise<MemberResult> {
-    this.calls.push({ role: call.role, message: call.userMessage, signal: call.signal });
+    this.calls.push({ role: call.role, message: call.userMessage, signal: call.signal, dirs: call.additionalDirectories });
     if (call.role === 'router') await this.routerGate;
     if (call.role === this.limitOn) {
       const limited = "You've hit your session limit · resets 9:40pm";
@@ -234,6 +234,37 @@ describe('ChatSession — 저장소 지식', () => {
     const team = new FakeTeam({ router: [route('question')], answerer: [() => ({ answer: '네.', claims: [] })] });
     await ChatSession.start({ ...sessionDeps({ team }), knowledge }).handle('Money는 뭐야?');
     expect(team.calls.find((c) => c.role === 'router')!.message).not.toContain('<repo_knowledge');
+  });
+});
+
+describe('ChatSession — 여러 저장소', () => {
+  const knowledgeAt = (repo: string, branch: string, c: string) => ({
+    current: async () => ({ block: `<repo_knowledge repo="${repo}" basis="${branch} (${c})">\n요약\n</repo_knowledge>`, basis: RepoRef.of({ branch, commit: c.padEnd(40, '0'), dirty: false }) }),
+    noteChanged: async () => undefined,
+  });
+  const also = [{ name: 'shop-web', root: 'E:/w/shop-web', knowledge: knowledgeAt('shop-web', 'dev', 'bbbbbbb') }];
+
+  it('다른 저장소도 묻는 질문은 그 저장소 지식과 읽기 경로를 함께 받는다', async () => {
+    const team = new FakeTeam({ router: [route('question')], answerer: [() => ({ answer: '차이는…', claims: [] })] });
+    await ChatSession.start({ ...sessionDeps({ team }), knowledge: knowledgeAt('shop-api', 'main', 'a1b2c3d'), repoName: 'shop-api' }).handle('두 저장소 Money 차이', also);
+    const call = team.calls.find((c) => c.role === 'answerer')!;
+    expect(call.message).toContain('<repo_knowledge repo="shop-api"');
+    expect(call.message).toContain('<repo_knowledge repo="shop-web"');
+    expect(call.dirs).toEqual(['E:/w/shop-web']);
+  });
+
+  it('여러 저장소를 고치는 작업은 하지 않고 알린다', async () => {
+    const loops = new FakeLoops();
+    const team = new FakeTeam({ router: [route('work')] });
+    const turn = await ChatSession.start({ ...sessionDeps({ team, loops }), repoName: 'shop-api' }).handle('둘 다 고쳐줘', also);
+    expect(turn.kind).toBe('notice');
+    expect(loops.runs).toEqual([]);
+  });
+
+  it('답에 저장소마다 읽은 기준이 붙는다', async () => {
+    const team = new FakeTeam({ router: [route('question')], answerer: [() => ({ answer: '네.', claims: [] })] });
+    const turn = await ChatSession.start({ ...sessionDeps({ team }), knowledge: knowledgeAt('shop-api', 'main', 'a1b2c3d'), repoName: 'shop-api' }).handle('비교해줘', also);
+    expect(turn).toMatchObject({ kind: 'answer', basis: 'shop-api: main (a1b2c3d), shop-web: dev (bbbbbbb)' });
   });
 });
 

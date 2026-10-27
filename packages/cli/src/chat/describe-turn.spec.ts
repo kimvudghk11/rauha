@@ -3,6 +3,12 @@ import { describeTurn } from './describe-turn.js';
 
 const claim = (text: string, isGuess: boolean) => ({ kind: 'fact' as const, text, evidence: [], verified: isGuess ? [] : [{ kind: 'record' as const, text: 'x' }], isGuess });
 
+describe('describeTurn — 알림', () => {
+  it('팀원을 부르지 않은 알림은 두 칸 들여 한 줄로 보여 준다', () => {
+    expect(describeTurn({ kind: 'notice', message: '저장소마다 나눠서 요청해 주세요.' }, null)).toEqual(['', '  저장소마다 나눠서 요청해 주세요.', '']);
+  });
+});
+
 describe('describeTurn — 읽은 기준', () => {
   it('답 아래에 읽은 기준을 한 줄 보여 준다', () => {
     const text = describeTurn({ kind: 'answer', answer: '네.', checked: [], costUsd: 0, durationMs: 1000, basis: 'main (a1b2c3d)' }, null).join('\n');

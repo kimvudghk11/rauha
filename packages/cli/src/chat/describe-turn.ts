@@ -75,6 +75,8 @@ export function describeTurn(turn: TurnOutcome, view: MascotView | null): Printa
         '',
       ];
     }
+    case 'notice':
+      return ['', `  ${turn.message}`, ''];
     case 'blocked':
       if (turn.reason === 'cancelled') return ['', '  멈췄어요.', ''];
       if (turn.reason === 'login') return ['', 'Claude에 로그인되어 있지 않아요. /exit로 나가서 rauha login을 실행한 뒤 다시 와 주세요.', ''];

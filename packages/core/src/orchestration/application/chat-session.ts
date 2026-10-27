@@ -26,6 +26,8 @@ export type TurnOutcome =
   | { readonly kind: 'answer'; readonly answer: string; readonly checked: readonly CheckedClaim[]; readonly costUsd: number; readonly durationMs: number; readonly basis: string | null }
   /** /review: 사용자의 변경을 리뷰어가 본 결과. target null = 커밋 안 한 변경. files가 비면 리뷰어를 부르지 않았다. */
   | { readonly kind: 'review'; readonly target: string | null; readonly files: readonly string[]; readonly checked: readonly CheckedClaim[]; readonly summary: string; readonly durationMs: number }
+  /** 팀원을 부르지 않고 알릴 것(예: 여러 저장소를 한 번에 고치는 요청). */
+  | { readonly kind: 'notice'; readonly message: string }
   /** 계정 문제(사용 한도, 로그인 안 됨)로 막힘. 사용 한도면 message에 풀리는 시각이 들어 있다. */
   | { readonly kind: 'blocked'; readonly reason: AccountBlock['reason']; readonly message: string };
 
@@ -45,6 +47,8 @@ export interface ChatSessionDeps {
   readonly nowText: () => string;
   /** 저장소 지식. 있으면 답변 팀원 메시지 맨 앞에 넣고 답에 기준을 밝힌다. 라우터에는 넣지 않는다. */
   readonly knowledge?: KnowledgePort;
+  /** 작업 공간에서 이 세션의 저장소 이름. 여러 저장소 답의 기준에 쓴다. */
+  readonly repoName?: string;
 }
 
 /** 답변 팀원에게 넘길 저장소 지식 묶음과 그 기준 */
@@ -52,6 +56,22 @@ interface Known {
   readonly block: string;
   readonly basis: string;
 }
+
+/** 여러 저장소에 걸친 질문에서 함께 읽을 다른 저장소 */
+export interface AlsoRepo {
+  readonly name: string;
+  readonly root: string;
+  readonly knowledge: KnowledgePort | null;
+}
+
+/** 함께 읽을 저장소와 그 지식(없으면 null) */
+interface AlsoKnown {
+  readonly name: string;
+  readonly root: string;
+  readonly known: Known | null;
+}
+
+const MANY_REPO_WORK = '여러 저장소를 한 번에 고치는 일은 아직 하지 않아요. 저장소마다 나눠서 요청해 주세요(다음 단계의 설계 대화에서 한 번에 할 수 있게 됩니다).';
 
 interface Turn {
   readonly input: string;
@@ -115,22 +135,24 @@ export class ChatSession {
    * 라우터의 판정을 기다리지 않고 답변 팀원도 함께 시작한다. 질문이면 판정 시간만큼 빨리 답하고,
    * 작업이거나 지난 작업을 골라야 하는 질문이면 미리 시작한 답변은 멈추고 버린다.
    */
-  async handle(input: string): Promise<TurnOutcome> {
+  async handle(input: string, also: readonly AlsoRepo[] = []): Promise<TurnOutcome> {
     const started = this.deps.now();
     const conversation = this.conversation();
     const early = new AbortController();
     // 저장소 지식은 라우터와 함께 읽는다. 답변 팀원만 기다린다(라우터는 지식이 필요 없다).
     const known = this.knowledgeOf();
-    const asked = known.then((k) => this.askAnswerer(input, null, k, early.signal));
+    const others = Promise.all(also.map(async (r): Promise<AlsoKnown> => ({ name: r.name, root: r.root, known: await this.knowledgeOf(r.knowledge) })));
+    const asked = Promise.all([known, others]).then(([k, o]) => this.askAnswerer(input, null, k, early.signal, o));
     // 라우터를 기다리는 동안 실패해도 처리 안 된 거절로 프로세스가 죽지 않게. 쓰기로 하면 answer()가 await에서 다시 받는다.
     asked.catch(() => undefined);
     const routed = await this.member('router', [conversation !== null ? `<conversation>\n${conversation}\n</conversation>` : '', `<message>\n${input}\n</message>`], ROUTE_SCHEMA);
     const route = RouteDto.read(routed.output);
     if (routed.blocked || route.mode === 'work' || route.refersToPast) early.abort();
     if (routed.blocked) return { kind: 'blocked', ...routed.blocked };
+    if (route.mode === 'work' && also.length > 0) return { kind: 'notice', message: MANY_REPO_WORK };
     const past = route.refersToPast ? await this.pickPast(route.pastQuery ?? input, route.mode) : null;
     if (route.mode === 'work') return this.work(input, conversation, past);
-    return this.answer(input, route.refersToPast ? this.askAnswerer(input, past, await known) : asked, started);
+    return this.answer(input, route.refersToPast ? this.askAnswerer(input, past, await known, undefined, await others) : asked, started);
   }
 
   clear(): void {
@@ -165,22 +187,36 @@ export class ChatSession {
   // ── 질문 ──────────────────────────────────────────────────
 
   /** 답변 팀원 호출만. 답을 기억에 남기는 일은 이 답을 쓰기로 정한 뒤 answer()가 한다. */
-  private async askAnswerer(input: string, past: Recall | null, known: Known | null, signal?: AbortSignal): Promise<{ result: MemberResult; recalls: Recall[]; basis: string | null }> {
+  private async askAnswerer(
+    input: string,
+    past: Recall | null,
+    known: Known | null,
+    signal?: AbortSignal,
+    others: readonly AlsoKnown[] = [],
+  ): Promise<{ result: MemberResult; recalls: Recall[]; basis: string | null }> {
     const recalls = past !== null ? [past] : await this.deps.memory.search(input, CANDIDATES);
     const block = recallBlock(recalls, MEMORY_CHARS);
     const result = await this.member(
       'answerer',
-      [known?.block ?? '', `<today>${this.deps.today()}</today>`, `<now>${this.deps.nowText()}</now>`, block !== '' ? `<memory>\n기억된 지난 작업과 그때의 결정입니다.\n${block}\n</memory>` : '', `<question>\n${input}\n</question>`],
+      [
+        known?.block ?? '',
+        ...others.map((o) => o.known?.block ?? `<repo name="${o.name}" root="${o.root}"/>`),
+        `<today>${this.deps.today()}</today>`, `<now>${this.deps.nowText()}</now>`, block !== '' ? `<memory>\n기억된 지난 작업과 그때의 결정입니다.\n${block}\n</memory>` : '', `<question>\n${input}\n</question>`],
       ANSWER_SCHEMA,
       signal,
+      others.map((o) => o.root),
     );
-    return { result, recalls, basis: known?.basis ?? null };
+    const basis =
+      others.length === 0
+        ? (known?.basis ?? null)
+        : [`${this.deps.repoName ?? '이 저장소'}: ${known?.basis ?? '기준 모름'}`, ...others.map((o) => `${o.name}: ${o.known?.basis ?? '기준 모름'}`)].join(', ');
+    return { result, recalls, basis };
   }
 
   /** 저장소 지식. 없거나(git 아님) 읽다 실패하면 null — 그때는 지식 없이 답한다. */
-  private async knowledgeOf(): Promise<Known | null> {
+  private async knowledgeOf(port: KnowledgePort | null | undefined = this.deps.knowledge): Promise<Known | null> {
     try {
-      const known = (await this.deps.knowledge?.current()) ?? null;
+      const known = (await port?.current()) ?? null;
       return known === null ? null : { block: known.block, basis: known.basis.label() };
     } catch {
       return null;
@@ -269,11 +305,16 @@ export class ChatSession {
     return { role, setting: this.deps.roles.get(role), outputSchema, canWrite: () => false };
   }
 
-  private async member(role: MemberRole, parts: readonly string[], outputSchema: Record<string, unknown>, signal?: AbortSignal): Promise<MemberResult> {
+  private async member(role: MemberRole, parts: readonly string[], outputSchema: Record<string, unknown>, signal?: AbortSignal, additionalDirectories: readonly string[] = []): Promise<MemberResult> {
     const call = this.callFor(role, outputSchema);
     // 질문을 나누고 답하는 건 사용자에게 한 가지 일로 보이므로 누가 하는지 밝히지 않는다.
     this.deps.progress.step('작업 중…', role);
-    const result = await this.deps.team.run({ ...call, userMessage: parts.filter((p) => p !== '').join('\n\n'), ...(signal !== undefined ? { signal } : {}) });
+    const result = await this.deps.team.run({
+      ...call,
+      userMessage: parts.filter((p) => p !== '').join('\n\n'),
+      ...(signal !== undefined ? { signal } : {}),
+      ...(additionalDirectories.length > 0 ? { additionalDirectories } : {}),
+    });
     this.costUsd += result.usage.costUsd;
     this.calls[call.setting.tier] += 1;
     return result;

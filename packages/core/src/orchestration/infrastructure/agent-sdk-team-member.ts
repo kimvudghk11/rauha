@@ -130,7 +130,9 @@ export class AgentSdkTeamMember implements TeamMemberPort {
     return { output: result.structured_output ?? null, error: result.structured_output === undefined ? '구조화 출력이 없습니다.' : null, usage, fetched };
   }
 
+  /** 다른 폴더도 읽는 호출은 띄울 때의 설정이 달라서 미리 띄운 프로세스를 쓰지 않는다. */
   private takeSpare(call: MemberCall): Spare | null {
+    if ((call.additionalDirectories?.length ?? 0) > 0) return null;
     const key = spareKey(call);
     const spare = this.spares.get(key) ?? null;
     this.spares.delete(key);
@@ -158,11 +160,12 @@ export class AgentSdkTeamMember implements TeamMemberPort {
     return () => (files ??= this.options.secretFiles());
   }
 
-  private sdkOptions(call: PreparedCall, session: Session): Options {
+  private sdkOptions(call: PreparedCall & Pick<MemberCall, 'additionalDirectories'>, session: Session): Options {
     return {
       model: MODEL_ID[call.setting.tier],
       abortController: session.controller,
       cwd: this.options.cwd,
+      ...((call.additionalDirectories?.length ?? 0) > 0 ? { additionalDirectories: [...call.additionalDirectories!] } : {}),
       env: this.options.env,
       systemPrompt: this.options.prompts.system(call.role),
       tools: [...call.setting.tools],
