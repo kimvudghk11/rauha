@@ -95,12 +95,16 @@ export async function runUpdate(root: string, exec: Exec, log: (line: string) =>
   return { ok: true, pulled, installed, built: true };
 }
 
-/** 실제 실행기. Windows에서 yarn은 .cmd라 셸을 거치게 한다(명령과 인자는 코드에 박힌 고정 값뿐이다). */
+/**
+ * 실제 실행기. Windows에서 yarn은 .cmd라 셸을 거치게 한다(명령과 인자는 코드에 박힌 고정 값뿐이다).
+ * 셸을 쓸 때 인자를 배열로 넘기면 Node 24가 DEP0190 보안 경고를 띄우므로 한 줄로 합쳐 넘긴다.
+ */
 export function nodeExec(spawn: typeof nodeSpawn = nodeSpawn, platform: string = process.platform): Exec {
   return (command, args, cwd) =>
     new Promise((resolve) => {
       try {
-        const child = spawn(command, [...args], { cwd, shell: platform === 'win32', windowsHide: true } satisfies SpawnOptions);
+        const options = { cwd, windowsHide: true } satisfies SpawnOptions;
+        const child = platform === 'win32' ? spawn([command, ...args].join(' '), { ...options, shell: true }) : spawn(command, [...args], options);
         let stdout = '';
         let stderr = '';
         child.stdout?.on('data', (d: Buffer) => (stdout += d.toString()));

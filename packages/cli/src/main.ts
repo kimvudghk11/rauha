@@ -72,11 +72,9 @@ async function login(flag: string | null): Promise<number> {
   mkdirSync(dir, { recursive: true });
   log(`${profile.badge()} Claude Code 로그인을 시작합니다. 설정 폴더: ${dir}`);
   return new Promise((resolve) => {
-    const child = spawn('claude', ['auth', 'login'], {
-      env: { ...process.env, ...profile.agentEnv(homedir()) },
-      stdio: 'inherit',
-      shell: process.platform === 'win32',
-    });
+    const options = { env: { ...process.env, ...profile.agentEnv(homedir()) }, stdio: 'inherit' } as const;
+    // Windows의 claude는 .cmd·.ps1이라 셸을 거친다. 셸에는 한 줄로 넘긴다(인자 배열이면 Node 24가 DEP0190 경고를 띄운다).
+    const child = process.platform === 'win32' ? spawn('claude auth login', { ...options, shell: true }) : spawn('claude', ['auth', 'login'], options);
     child.on('close', (code) => resolve(code ?? 1));
     child.on('error', (error) => {
       log(`claude 실행 실패: ${error.message}. Claude Code가 설치돼 있는지 확인하세요.`);

@@ -1,5 +1,33 @@
 import { describe, expect, it, vi } from 'vitest';
-import { isRauhaRepo, relaunch, runUpdate, type Exec } from './update.js';
+import { EventEmitter } from 'node:events';
+import { isRauhaRepo, nodeExec, relaunch, runUpdate, type Exec } from './update.js';
+
+describe('nodeExec', () => {
+  function fakeSpawn() {
+    const calls: unknown[][] = [];
+    const spawn = (...args: unknown[]) => {
+      calls.push(args);
+      const child = new EventEmitter();
+      setImmediate(() => child.emit('close', 0));
+      return child;
+    };
+    return { calls, spawn: spawn as unknown as Parameters<typeof nodeExec>[0] };
+  }
+
+  it('Windows에서는 셸에 명령 한 줄로 넘긴다(인자 배열 + shell은 Node 24에서 보안 경고가 뜬다)', async () => {
+    const { calls, spawn } = fakeSpawn();
+    await nodeExec(spawn, 'win32')('yarn', ['build'], '/repo');
+    expect(calls[0]![0]).toBe('yarn build');
+    expect(calls[0]![1]).toMatchObject({ shell: true, cwd: '/repo' });
+  });
+
+  it('다른 OS에서는 셸 없이 명령과 인자를 따로 넘긴다', async () => {
+    const { calls, spawn } = fakeSpawn();
+    await nodeExec(spawn, 'linux')('git', ['fetch', '--quiet'], '/repo');
+    expect(calls[0]!.slice(0, 2)).toEqual(['git', ['fetch', '--quiet']]);
+    expect(calls[0]![2]).not.toHaveProperty('shell', true);
+  });
+});
 
 interface Reply {
   code?: number;
