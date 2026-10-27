@@ -82,6 +82,9 @@ export type { KnowledgePort } from './knowledge/application/ports.js';
 export { GitRepoReader } from './knowledge/infrastructure/git-repo-reader.js';
 export { FileKnowledgeStore } from './knowledge/infrastructure/file-knowledge-store.js';
 export { RepoRef } from './knowledge/domain/repo-ref.js';
+export { Workspace, type RepoPick, type WorkspaceRepo } from './workspace/domain/workspace.js';
+export { discoverRepos, isRepo } from './workspace/infrastructure/discover-repos.js';
+export { FileWorkspaceStore, type SavedWorkspace } from './workspace/infrastructure/file-workspace-store.js';
 export { FileWorkLock, projectLockFile } from './orchestration/infrastructure/file-work-lock.js';
 export {
   createToolGuard,
