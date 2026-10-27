@@ -32,6 +32,8 @@ export interface ToolGuardOptions {
   readonly remembered: Set<string>;
   /** 읽지도 쓰지도 않는 비밀 파일 규칙(기본 목록 + .rauhaignore). */
   readonly secrets: SecretPolicy;
+  /** 작업 폴더 아래 실제로 있는 비밀 파일(작업 폴더 기준). 폴더째 내용 검색을 막을지 정할 때 쓴다. */
+  readonly secretFiles: () => readonly string[];
 }
 
 /** 파일 경로를 받는 도구와 그 경로가 든 입력 이름 */
@@ -49,7 +51,7 @@ const PATH_INPUTS: Readonly<Record<string, readonly string[]>> = {
 function secretTouched(options: ToolGuardOptions, tool: string, toolInput: Record<string, unknown>): string | null {
   if (tool === 'Bash' || tool === 'PowerShell') {
     const command = toolInput['command'];
-    return typeof command === 'string' ? options.secrets.secretIn(command) : null;
+    return typeof command === 'string' ? options.secrets.secretIn(command, { root: options.root, secretFiles: options.secretFiles() }) : null;
   }
   for (const key of PATH_INPUTS[tool] ?? []) {
     const value = toolInput[key];
@@ -57,7 +59,22 @@ function secretTouched(options: ToolGuardOptions, tool: string, toolInput: Recor
     const rel = relativeToRoot(options.root, value) ?? value;
     if (options.secrets.isSecret(rel)) return value;
   }
-  return null;
+  return tool === 'Grep' ? grepIntoSecrets(options, toolInput) : null;
+}
+
+/**
+ * Grep이 비밀 파일 내용을 보여 줄 수 있으면 그 대상. glob이 비밀 파일을 겨누거나, 내용을 보여 주는
+ * 검색(output_mode content)이 비밀 파일이 있는 폴더를 통째로 뒤지면 막는다. 파일 이름만 찾는 검색은 둔다.
+ */
+function grepIntoSecrets(options: ToolGuardOptions, toolInput: Record<string, unknown>): string | null {
+  const glob = toolInput['glob'];
+  const secretFiles = options.secretFiles();
+  if (typeof glob === 'string' && options.secrets.globTargetsSecret(glob, secretFiles)) return glob;
+  if (toolInput['output_mode'] !== 'content') return null;
+  const path = toolInput['path'];
+  const target = typeof path === 'string' ? (relativeToRoot(options.root, path) ?? path).replace(/\\/g, '/').replace(/^\.\/?|\/+$/g, '') : '';
+  const inside = secretFiles.some((f) => target === '' || f === target || f.startsWith(`${target}/`));
+  return inside ? (target === '' ? '저장소 전체 검색' : `${target} 폴더 검색`) : null;
 }
 
 function decide(permissionDecision: 'allow' | 'deny', reason: string) {

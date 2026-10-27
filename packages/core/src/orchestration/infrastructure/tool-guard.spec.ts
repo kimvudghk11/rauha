@@ -29,6 +29,7 @@ function guardWith(answers: PermissionAnswer[], overrides: Partial<ToolGuardOpti
     canWrite: () => true,
     remembered: new Set(),
     secrets: SecretPolicy.defaults(),
+    secretFiles: () => [],
     ask: async (request) => {
       asked.push(request);
       return answers.shift() ?? { kind: 'deny', note: null };
@@ -52,6 +53,16 @@ describe('createToolGuard', () => {
       expect(output(out)?.permissionDecisionReason).toContain('비밀 파일');
     }
     expect(asked).toEqual([]);
+  });
+
+  it('비밀 파일이 있는 폴더를 내용으로 Grep하거나 glob으로 비밀 파일을 겨누면 거절한다', async () => {
+    const { guard } = guardWith([], { secretFiles: () => ['config/prod.json'], secrets: SecretPolicy.of(['config/prod.json']) });
+    expect(decision(await guard(input('Grep', { pattern: 'password', output_mode: 'content' }), 't1', opts))).toBe('deny');
+    expect(decision(await guard(input('Grep', { pattern: 'password', path: 'config', output_mode: 'content' }), 't1', opts))).toBe('deny');
+    expect(decision(await guard(input('Grep', { pattern: 'KEY', glob: '.env*' }), 't1', opts))).toBe('deny');
+    // 파일 이름만 찾는 검색과 비밀 파일이 없는 폴더의 내용 검색은 그대로 둔다.
+    expect(await guard(input('Grep', { pattern: 'password' }), 't1', opts)).toEqual({});
+    expect(await guard(input('Grep', { pattern: 'password', path: 'src', output_mode: 'content' }), 't1', opts)).toEqual({});
   });
 
   it('예시 파일은 그대로 읽게 둔다', async () => {

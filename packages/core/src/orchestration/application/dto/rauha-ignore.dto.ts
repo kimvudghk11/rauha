@@ -13,7 +13,8 @@ export class RauhaIgnoreDto {
     return new RauhaIgnoreDto(patterns);
   }
 
-  toEntity(): SecretPolicy {
-    return SecretPolicy.of(this.patterns);
+  /** base: 저장소 루트 → 작업 폴더 상대 경로. `.rauhaignore`는 루트 기준으로 쓰기 때문이다. */
+  toEntity(base = ''): SecretPolicy {
+    return SecretPolicy.of(this.patterns, base);
   }
 }

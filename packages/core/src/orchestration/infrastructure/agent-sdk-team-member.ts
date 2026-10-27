@@ -16,6 +16,8 @@ export interface AgentSdkTeamMemberOptions {
   readonly ask: PermissionAsker;
   /** 팀원이 읽지도 쓰지도 못하는 비밀 파일 규칙 */
   readonly secrets: SecretPolicy;
+  /** 작업 폴더 아래 실제로 있는 비밀 파일. 호출마다 다시 읽는다(작업 중에 생길 수 있어서). */
+  readonly secretFiles: () => readonly string[];
 }
 
 /** 호출 하나가 쓰는 것들. 미리 띄운 프로세스는 띄울 때 이것까지 정해진다. */
@@ -150,6 +152,12 @@ export class AgentSdkTeamMember implements TeamMemberPort {
     return { ...session, messages: query({ prompt: call.userMessage, options: this.sdkOptions(call, session) }) };
   }
 
+  /** 한 호출 동안은 처음 읽은 목록을 다시 쓴다(도구 호출마다 git을 부르지 않게). */
+  private secretFilesOnce(): () => readonly string[] {
+    let files: readonly string[] | null = null;
+    return () => (files ??= this.options.secretFiles());
+  }
+
   private sdkOptions(call: PreparedCall, session: Session): Options {
     return {
       model: MODEL_ID[call.setting.tier],
@@ -166,7 +174,7 @@ export class AgentSdkTeamMember implements TeamMemberPort {
       maxBudgetUsd: call.setting.maxBudgetUsd,
       outputFormat: { type: 'json_schema', schema: call.outputSchema },
       hooks: {
-        PreToolUse: [{ hooks: [createToolGuard({ root: this.options.cwd, role: call.role, canWrite: call.canWrite, ask: this.options.ask, remembered: this.remembered, secrets: this.options.secrets })] }],
+        PreToolUse: [{ hooks: [createToolGuard({ root: this.options.cwd, role: call.role, canWrite: call.canWrite, ask: this.options.ask, remembered: this.remembered, secrets: this.options.secrets, secretFiles: this.secretFilesOnce() })] }],
         PostToolUse: [{ hooks: [session.fetchLog.hook] }],
       },
       stderr: (data) => {

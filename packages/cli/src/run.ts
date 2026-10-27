@@ -7,6 +7,7 @@ import {
   FileWorkLock,
   projectLockFile,
   GitWorkspace,
+  listSecretFiles,
   loadSecretPolicy,
   MinimalLoopService,
   NodeChecks,
@@ -89,7 +90,15 @@ export function loadPrompts(): Promise<PromptLibrary> {
 
 /** 팀원(Agent SDK). 대화 세션에서는 하나를 계속 써서 '이번 실행 동안 계속 허락'이 세션 내내 이어진다. */
 export function createTeam(ctx: Pick<RunContext, 'root' | 'profile' | 'home' | 'ask'>, prompts: PromptLibrary): AgentSdkTeamMember {
-  return new AgentSdkTeamMember({ cwd: ctx.root, env: { ...definedEnv(process.env), ...ctx.profile.agentEnv(ctx.home) }, prompts, ask: ctx.ask, secrets: loadSecretPolicy(ctx.root) });
+  const secrets = loadSecretPolicy(ctx.root);
+  return new AgentSdkTeamMember({
+    cwd: ctx.root,
+    env: { ...definedEnv(process.env), ...ctx.profile.agentEnv(ctx.home) },
+    prompts,
+    ask: ctx.ask,
+    secrets,
+    secretFiles: () => listSecretFiles(ctx.root, secrets),
+  });
 }
 
 /** 역할별 모델·상한. RAUHA_ROLE_* 환경 변수와 이번 실행의 덮어쓰기(bench 비교)를 반영한다. */
