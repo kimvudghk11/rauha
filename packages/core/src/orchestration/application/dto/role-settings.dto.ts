@@ -1,7 +1,7 @@
 import { DomainError } from '../../../shared/domain-error.js';
 import type { ModelTier } from '../../domain/team.js';
 
-export type MemberRole = 'intake' | 'tester' | 'implementer' | 'reviewer' | 'router' | 'answerer';
+export type MemberRole = 'intake' | 'tester' | 'implementer' | 'reviewer' | 'router' | 'answerer' | 'surveyor';
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 export interface RoleSetting {
@@ -18,7 +18,7 @@ const READ_TOOLS = ['Read', 'Grep', 'Glob', 'WebSearch', 'WebFetch'];
 const WRITE_TOOLS = [...READ_TOOLS, 'Edit', 'Write', 'Bash'];
 const TIERS: readonly ModelTier[] = ['haiku', 'sonnet', 'opus'];
 const EFFORTS: readonly Effort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
-const ROLES: readonly MemberRole[] = ['intake', 'tester', 'implementer', 'reviewer', 'router', 'answerer'];
+const ROLES: readonly MemberRole[] = ['intake', 'tester', 'implementer', 'reviewer', 'router', 'answerer', 'surveyor'];
 
 /** 상태 머신이 sonnet으로 올렸을 때 쓰는 설정. 표에 없는 조합은 역할 기본값에서 모델만 바꾼다. */
 const ESCALATED: Readonly<Partial<Record<MemberRole, Partial<Record<ModelTier, Partial<RoleSetting>>>>>> = {
@@ -48,6 +48,8 @@ export class RoleSettingsDto {
       router: { tier: 'haiku', effort: 'low', maxTurns: 2, maxBudgetUsd: 0.05, tools: [], readsProject: false },
       // 질문에는 코드나 공식 문서를 읽고 답하되 파일은 쓰지 않는다. 일반 기술 질문은 문서 여러 장을 열어 봐야 해서 턴·예산을 넉넉히.
       answerer: { tier: 'sonnet', effort: 'medium', maxTurns: 25, maxBudgetUsd: 1, tools: READ_TOOLS, readsProject: true },
+      // 저장소 지식의 영역 메모를 쓴다. 이 저장소 파일만 보면 되니 웹 없이 가장 싼 모델로.
+      surveyor: { tier: 'haiku', effort: 'low', maxTurns: 20, maxBudgetUsd: 0.5, tools: ['Read', 'Grep', 'Glob'], readsProject: true },
     });
   }
 

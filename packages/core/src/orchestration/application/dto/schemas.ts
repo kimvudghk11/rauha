@@ -173,6 +173,24 @@ export const ROUTE_SCHEMA: Record<string, unknown> = {
   },
 };
 
+export const SURVEY_SCHEMA: Record<string, unknown> = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['notes'],
+  properties: {
+    notes: {
+      type: 'array',
+      maxItems: 20,
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['area', 'text', 'sources'],
+        properties: { area: str, text: { ...str, maxLength: 600 }, sources: strList },
+      },
+    },
+  },
+};
+
 export const ANSWER_SCHEMA: Record<string, unknown> = {
   type: 'object',
   additionalProperties: false,

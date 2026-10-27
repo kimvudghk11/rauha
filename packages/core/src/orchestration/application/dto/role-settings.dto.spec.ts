@@ -48,6 +48,12 @@ describe('RoleSettingsDto', () => {
     expect(roles.get('answerer').tools).not.toContain('Write');
   });
 
+  it('저장소 조사 팀원은 웹 없이 읽기만 하는 haiku', () => {
+    const surveyor = RoleSettingsDto.defaults().get('surveyor');
+    expect(surveyor).toMatchObject({ tier: 'haiku', effort: 'low', readsProject: true });
+    expect([...surveyor.tools].sort()).toEqual(['Glob', 'Grep', 'Read']);
+  });
+
   it('라우터는 프로젝트 설정(CLAUDE.md)을 읽지 않고, 나머지 팀원은 읽는다', () => {
     const roles = RoleSettingsDto.defaults();
     expect(roles.get('router').readsProject).toBe(false);

@@ -41,11 +41,12 @@ const WRITE_ROLE: Readonly<Record<MemberRole, TeamRole>> = {
   intake: 'lead',
   router: 'lead',
   answerer: 'lead',
+  surveyor: 'lead',
   tester: 'tester',
   implementer: 'implementer',
   reviewer: 'reviewer',
 };
-const ROLE_LABEL: Readonly<Record<MemberRole, string>> = { intake: '팀장 접수', tester: '테스트 팀원', implementer: '구현 팀원', reviewer: '리뷰어', router: '라우터', answerer: '답변 팀원' };
+const ROLE_LABEL: Readonly<Record<MemberRole, string>> = { intake: '팀장 접수', tester: '테스트 팀원', implementer: '구현 팀원', reviewer: '리뷰어', router: '라우터', answerer: '답변 팀원', surveyor: '저장소 파악' };
 
 export interface RunOutcome {
   readonly guide: ReadingGuideDto;
@@ -162,7 +163,7 @@ class RunTally {
   };
   costUsd = 0;
   calls = 0;
-  readonly attempts: Record<MemberRole, number> = { intake: 0, tester: 0, implementer: 0, reviewer: 0, router: 0, answerer: 0 };
+  readonly attempts: Record<MemberRole, number> = { intake: 0, tester: 0, implementer: 0, reviewer: 0, router: 0, answerer: 0, surveyor: 0 };
   readonly implementerTiers: ModelTier[] = [];
   /** 승격된 업무에서 구현 팀원을 부른 적이 있는지(모델 고정 실험과 구분하려고 모델 이름이 아니라 업무 상태로 센다) */
   escalated = false;

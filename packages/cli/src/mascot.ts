@@ -226,8 +226,8 @@ const GREETING = '오늘도 신나게 헤엄쳐요';
 /** 허락 박스의 최대 너비. 긴 명령은 이 안에서 접는다. */
 const MAX_PERMISSION_WIDTH = 76;
 
-const ROLE_COLOR: Readonly<Record<MemberRole, string>> = { intake: '#8FD3F7', tester: '#F3958F', implementer: '#84D9AE', reviewer: '#C3B4F5', router: '#8FD3F7', answerer: '#8FD3F7' };
-const ROLE_NAME: Readonly<Record<MemberRole, string>> = { intake: '팀장', tester: '테스트 팀원', implementer: '구현 팀원', reviewer: '리뷰어', router: '라우터', answerer: '답변 팀원' };
+const ROLE_COLOR: Readonly<Record<MemberRole, string>> = { intake: '#8FD3F7', tester: '#F3958F', implementer: '#84D9AE', reviewer: '#C3B4F5', router: '#8FD3F7', answerer: '#8FD3F7', surveyor: '#8FD3F7' };
+const ROLE_NAME: Readonly<Record<MemberRole, string>> = { intake: '팀장', tester: '테스트 팀원', implementer: '구현 팀원', reviewer: '리뷰어', router: '라우터', answerer: '답변 팀원', surveyor: '저장소 파악' };
 
 export interface ResultCard {
   readonly status: 'complete' | 'stopped';

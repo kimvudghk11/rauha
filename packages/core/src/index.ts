@@ -77,6 +77,11 @@ export { RauhaIgnoreDto } from './orchestration/application/dto/rauha-ignore.dto
 export { listSecretFiles, loadSecretPolicy } from './orchestration/infrastructure/load-secret-policy.js';
 export { ChatSnapshotDto, type ChatSnapshot } from './orchestration/application/dto/chat-snapshot.dto.js';
 export { FileChatSnapshots } from './orchestration/infrastructure/file-chat-snapshots.js';
+export { KnowledgeService } from './knowledge/application/knowledge.service.js';
+export type { KnowledgePort } from './knowledge/application/ports.js';
+export { GitRepoReader } from './knowledge/infrastructure/git-repo-reader.js';
+export { FileKnowledgeStore } from './knowledge/infrastructure/file-knowledge-store.js';
+export { RepoRef } from './knowledge/domain/repo-ref.js';
 export { FileWorkLock, projectLockFile } from './orchestration/infrastructure/file-work-lock.js';
 export {
   createToolGuard,
