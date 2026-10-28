@@ -82,14 +82,31 @@ describe('runUpdate', () => {
     expect(calls.indexOf('yarn build')).toBeGreaterThan(calls.indexOf('yarn install'));
   });
 
-  it('이미 최신이면 빌드도 다시 띄우기도 하지 않는다', async () => {
+  it('이미 최신이고 그 커밋으로 빌드돼 있으면 빌드도 다시 띄우기도 하지 않는다', async () => {
     const { exec, calls } = fakeExec({ ...base(), 'git rev-list --count HEAD..@{u}': { stdout: '0\n' } });
     const log: string[] = [];
-    const result = await runUpdate('E:/rauha', exec, (l) => log.push(l));
+    const result = await runUpdate('E:/rauha', exec, (l) => log.push(l), () => 'aaa');
     expect(result).toMatchObject({ ok: true, pulled: 0, built: false });
     expect(calls).not.toContain('git pull --ff-only');
     expect(calls).not.toContain('yarn build');
     expect(log.join('\n')).toContain('이미 최신');
+    expect(log.join('\n')).toContain('aaa');
+  });
+
+  it('커밋은 최신인데 빌드가 예전 커밋이면(직접 git pull만 한 경우) 빌드하고 다시 띄운다', async () => {
+    const { exec, calls } = fakeExec({ ...base(), 'git rev-list --count HEAD..@{u}': { stdout: '0\n' } });
+    const log: string[] = [];
+    const result = await runUpdate('E:/rauha', exec, (l) => log.push(l), () => 'old');
+    expect(result).toMatchObject({ ok: true, pulled: 0, built: true });
+    expect(calls).toContain('yarn build');
+    expect(calls).not.toContain('git pull --ff-only');
+  });
+
+  it('빌드 기록이 없어도 빌드한다', async () => {
+    const { exec, calls } = fakeExec({ ...base(), 'git rev-list --count HEAD..@{u}': { stdout: '0\n' } });
+    const result = await runUpdate('E:/rauha', exec, () => {}, () => null);
+    expect(result.built).toBe(true);
+    expect(calls).toContain('yarn build');
   });
 
   it('바뀐 파일이 있어 내려받지 못하면 알리기만 한다 (작업 중인 파일을 건드리지 않는다)', async () => {

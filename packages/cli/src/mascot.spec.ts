@@ -18,6 +18,12 @@ describe('Delfi 그림', () => {
     expect(line).not.toMatch(/38;2;[\d;]*;48;2/);
   });
 
+  it('위아래 색이 같으면 배경색 빈칸으로 칠한다 (macOS 터미널에서 블록 글자 사이에 줄 틈이 보이지 않게)', () => {
+    const [line] = toAnsi([['#FF0000'], ['#FF0000']], 24);
+    expect(visible(line!)).toBe(' ');
+    expect(line).toContain('\x1b[48;2;255;0;0m ');
+  });
+
   it('256색 터미널에서는 가장 가까운 xterm 색 번호를 쓴다', () => {
     expect(ansi256('#000000')).toBe(16);
     expect(ansi256('#FFFFFF')).toBe(231);

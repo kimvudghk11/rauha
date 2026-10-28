@@ -156,7 +156,9 @@ export function toAnsi(px: Pixels, depth: number): string[] {
       const top = px[y]![x] ?? null;
       const bottom = px[y + 1]?.[x] ?? null;
       // 글자색·배경색 코드는 따로 쓴다. 한 코드에 묶으면 Ink(대화 화면)가 다시 쓸 때 배경색을 닫지 않는다.
-      if (top !== null && bottom !== null) line += `\x1b[${color(top, depth, 38)}m\x1b[${color(bottom, depth, 48)}m▀`;
+      // 위아래가 같은 색이면 배경색 빈칸으로 칠한다. macOS 터미널은 ▀가 줄 높이를 다 채우지 않아 가로 틈이 보이는데, 배경색은 칸 전체를 채운다.
+      if (top !== null && top === bottom) line += `\x1b[39m\x1b[${color(top, depth, 48)}m `;
+      else if (top !== null && bottom !== null) line += `\x1b[${color(top, depth, 38)}m\x1b[${color(bottom, depth, 48)}m▀`;
       else if (top !== null) line += `\x1b[49m\x1b[${color(top, depth, 38)}m▀`;
       else if (bottom !== null) line += `\x1b[49m\x1b[${color(bottom, depth, 38)}m▄`;
       else line += `${RESET} `;
