@@ -50,6 +50,17 @@ describe('WorkOrder 파이프라인', () => {
     expect(order.nextAssignment()).toEqual({ role: 'tester', tier: 'sonnet' });
   });
 
+  it('무효 Red가 네 번 쌓이면(주니어 두 번 + 시니어 두 번) 계속 부르지 않고 멈춘다', () => {
+    const order = WorkOrder.open({ id: 'w', title: 't', difficulty: Difficulty.of('S'), sensitive: false, scope: ['src/**'] });
+    order.approveScenario({ happyPaths: 1, errorPaths: 1 });
+    const invalid = TestRun.of({ passed: 0, failed: 1, failureKind: 'import' });
+    for (let i = 0; i < 3; i += 1) order.recordRed(invalid);
+    expect(order.stage).toBe('red');
+    order.recordRed(invalid);
+    expect(order.stage).toBe('halted');
+    expect(order.haltReason).toBe('invalid-tests');
+  });
+
   it('예외 경로가 없는 시나리오는 넘기지 않는다', () => {
     const order = WorkOrder.open({
       id: 'wo-1',

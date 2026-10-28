@@ -15,7 +15,7 @@ export type ImplementerRung = 'junior' | 'senior' | 'senior-after-debug' | 'seni
 
 export type SupportRequest = 'debugger' | 'advisor';
 
-export type HaltReason = 'escalation-exhausted' | 'review-loop';
+export type HaltReason = 'escalation-exhausted' | 'review-loop' | 'invalid-tests';
 
 export type ReviewVerdict = 'pass' | 'changes';
 
@@ -27,6 +27,8 @@ export interface ScenarioSummary {
 const JUNIOR_ATTEMPTS = 2;
 const SCENARIO_REJECTIONS_BEFORE_SENIOR = 2;
 const INVALID_REDS_BEFORE_SENIOR = 2;
+/** 올바른 이유로 실패하는 테스트를 이만큼 못 쓰면 요청이 테스트로 풀 일이 아니거나 막힌 것이므로 멈춘다. */
+const INVALID_REDS_BEFORE_HALT = 4;
 const REVIEW_CHANGES_BEFORE_HALT = 2;
 const HANDOFF_LINES = 5;
 
@@ -153,6 +155,7 @@ export class WorkOrder {
     this.assertStage('red');
     if (!run.isValidRed()) {
       this.state.invalidReds += 1;
+      if (this.state.invalidReds >= INVALID_REDS_BEFORE_HALT) this.halt('invalid-tests');
       return;
     }
     this.state.testsLocked = true;

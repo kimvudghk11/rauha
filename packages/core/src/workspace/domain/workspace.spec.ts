@@ -32,6 +32,26 @@ describe('Workspace', () => {
     }
   });
 
+  it('"모든 프로젝트", "모든 애들", "상위 project 폴더"도 작업 공간 전체로 알아듣는다 (실제 사용에서 저장소 하나만 읽은 말들)', () => {
+    const messages = [
+      'project 안에 모든 프로젝트를 보고 내가 작업한 커밋들 정리해줘',
+      'project에 모든 애들을 읽어주라',
+      'bridge-alb-worker 보다 상위 프로젝트인 project 폴더를 모두 스캔해줘',
+      '프로젝트 전부 훑어봐',
+      '전체 프로젝트 요약',
+      'every repo 요약',
+    ];
+    for (const message of messages) {
+      expect(Workspace.of(roots, 'E:/work/shop-web').pick(message).kind, message).toBe('many');
+    }
+  });
+
+  it('한 저장소 안의 "전체"는 작업 공간 전체로 보지 않는다', () => {
+    for (const message of ['프로젝트 전체 구조 알려줘', 'src의 모든 폴더 정리해줘', '이 레포 전체 구조 설명해줘', '모든 파일의 import 정리']) {
+      expect(Workspace.of(roots, 'E:/work/shop-web').pick(message).kind, message).toBe('one');
+    }
+  });
+
   it('이름이 없으면 지금 저장소, 지금 저장소가 없고 여럿이면 묻는다', () => {
     expect(Workspace.of(roots).pick('이거 고쳐줘').kind).toBe('ask');
     expect(Workspace.of(roots, 'E:/work/shop-web').pick('이거 고쳐줘')).toMatchObject({ kind: 'one', repo: { name: 'shop-web' } });

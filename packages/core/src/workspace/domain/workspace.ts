@@ -11,8 +11,21 @@ export type RepoPick =
   | { readonly kind: 'many'; readonly repos: readonly WorkspaceRepo[] }
   | { readonly kind: 'ask'; readonly candidates: readonly WorkspaceRepo[] };
 
-/** 작업 공간의 저장소 전부를 가리키는 말("모든 레포", "전체 저장소", "레포 전부", "all repos") */
-const ALL_REPOS = /(모든|전체|전부의?)\s*(레포|저장소|리포)|(레포|저장소|리포)\s*(전부|전체|다\b|모두)|\ball\s+(repos|repositories)\b/i;
+/**
+ * 작업 공간의 저장소 전부를 가리키는 말. 앞에 붙는 "모든·전체·전부"는 저장소·프로젝트·애들을 꾸밀 때만 센다
+ * ("모든 프로젝트", "전체 저장소", "모든 애들"). 뒤에 붙는 "전부·모두"도 센다("레포 전부").
+ * "레포 전체 구조"처럼 한 저장소의 전체를 말하는 경우와 "src의 모든 폴더"는 세지 않는다.
+ * "상위 project 폴더"처럼 저장소들을 담은 폴더를 가리키는 말도 센다.
+ */
+const NOUN = '(?:레포지토리|레포|리포|저장소|프로젝트|애들|것들|repos?|repositories|projects?)';
+const ALL_REPOS = new RegExp(
+  [
+    `(?:모든|전체|전부의?|모두|all|every)\\s*${NOUN}`,
+    `${NOUN}\\s*(?:들)?\\s*(?:전부|모두)`,
+    '(?:상위|부모)[^.\\n]{0,20}폴더',
+  ].join('|'),
+  'i',
+);
 
 const same = (a: string, b: string) => toPosixPath(a).toLowerCase() === toPosixPath(b).toLowerCase();
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
