@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -13,6 +13,7 @@ const IGNORED = /(^|\/)node_modules\//;
 const CODE = /\.(ts|tsx|js|jsx|mjs|cjs|mts|cts)$/;
 const INSTRUCTIONS = new Set(['CLAUDE.md', 'AGENTS.md', 'README.md']);
 const SCRIPTS = ['test', 'typecheck', 'lint', 'build'];
+const isFile = (path: string) => statSync(path, { throwIfNoEntry: false })?.isFile() ?? false;
 const TEST_PATTERNS = ['.spec.ts', '.test.ts', '.spec.js', '.test.js'];
 
 /**
@@ -72,10 +73,13 @@ export class GitRepoReader {
     return new Map(entries);
   }
 
-  /** 파일 내용 해시(git blob 해시). 없는 파일은 null. */
+  /**
+   * 파일 내용 해시(git blob 해시). 없는 파일과 폴더(서브모듈 등)는 null.
+   * git hash-object는 폴더를 만나면 도중에 끝나므로 일반 파일만 넘기고, 그래도 실패하면 모두 null로 둔다.
+   */
   async hashes(paths: readonly string[]): Promise<Map<string, string | null>> {
-    const present = paths.filter((p) => existsSync(join(this.root, p)));
-    const out = present.length > 0 ? (await this.gitWithInput(['hash-object', '--stdin-paths'], present.join('\n'))).split('\n') : [];
+    const present = paths.filter((p) => isFile(join(this.root, p)));
+    const out = present.length > 0 ? ((await this.gitWithInput(['hash-object', '--stdin-paths'], present.join('\n')).catch(() => null))?.split('\n') ?? []) : [];
     const found = new Map(present.map((p, i) => [p, out[i]?.trim() || null] as const));
     return new Map(paths.map((p) => [p, found.get(p) ?? null] as const));
   }
@@ -128,6 +132,8 @@ export class GitRepoReader {
 
   private async gitWithInput(args: readonly string[], input: string): Promise<string> {
     const child = run('git', ['-c', 'core.quotepath=false', ...args], { cwd: this.root, maxBuffer: 64 * 1024 * 1024 });
+    // git이 입력을 다 읽기 전에 끝나면 쓰기가 EPIPE로 실패한다. 처리하지 않으면 프로세스가 죽으므로 받아 두고, 실패는 종료 코드로 알린다.
+    child.child.stdin?.on('error', () => undefined);
     child.child.stdin?.end(input);
     return (await child).stdout;
   }

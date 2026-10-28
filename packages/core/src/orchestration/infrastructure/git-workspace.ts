@@ -161,6 +161,8 @@ export class GitWorkspace implements WorkspacePort {
   private async git(args: readonly string[], trim = true, input?: string): Promise<string> {
     const child = run('git', ['-c', 'core.quotepath=false', ...args], { cwd: this.root, maxBuffer: 32 * 1024 * 1024 });
     if (input !== undefined) {
+      // git이 입력을 다 읽기 전에 끝나도 EPIPE로 프로세스가 죽지 않게. 실패는 종료 코드로 알린다.
+      child.child.stdin?.on('error', () => undefined);
       child.child.stdin?.end(input);
     }
     const { stdout } = await child;

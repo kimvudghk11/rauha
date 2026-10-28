@@ -96,6 +96,15 @@ describe('GitRepoReader', () => {
     expect(hashes.get('src/domain/gone.ts')).toBeNull();
   });
 
+  it('폴더(서브모듈 등)가 섞여 있어도 죽지 않고 파일만 해시한다', async () => {
+    const { dir, reader } = repo();
+    mkdirSync(join(dir, 'vendor', 'lib'), { recursive: true });
+    const many = Array.from({ length: 5000 }, () => 'src/domain/money.ts');
+    const hashes = await reader.hashes(['vendor/lib', ...many]);
+    expect(hashes.get('vendor/lib')).toBeNull();
+    expect(hashes.get('src/domain/money.ts')).toMatch(/^[0-9a-f]{40}$/);
+  });
+
   it('package.json 스크립트와 패키지 관리자, 지시 파일, 영역을 읽는다', async () => {
     const { reader } = repo();
     const facts = await reader.facts(await reader.files());
