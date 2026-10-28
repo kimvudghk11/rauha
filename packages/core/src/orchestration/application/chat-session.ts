@@ -9,7 +9,8 @@ import type { ChatSnapshot } from './dto/chat-snapshot.dto.js';
 import { FilesBlockDto } from './dto/files-block.dto.js';
 import { ReviewReportDto } from './dto/review-report.dto.js';
 import { RouteDto, type Route } from './dto/route.dto.js';
-import { ANSWER_SCHEMA, REVIEWER_REPORT_SCHEMA, ROUTE_SCHEMA } from './dto/schemas.js';
+import { ANSWER_SCHEMA, REVIEWER_REPORT_SCHEMA, ROUTE_SCHEMA, WRITER_SCHEMA } from './dto/schemas.js';
+import { WriterReportDto } from './dto/writer-report.dto.js';
 import type { RunContextBlocks, RunOutcome } from './minimal-loop.service.js';
 import type { AccountBlock, MemberResult, PreparedCall, ProgressPort, TeamMemberPort, UserPort, WorkspacePort } from './ports.js';
 
@@ -147,8 +148,9 @@ export class ChatSession {
     asked.catch(() => undefined);
     const routed = await this.member('router', [conversation !== null ? `<conversation>\n${conversation}\n</conversation>` : '', `<message>\n${input}\n</message>`], ROUTE_SCHEMA);
     const route = RouteDto.read(routed.output);
-    if (routed.blocked || route.mode === 'work' || route.refersToPast) early.abort();
+    if (routed.blocked || route.mode !== 'question' || route.refersToPast) early.abort();
     if (routed.blocked) return { kind: 'blocked', ...routed.blocked };
+    if (route.mode === 'task') return this.task(input, conversation, also, started);
     if (route.mode === 'work' && also.length > 0) return { kind: 'notice', message: MANY_REPO_WORK };
     const past = route.refersToPast ? await this.pickPast(route.pastQuery ?? input, route.mode) : null;
     if (route.mode === 'work') return this.work(input, conversation, past);
@@ -182,6 +184,36 @@ export class ChatSession {
     this.lastTitle = outcome.title;
     this.turns.push({ input, result: `작업 "${outcome.title}" ${outcome.status === 'complete' ? '완료' : `멈춤(${outcome.stopReason})`}, 바뀐 파일 ${outcome.changedInRun.map((c) => c.path).join(', ') || '없음'}` });
     return { kind: 'work', outcome };
+  }
+
+  // ── 문서 작업 ─────────────────────────────────────────────
+
+  /**
+   * 코드가 아닌 결과물(포트폴리오·보고서·정리 문서). 테스트로 확인할 것이 없어 TDD 대신 문서 팀원이 읽고 쓴다.
+   * 크기로 돌려보내지 않는다. 문서 팀원은 .md만 쓸 수 있다.
+   */
+  private async task(input: string, conversation: string | null, also: readonly AlsoRepo[], started: number): Promise<TurnOutcome> {
+    const repos = [`- ${this.deps.repoName ?? '이 저장소'} (지금 작업 폴더, 문서는 여기에)`, ...also.map((r) => `- ${r.name}: ${r.root}`)];
+    const result = await this.member(
+      'writer',
+      [
+        conversation !== null ? `<conversation>\n${conversation}\n</conversation>` : '',
+        `<today>${this.deps.today()}</today>`,
+        `<repos>\n${repos.join('\n')}\n</repos>`,
+        `<request>\n${input}\n</request>`,
+      ],
+      WRITER_SCHEMA,
+      undefined,
+      also.map((r) => r.root),
+      (path) => /\.md$/i.test(path),
+    );
+    if (result.blocked) return { kind: 'blocked', ...result.blocked };
+    const report = WriterReportDto.read(result.output);
+    const answer = report.toAnswer();
+    await this.deps.memory.save(WorkMemory.fromAnswer({ id: this.deps.newId(), at: this.at(), question: input, answer, citedFiles: report.files, basis: null }));
+    this.lastTitle = input.slice(0, 60);
+    this.turns.push({ input, result: `문서: ${report.files.join(', ') || '없음'}` });
+    return { kind: 'answer', answer, checked: [], costUsd: result.usage.costUsd, durationMs: this.deps.now() - started, basis: null };
   }
 
   // ── 질문 ──────────────────────────────────────────────────
@@ -301,12 +333,19 @@ export class ChatSession {
       .join('\n');
   }
 
-  private callFor(role: MemberRole, outputSchema: Record<string, unknown>): PreparedCall {
-    return { role, setting: this.deps.roles.get(role), outputSchema, canWrite: () => false };
+  private callFor(role: MemberRole, outputSchema: Record<string, unknown>, canWrite: (path: string) => boolean = () => false): PreparedCall {
+    return { role, setting: this.deps.roles.get(role), outputSchema, canWrite };
   }
 
-  private async member(role: MemberRole, parts: readonly string[], outputSchema: Record<string, unknown>, signal?: AbortSignal, additionalDirectories: readonly string[] = []): Promise<MemberResult> {
-    const call = this.callFor(role, outputSchema);
+  private async member(
+    role: MemberRole,
+    parts: readonly string[],
+    outputSchema: Record<string, unknown>,
+    signal?: AbortSignal,
+    additionalDirectories: readonly string[] = [],
+    canWrite?: (path: string) => boolean,
+  ): Promise<MemberResult> {
+    const call = this.callFor(role, outputSchema, canWrite);
     // 질문을 나누고 답하는 건 사용자에게 한 가지 일로 보이므로 누가 하는지 밝히지 않는다.
     this.deps.progress.step('작업 중…', role);
     const result = await this.deps.team.run({

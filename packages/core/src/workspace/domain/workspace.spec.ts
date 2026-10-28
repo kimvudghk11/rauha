@@ -24,6 +24,14 @@ describe('Workspace', () => {
     if (pick.kind === 'many') expect(pick.repos.map((r) => r.name)).toEqual(['shop-web', 'shop-api']);
   });
 
+  it('"모든 레포"·"전체 저장소"처럼 전부를 말하면 모든 저장소를, 지금 저장소부터', () => {
+    for (const message of ['모든 레포에서 내 커밋 모아줘', '전체 저장소 README 정리해줘', '레포 전부 훑어봐', 'all repos 요약']) {
+      const pick = Workspace.of(roots, 'E:/work/shop-web').pick(message);
+      expect(pick.kind).toBe('many');
+      if (pick.kind === 'many') expect(pick.repos.map((r) => r.name)).toEqual(['shop-web', 'shop-api', 'api']);
+    }
+  });
+
   it('이름이 없으면 지금 저장소, 지금 저장소가 없고 여럿이면 묻는다', () => {
     expect(Workspace.of(roots).pick('이거 고쳐줘').kind).toBe('ask');
     expect(Workspace.of(roots, 'E:/work/shop-web').pick('이거 고쳐줘')).toMatchObject({ kind: 'one', repo: { name: 'shop-web' } });

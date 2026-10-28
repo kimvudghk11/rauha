@@ -16,8 +16,11 @@ describe('Difficulty.judge', () => {
   it('인증·결제 같은 민감 작업은 파일 1개여도 L급', () => {
     const d = Difficulty.judge({ fileCount: 1, crossModule: false, sensitive: true });
     expect(d.grade).toBe('L');
-    expect(d.requiresDesign()).toBe(true);
     expect(d.startsWithSenior()).toBe(true);
+  });
+
+  it('설계 단계(설계 대화)가 생기기 전까지 L급도 설계를 거치지 않고 바로 테스트부터 한다 (돌려보내지 않는다)', () => {
+    expect(Difficulty.of('L').requiresDesign()).toBe(false);
   });
 
   it('모듈 간 변경은 L급', () => {

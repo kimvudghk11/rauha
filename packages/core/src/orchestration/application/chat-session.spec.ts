@@ -37,7 +37,7 @@ class FakeMemory implements MemoryPort {
 type Script = (call: MemberCall) => unknown;
 
 class FakeTeam implements TeamMemberPort {
-  readonly calls: { role: MemberRole; message: string; signal: AbortSignal | undefined; dirs: readonly string[] | undefined }[] = [];
+  readonly calls: { role: MemberRole; message: string; signal: AbortSignal | undefined; dirs: readonly string[] | undefined; canWrite: (path: string) => boolean }[] = [];
   readonly prepared: MemberRole[] = [];
   /** 라우터가 이 약속이 풀릴 때까지 답하지 않게 한다(동시에 도는지 보려고). */
   routerGate: Promise<void> = Promise.resolve();
@@ -50,7 +50,7 @@ class FakeTeam implements TeamMemberPort {
     this.prepared.push(call.role);
   }
   async run(call: MemberCall): Promise<MemberResult> {
-    this.calls.push({ role: call.role, message: call.userMessage, signal: call.signal, dirs: call.additionalDirectories });
+    this.calls.push({ role: call.role, message: call.userMessage, signal: call.signal, dirs: call.additionalDirectories, canWrite: call.canWrite });
     if (call.role === 'router') await this.routerGate;
     if (call.role === this.limitOn) {
       const limited = "You've hit your session limit · resets 9:40pm";
@@ -129,7 +129,7 @@ class FakeLoops {
   });
 }
 
-const route = (mode: 'work' | 'question', refersToPast = false, pastQuery: string | null = null) => () => ({ mode, refersToPast, pastQuery });
+const route = (mode: 'work' | 'question' | 'task', refersToPast = false, pastQuery: string | null = null) => () => ({ mode, refersToPast, pastQuery });
 
 type SessionParts = { team: FakeTeam; loops?: FakeLoops; memory?: FakeMemory; user?: UserPort; files?: Record<string, string>; steps?: string[]; changes?: FileChange[] };
 
@@ -259,6 +259,23 @@ describe('ChatSession — 여러 저장소', () => {
     const turn = await ChatSession.start({ ...sessionDeps({ team, loops }), repoName: 'shop-api' }).handle('둘 다 고쳐줘', also);
     expect(turn.kind).toBe('notice');
     expect(loops.runs).toEqual([]);
+  });
+
+  it('코드가 아닌 결과물(커밋을 모은 포트폴리오 .md 등)은 크기와 상관없이 받아서 문서 팀원이 만든다', async () => {
+    const loops = new FakeLoops();
+    const team = new FakeTeam({ router: [route('task')], writer: [() => ({ summary: '저장소 2개의 내 커밋으로 포트폴리오를 만들었어요.', files: ['docs/portfolio.md'] })] });
+    const turn = await ChatSession.start({ ...sessionDeps({ team, loops }), repoName: 'shop-api' }).handle('모든 레포에서 내 커밋 확인해서 포폴 md 만들어줘', also);
+    expect(loops.runs).toEqual([]);
+    const call = team.calls.find((c) => c.role === 'writer')!;
+    expect(call.dirs).toEqual(['E:/w/shop-web']);
+    expect(call.message).toContain('shop-web');
+    // 문서 팀원은 문서만 쓴다(코드는 건드리지 않는다).
+    expect(call.canWrite('docs/portfolio.md')).toBe(true);
+    expect(call.canWrite('src/money.ts')).toBe(false);
+    expect(turn.kind).toBe('answer');
+    if (turn.kind !== 'answer') return;
+    expect(turn.answer).toContain('포트폴리오를 만들었어요');
+    expect(turn.answer).toContain('docs/portfolio.md');
   });
 
   it('답에 저장소마다 읽은 기준이 붙는다', async () => {

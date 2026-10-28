@@ -436,12 +436,12 @@ describe('MinimalLoopService', () => {
     expect(outcome.stopReason).toBe('usage-limit');
   });
 
-  it('L급 접수는 팀원을 부르지 않고 멈춘다', async () => {
+  it('L급(민감) 접수도 돌려보내지 않고 테스트 팀원부터 일을 시작한다', async () => {
     const ws = new FakeWorkspace();
-    const team = new FakeTeam(ws, { intake: [() => intake({ sensitive: true })] });
+    const team = new FakeTeam(ws, { intake: [() => intake({ sensitive: true })], tester: [writeTest], implementer: [implement] });
     const outcome = await service(ws, team, new FakeChecks(ws)).run('결제 바꿔줘');
-    expect(team.calls).toEqual(['intake']);
-    expect(outcome).toMatchObject({ status: 'stopped', stopReason: 'too-large' });
+    expect(team.calls.slice(0, 2)).toEqual(['intake', 'tester']);
+    expect(outcome.stopReason).not.toBe('too-large');
   });
 
   it('수용 기준이 모자라면 접수를 한 번 다시 받는다', async () => {

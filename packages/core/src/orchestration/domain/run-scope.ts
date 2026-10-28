@@ -33,13 +33,15 @@ export class RunScope {
     return new RunScope(RED_GREEN, new Set(['haiku', 'sonnet']), 'review');
   }
 
-  /** 사다리 + 리뷰어 재검증. 리뷰가 통과해 docs 단계에 닿으면 완료(문서 팀은 아직 없음). */
+  /**
+   * 사다리 + 리뷰어 재검증. 리뷰가 통과해 docs 단계에 닿으면 완료(문서 팀은 아직 없음).
+   * 민감한 업무(인증·결제)의 리뷰어는 opus라 opus도 부른다(테스트·구현은 상태 머신이 opus를 배정하지 않는다).
+   */
   static threePass(): RunScope {
-    return new RunScope(new Map<Stage, TeamRole>([...RED_GREEN, ['review', 'reviewer']]), new Set(['haiku', 'sonnet']), 'docs');
+    return new RunScope(new Map<Stage, TeamRole>([...RED_GREEN, ['review', 'reviewer']]), new Set(['haiku', 'sonnet', 'opus']), 'docs');
   }
 
   decide(order: WorkOrder): ScopeDecision {
-    if (order.difficulty.startsWithSenior()) return { kind: 'stop', reason: 'too-large' };
     if (order.stage === this.completeAt) return { kind: 'complete' };
     if (order.stage === 'halted') return { kind: 'stop', reason: 'halted' };
     if (order.pendingSupport !== null) return { kind: 'stop', reason: 'needs-support' };

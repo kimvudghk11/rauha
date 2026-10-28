@@ -1,5 +1,6 @@
 export interface Route {
-  readonly mode: 'work' | 'question';
+  /** task: 코드가 아닌 결과물(문서·보고서). TDD 없이 문서 팀원이 만든다. */
+  readonly mode: 'work' | 'question' | 'task';
   readonly refersToPast: boolean;
   readonly pastQuery: string | null;
 }
@@ -16,7 +17,7 @@ export class RouteDto {
   static read(input: unknown): Route {
     if (typeof input !== 'object' || input === null) return FALLBACK;
     const o = input as Record<string, unknown>;
-    if (o['mode'] !== 'work' && o['mode'] !== 'question') return FALLBACK;
+    if (o['mode'] !== 'work' && o['mode'] !== 'question' && o['mode'] !== 'task') return FALLBACK;
     const query = typeof o['pastQuery'] === 'string' && o['pastQuery'].trim() !== '' ? o['pastQuery'].trim() : null;
     return { mode: o['mode'], refersToPast: o['refersToPast'] === true, pastQuery: query };
   }

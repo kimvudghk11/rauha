@@ -29,9 +29,12 @@ export class Difficulty {
     return new Difficulty(signals.fileCount <= 2 ? 'S' : 'M');
   }
 
-  /** L급은 시나리오 확정 뒤 설계(Opus)를 거친다. */
+  /**
+   * 설계서는 L급이 시나리오 확정 뒤 설계(Opus)를 거친다고 정했지만, 설계 단계(3-3 설계 대화)는 아직 없다.
+   * 없는 단계로 보내면 큰 요청이 늘 멈추므로, 그때까지는 L급도 시니어로 바로 테스트부터 한다.
+   */
   requiresDesign(): boolean {
-    return this.grade === 'L';
+    return false;
   }
 
   /** L급은 기획·테스트·구현을 시니어부터 시작한다. */

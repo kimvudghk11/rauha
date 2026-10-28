@@ -11,6 +11,9 @@ export type RepoPick =
   | { readonly kind: 'many'; readonly repos: readonly WorkspaceRepo[] }
   | { readonly kind: 'ask'; readonly candidates: readonly WorkspaceRepo[] };
 
+/** 작업 공간의 저장소 전부를 가리키는 말("모든 레포", "전체 저장소", "레포 전부", "all repos") */
+const ALL_REPOS = /(모든|전체|전부의?)\s*(레포|저장소|리포)|(레포|저장소|리포)\s*(전부|전체|다\b|모두)|\ball\s+(repos|repositories)\b/i;
+
 const same = (a: string, b: string) => toPosixPath(a).toLowerCase() === toPosixPath(b).toLowerCase();
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -75,6 +78,12 @@ export class Workspace {
 
   /** 이 메시지는 어느 저장소 일인가. 고른 저장소(여럿이면 첫 저장소)가 다음 지금 저장소가 된다. */
   pick(message: string): RepoPick {
+    if (this.roots.length > 1 && ALL_REPOS.test(message)) {
+      const current = this.current();
+      const all = current === null ? this.repos : [current, ...this.repos.filter((r) => !same(r.root, current.root))];
+      this.currentRoot = all[0]!.root;
+      return { kind: 'many', repos: all };
+    }
     const named = this.mentioned(message);
     const chosen = named.length > 0 ? named : [this.current() ?? (this.roots.length === 1 ? this.repos[0]! : null)].filter((r): r is WorkspaceRepo => r !== null);
     if (chosen.length === 0) return { kind: 'ask', candidates: this.repos };

@@ -17,8 +17,8 @@ function openAtRed(grade: 'S' | 'M' | 'L' = 'S'): WorkOrder {
 }
 
 describe('RunScope.minimalLoop', () => {
-  it('L급은 팀원을 부르지 않고 멈춘다(too-large)', () => {
-    expect(scope.decide(openAtRed('L'))).toEqual({ kind: 'stop', reason: 'too-large' });
+  it('L급은 시니어(sonnet)부터 시작하므로 haiku만 쓰는 1단계에서는 needs-senior로 멈춘다', () => {
+    expect(scope.decide(openAtRed('L'))).toEqual({ kind: 'stop', reason: 'needs-senior' });
   });
 
   it('red 단계 haiku 테스트 팀원과 green 단계 haiku 구현 팀원만 이어서 부른다', () => {
@@ -93,8 +93,17 @@ describe('RunScope.ladder', () => {
     expect(ladder.decide(order)).toEqual({ kind: 'complete' });
   });
 
-  it('L급은 여전히 시작하지 않는다', () => {
-    expect(ladder.decide(openAtRed('L'))).toEqual({ kind: 'stop', reason: 'too-large' });
+  it('L급도 돌려보내지 않고 시니어(sonnet) 테스트 팀원부터 시작한다', () => {
+    expect(ladder.decide(openAtRed('L'))).toEqual({ kind: 'continue', assignment: { role: 'tester', tier: 'sonnet' } });
+  });
+
+  it('시니어로 시작한 L급은 주니어 기회를 건너뛴 만큼 시니어가 두 번 시도한 뒤에 멈춘다', () => {
+    const order = openAtRed('L');
+    order.recordRed(red);
+    order.recordGreen(fail);
+    expect(ladder.decide(order)).toEqual({ kind: 'continue', assignment: { role: 'implementer', tier: 'sonnet' } });
+    order.recordGreen(fail);
+    expect(ladder.decide(order)).toEqual({ kind: 'stop', reason: 'needs-support' });
   });
 });
 
@@ -109,6 +118,14 @@ describe('RunScope.threePass', () => {
 
   it('3단 범위는 검증을 통과하면 리뷰어(sonnet)를 부른다', () => {
     expect(three.decide(atReview())).toEqual({ kind: 'continue', assignment: { role: 'reviewer', tier: 'sonnet' } });
+  });
+
+  it('민감한 업무(인증·결제)는 opus 리뷰어를 부른다 (멈추지 않는다)', () => {
+    const order = WorkOrder.open({ id: 'w', title: 't', difficulty: Difficulty.of('L'), sensitive: true, scope: ['src/**'] });
+    order.approveScenario({ happyPaths: 1, errorPaths: 1 });
+    order.recordRed(red);
+    order.recordGreen(green);
+    expect(three.decide(order)).toEqual({ kind: 'continue', assignment: { role: 'reviewer', tier: 'opus' } });
   });
 
   it('리뷰가 통과하면 완료', () => {

@@ -276,6 +276,8 @@ export class WorkOrder {
         }
         return;
       case 'senior':
+        // 시니어로 시작한 업무(L급)는 주니어 두 번을 건너뛰었으니 시니어가 그만큼 한 번 더 한다.
+        if (this.state.difficulty.startsWithSenior() && this.state.failuresOnRung < JUNIOR_ATTEMPTS) return;
         this.state.pendingSupport = 'debugger';
         return;
       case 'senior-after-debug':

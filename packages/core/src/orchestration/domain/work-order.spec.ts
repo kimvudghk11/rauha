@@ -36,7 +36,7 @@ describe('WorkOrder 파이프라인', () => {
     expect(order.stage).toBe('red');
   });
 
-  it('L급은 시나리오 확정 뒤 설계(Opus)를 거친다', () => {
+  it('L급은 시나리오 확정 뒤 설계 단계가 생기기 전까지 바로 시니어 테스트 팀원에게 간다', () => {
     const order = WorkOrder.open({
       id: 'wo-1',
       title: 't',
@@ -46,7 +46,8 @@ describe('WorkOrder 파이프라인', () => {
     });
     expect(order.nextAssignment()).toEqual({ role: 'planner', tier: 'sonnet' });
     order.approveScenario({ happyPaths: 1, errorPaths: 1 });
-    expect(order.nextAssignment()).toEqual({ role: 'architect', tier: 'opus' });
+    expect(order.stage).toBe('red');
+    expect(order.nextAssignment()).toEqual({ role: 'tester', tier: 'sonnet' });
   });
 
   it('예외 경로가 없는 시나리오는 넘기지 않는다', () => {

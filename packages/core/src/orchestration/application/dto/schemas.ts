@@ -167,7 +167,7 @@ export const ROUTE_SCHEMA: Record<string, unknown> = {
   additionalProperties: false,
   required: ['mode', 'refersToPast', 'pastQuery'],
   properties: {
-    mode: { enum: ['work', 'question'], description: 'work: 코드를 바꾸는 요청, question: 코드를 바꾸지 않는 질문' },
+    mode: { enum: ['work', 'question', 'task'], description: 'work: 코드를 바꾸는 요청, question: 코드를 바꾸지 않는 질문, task: 코드가 아닌 결과물(문서·보고서·정리 파일)을 만드는 요청' },
     refersToPast: { type: 'boolean', description: '이름 없이 지난 작업을 가리키는지("아까 그 기능", "방금 거")' },
     pastQuery: { ...nullableStr, description: '기억에서 찾을 검색어(코드 이름·기능 단어). 없으면 null' },
   },
@@ -188,6 +188,16 @@ export const SURVEY_SCHEMA: Record<string, unknown> = {
         properties: { area: str, text: { ...str, maxLength: 300 }, sources: strList },
       },
     },
+  },
+};
+
+export const WRITER_SCHEMA: Record<string, unknown> = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['summary', 'files'],
+  properties: {
+    summary: { ...str, description: '무엇을 어디서 읽어 무엇을 만들었는지, 사용자가 읽을 짧은 보고' },
+    files: { ...strList, description: '만들거나 고친 문서 경로' },
   },
 };
 
