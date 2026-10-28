@@ -90,8 +90,11 @@ function sentence(text: string): string {
 
 function checkLine(c: CheckVerdict): string[] {
   if (c.status === 'skip') return [`  - ${c.name}: ${c.summary}, 건너뜀`];
-  const mark = c.ok ? '✓' : '✗';
-  const head = `  ${mark} ${c.command ?? c.name}   ${c.summary}`;
+  // 작업 전부터 실패하던 검사(환경 문제·원래 깨진 테스트)는 통과처럼 ✓를 붙이지 않는다.
+  const head =
+    c.ok && c.status === 'fail'
+      ? `  · ${c.command ?? c.name}   작업 전부터 실패, 이번 변경으로 늘어난 실패 없음 (${c.summary})`
+      : `  ${c.ok ? '✓' : '✗'} ${c.command ?? c.name}   ${c.summary}`;
   return [
     head,
     ...(c.newFailures.length > 0 && !c.ok ? [`      새 실패: ${c.newFailures.slice(0, 5).join(', ')}`] : []),

@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { VitestReportDto } from '../application/dto/vitest-report.dto.js';
@@ -100,6 +100,44 @@ describe('NodeChecks 시간 제한 — 프로세스 정리', () => {
       expect(countProcesses(marker)).toBe(0);
     } finally {
       execFileSync('powershell', ['-NoProfile', '-Command', `Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*${marker}*' -and $_.Name -eq 'node.exe' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`]);
+      rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
+    }
+  }, 60000);
+});
+
+describe('NodeChecks 모노레포', () => {
+  it('테스트 파일은 그 파일이 속한 워크스페이스 패키지에서, 패키지 기준 경로로 그 패키지의 test 스크립트로 돌린다', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'rauha-mono-'));
+    try {
+      // 루트 test는 다른 패키지·도커까지 도는 묶음이라 파일 인자를 받지 못한다(여기서는 늘 실패).
+      writeFileSync(join(dir, 'package.json'), JSON.stringify({ workspaces: ['apps/*'], scripts: { test: 'node -e "process.exit(1)"' } }));
+      // lockfile 없음 = npm. 설치하지 않은 임시 폴더에서는 yarn 4가 프로젝트를 거부해서다(실제 저장소에서는 yarn도 같은 길이다).
+      mkdirSync(join(dir, 'apps', 'api', 'src'), { recursive: true });
+      writeFileSync(join(dir, 'apps', 'api', 'src', 'a.spec.js'), '');
+      // 패키지 폴더에서 패키지 기준 경로를 받았을 때만 통과한다.
+      writeFileSync(join(dir, 'apps', 'api', 'check.js'), "process.exit(require('fs').existsSync(process.argv[2]) && process.argv[2].startsWith('src') ? 0 : 1)");
+      writeFileSync(join(dir, 'apps', 'api', 'package.json'), JSON.stringify({ name: 'api', scripts: { test: 'node check.js' } }));
+      const result = await new NodeChecks(dir).runTests(['apps/api/src/a.spec.js']);
+      expect(result.run.isGreen()).toBe(true);
+      expect(result.command).toContain('apps/api');
+    } finally {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
+    }
+  }, 60000);
+
+  it('파일이 속한 패키지에 test 스크립트가 없으면 test 스크립트가 있는 위쪽(루트)에서 돌린다', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'rauha-mono-'));
+    try {
+      writeFileSync(join(dir, 'package.json'), JSON.stringify({ workspaces: ['apps/*'], scripts: { test: 'node check.js' } }));
+      // 루트 기준 경로를 받았을 때만 통과한다.
+      writeFileSync(join(dir, 'check.js'), "process.exit(require('fs').existsSync(process.argv[2]) && process.argv[2].startsWith('apps/') ? 0 : 1)");
+      mkdirSync(join(dir, 'apps', 'api', 'test'), { recursive: true });
+      writeFileSync(join(dir, 'apps', 'api', 'test', 'a.test.js'), '');
+      writeFileSync(join(dir, 'apps', 'api', 'package.json'), JSON.stringify({ name: 'api' }));
+      const result = await new NodeChecks(dir).runTests(['apps/api/test/a.test.js']);
+      expect(result.run.isGreen()).toBe(true);
+      expect(result.command).not.toContain('(apps/api)');
+    } finally {
       rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
     }
   }, 60000);

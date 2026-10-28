@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -115,16 +115,57 @@ export class NodeChecks implements ChecksPort {
     private readonly timeoutMs: number = DEFAULT_TIMEOUT_MS,
   ) {}
 
+  /**
+   * 테스트 파일마다 그 파일이 속한 패키지(가장 가까운 package.json)에서 돌린다. 모노레포의 루트 test는
+   * 여러 패키지를 차례로 도는 묶음일 때가 많아 파일 인자를 받지 못한다. 패키지가 여럿이면 차례로 돌려 합친다.
+   */
   async runTests(files: readonly string[]): Promise<TestsResult> {
-    const project = await this.project();
+    const rootFiles = await readdir(this.root);
+    const groups = new Map<string, string[]>();
+    for (const file of files) {
+      const owner = this.ownerOf(file);
+      groups.set(owner, [...(groups.get(owner) ?? []), owner === '' ? file : file.slice(owner.length + 1)]);
+    }
+    const parts: TestsResult[] = [];
+    for (const [owner, inPackage] of groups) parts.push(await this.runTestsIn(owner, inPackage, rootFiles));
+    if (parts.length === 1) return parts[0]!;
+    const failedNames = parts.flatMap((p) => p.run.failedNames);
+    const failed = parts.reduce((n, p) => n + p.run.failed, 0);
+    return {
+      run: TestRun.of({ passed: parts.reduce((n, p) => n + p.run.passed, 0), failed, ...(failed > 0 ? { failedNames: failedNames.length > 0 ? failedNames : ['(세부 정보 없음)'] } : {}) }),
+      ids: parts.flatMap((p) => p.ids),
+      passed: parts.flatMap((p) => p.passed),
+      digest: parts.map((p) => p.digest).filter((d) => d !== '').join('\n'),
+      command: parts.map((p) => p.command).join(' ; '),
+    };
+  }
+
+  /** owner: 저장소 루트 기준 패키지 폴더('' = 루트). files: 그 패키지 기준 경로. */
+  private async runTestsIn(owner: string, files: readonly string[], rootFiles: readonly string[]): Promise<TestsResult> {
+    const dir = owner === '' ? this.root : join(this.root, owner);
+    const project = NodeProject.detect(rootFiles, await this.packageJson(dir));
     const outFile = this.tempFile();
     const command = project.testFilesCommand(files, outFile);
-    const result = await this.exec(command);
+    const result = await this.exec(command, dir);
     const report = await this.readVitest(outFile);
     const run = testsOutcome(report, result.code);
     const reportDigest = report?.failureDigest() ?? '';
     const digest = run.failed === 0 ? '' : reportDigest !== '' ? reportDigest : tail(result.output, 12);
-    return { run, ids: [...run.failedNames], passed: report?.passedNames() ?? [], digest, command: this.display(command, outFile) };
+    const shown = this.display(command, outFile);
+    return { run, ids: [...run.failedNames], passed: report?.passedNames() ?? [], digest, command: owner === '' ? shown : `(${owner}) ${shown}` };
+  }
+
+  /**
+   * 파일을 담은 가장 가까운, test 스크립트가 있는 패키지 폴더(저장소 루트 기준, 루트면 '').
+   * test 스크립트가 없는 패키지는 루트의 테스트 도구가 돌리는 구조라 위로 더 올라간다.
+   */
+  private ownerOf(file: string): string {
+    const parts = file.replace(/\\/g, '/').split('/').slice(0, -1);
+    for (let n = parts.length; n > 0; n -= 1) {
+      const dir = parts.slice(0, n).join('/');
+      if (hasTestScript(join(this.root, dir, 'package.json'))) return dir;
+    }
+    return '';
   }
 
   async runSuite(): Promise<CheckResult[]> {
@@ -168,10 +209,12 @@ export class NodeChecks implements ChecksPort {
   }
 
   private async project(): Promise<NodeProject> {
-    const files = await readdir(this.root);
-    const pkgPath = join(this.root, 'package.json');
-    const pkg = existsSync(pkgPath) ? (asRecord(JSON.parse(await readFile(pkgPath, 'utf8')), 'package.json') as PackageJson) : {};
-    return NodeProject.detect(files, pkg);
+    return NodeProject.detect(await readdir(this.root), await this.packageJson(this.root));
+  }
+
+  private async packageJson(dir: string): Promise<PackageJson> {
+    const pkgPath = join(dir, 'package.json');
+    return existsSync(pkgPath) ? (asRecord(JSON.parse(await readFile(pkgPath, 'utf8')), 'package.json') as PackageJson) : {};
   }
 
   private async readVitest(outFile: string): Promise<VitestReportDto | null> {
@@ -193,10 +236,10 @@ export class NodeChecks implements ChecksPort {
     return command.replace(` --reporter=json ${shellQuote(`--outputFile=${outFile}`)}`, '');
   }
 
-  private exec(command: string): Promise<CommandResult> {
+  private exec(command: string, cwd: string = this.root): Promise<CommandResult> {
     return new Promise((resolve) => {
       const child = spawn(command, {
-        cwd: this.root,
+        cwd,
         shell: true,
         env: { ...process.env, CI: '1', FORCE_COLOR: '0', NO_COLOR: '1' },
         windowsHide: true,
@@ -224,6 +267,15 @@ export class NodeChecks implements ChecksPort {
       child.on('close', (code) => settle({ code: code ?? 1, output }));
       child.on('error', (error) => settle({ code: 1, output: `${output}\n${error.message}` }));
     });
+  }
+}
+
+function hasTestScript(pkgPath: string): boolean {
+  try {
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as PackageJson;
+    return typeof pkg.scripts?.['test'] === 'string';
+  } catch {
+    return false;
   }
 }
 

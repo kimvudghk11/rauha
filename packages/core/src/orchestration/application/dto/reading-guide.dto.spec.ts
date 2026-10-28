@@ -50,6 +50,8 @@ describe('ReadingGuideDto', () => {
     expect(md).toContain('소수점 반올림');
     expect(md).toContain('✓ npx vitest run src/domain/money.spec.ts');
     expect(md).toContain('원래 깨져 있던 것: old broken');
+    // 작업 전부터 실패하던 검사는 통과(✓)처럼 보이지 않게 "변화 없음"으로 적는다.
+    expect(md).toContain('· npm run test   작업 전부터 실패, 이번 변경으로 늘어난 실패 없음 (통과 20 / 실패 1)');
     expect(md).toContain('- lint: 스크립트 없음, 건너뜀');
   });
 
