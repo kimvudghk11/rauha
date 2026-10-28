@@ -86,12 +86,17 @@ describe('RepoKnowledge', () => {
     expect(flat.areas()).toEqual(['.']);
   });
 
-  it('지식 묶음은 기준을 밝히고 상한을 넘으면 심볼 지도부터 줄인다', () => {
+  it('팀원에게 주는 묶음은 구조·명령·메모만 담고 심볼 지도는 뺀다(턴마다 다시 보내져 토큰이 커서)', () => {
+    const block = knowledge().toBlock('shop');
+    expect(block).toContain('basis="main (a1b2c3d)"');
+    expect(block).toContain('값 객체와 엔티티');
+    expect(block).not.toContain('src/domain/money.ts: Money');
+  });
+
+  it('조사 팀원에게는 심볼 지도까지 주고, 상한을 넘으면 심볼 지도부터 줄인다', () => {
     const k = knowledge();
-    const full = k.toBlock('shop');
-    expect(full).toContain('basis="main (a1b2c3d)"');
-    expect(full).toContain('src/domain/money.ts: Money');
-    const block = k.toBlock('shop', 500);
+    expect(k.toBlock('shop', 12_000, true)).toContain('src/domain/money.ts: Money');
+    const block = k.toBlock('shop', 500, true);
     expect(block.length).toBeLessThanOrEqual(500);
     expect(block).toContain('값 객체와 엔티티');
   });

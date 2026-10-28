@@ -124,7 +124,7 @@ describe('KnowledgeService', () => {
   it('조사 팀원이 막히거나 실패해도 지식 묶음은 돌려준다', async () => {
     const { svc } = service(undefined, undefined, new FakeTeam(() => ({ output: null, error: 'x', blocked: { reason: 'usage-limit', message: '한도' } })));
     const got = await svc.current();
-    expect(got?.block).toContain('src/domain/money.ts: X');
+    expect(got?.block).toContain('src/domain 3');
   });
 
   it('git 저장소가 아니면 null', async () => {

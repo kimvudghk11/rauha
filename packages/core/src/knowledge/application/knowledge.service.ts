@@ -94,7 +94,7 @@ export class KnowledgeService implements KnowledgePort {
     const result = await this.deps.team.run({
       role: 'surveyor',
       setting: this.deps.roles.get('surveyor'),
-      userMessage: [knowledge.toBlock(this.deps.repoName), `<areas>\n${listing.join('\n\n')}\n</areas>`, '<task>위 영역마다 짧은 메모를 쓰세요. 연 파일만 sources에 넣습니다.</task>'].join('\n\n'),
+      userMessage: [knowledge.toBlock(this.deps.repoName, 12_000, true), `<areas>\n${listing.join('\n\n')}\n</areas>`, '<task>위 영역마다 짧은 메모를 쓰세요. 연 파일만 sources에 넣습니다.</task>'].join('\n\n'),
       outputSchema: SURVEY_SCHEMA,
       canWrite: () => false,
     });

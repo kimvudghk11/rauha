@@ -185,7 +185,7 @@ export const SURVEY_SCHEMA: Record<string, unknown> = {
         type: 'object',
         additionalProperties: false,
         required: ['area', 'text', 'sources'],
-        properties: { area: str, text: { ...str, maxLength: 600 }, sources: strList },
+        properties: { area: str, text: { ...str, maxLength: 300 }, sources: strList },
       },
     },
   },

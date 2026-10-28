@@ -146,8 +146,12 @@ export class RepoKnowledge {
     }
   }
 
-  /** 팀원 메시지 맨 앞에 넣을 묶음. maxChars를 넘으면 심볼 지도의 파일을 뒤에서부터, 그래도 넘으면 메모를 뒤에서부터 뺀다. */
-  toBlock(repoName: string, maxChars = 12_000): string {
+  /**
+   * 팀원 메시지 맨 앞에 넣을 묶음. 팀원에게는 구조·명령·메모만 준다: 묶음은 팀원의 턴마다 다시 보내지므로
+   * 파일마다 이름을 늘어놓은 심볼 지도까지 넣으면 아낀 턴보다 토큰이 더 든다(2026-10-27 측정).
+   * withSymbols: 조사 팀원처럼 파일을 골라야 하는 쪽에만. maxChars를 넘으면 심볼 지도, 그다음 메모를 뒤에서부터 뺀다.
+   */
+  toBlock(repoName: string, maxChars = 12_000, withSymbols = false): string {
     const f = this.currentFacts;
     const open = `<repo_knowledge repo="${repoName}" basis="${this.ref.label()}">`;
     const close = '</repo_knowledge>';
@@ -164,7 +168,7 @@ export class RepoKnowledge {
 
     const lines = [...head, ...(notes.length > 0 ? ['영역 메모:', ...notes] : [])];
     while (size(lines) > maxChars && lines.length > head.length) lines.pop();
-    if (symbols.length > 0 && size([...lines, '심볼:', symbols[0]!]) <= maxChars) {
+    if (withSymbols && symbols.length > 0 && size([...lines, '심볼:', symbols[0]!]) <= maxChars) {
       lines.push('심볼:');
       for (const line of symbols) {
         if (size([...lines, line]) > maxChars) break;
