@@ -227,11 +227,15 @@ export async function runChat(options: ChatOptions): Promise<number> {
       return;
     }
     if (Date.now() - lastInterrupt < EXIT_WINDOW_MS) {
-      app.unmount();
+      // 알림을 지운 화면이 한 번 그려진 뒤 닫는다(바로 닫으면 마지막 화면에 알림이 남는다).
+      store.setNotice('');
+      setTimeout(() => app.unmount(), 50);
       return;
     }
     lastInterrupt = Date.now();
-    store.print('  한 번 더 Ctrl+C를 누르면 끝나요.');
+    // 지난 출력에 남기지 않고 입력창 아래에 잠깐 띄운다(Claude Code·Kiro처럼).
+    store.setNotice('한 번 더 Ctrl+C(또는 Ctrl+D)를 누르면 끝나요');
+    setTimeout(() => store.setNotice(''), EXIT_WINDOW_MS).unref();
   }
 
   async function handle(text: string): Promise<void> {
@@ -243,7 +247,8 @@ export async function runChat(options: ChatOptions): Promise<number> {
             b.chat.clear();
             remember(b);
           }
-          store.print('  대화를 비웠어요. 지난 작업 기억은 남아 있어요.');
+          // 터미널의 clear처럼 화면과 스크롤까지 지우고 배너부터 새로 그린다.
+          store.clearScreen();
           return;
         case 'status': {
           const b = current();
@@ -376,11 +381,13 @@ export async function runChat(options: ChatOptions): Promise<number> {
   }, USAGE_REFRESH_MS);
 
   await app.waitUntilExit();
+  screen.release();
   usageTimer.stop();
   for (const b of bundles.values()) {
     b.team.close();
     b.memory.close();
   }
   if (restartAfterExit) return relaunch(spawn, process.execPath, process.execArgv, process.argv[1]!, withContinue(process.argv.slice(2)));
+  process.stderr.write('\n  대화를 마쳤어요. 이어서 하려면 rauha -c\n');
   return 0;
 }

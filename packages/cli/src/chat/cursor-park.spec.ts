@@ -52,6 +52,16 @@ describe('parkingStream', () => {
     expect(writes.join('')).toBe('\x1b[2B\r\x1b[?25lx');
   });
 
+  it('놓아주면 커서를 화면 끝으로 돌리고 보이게 한 뒤, 그 뒤의 쓰기는 옮기지 않는다 (끝낸 뒤 글이 입력창을 덮지 않게)', () => {
+    const { stream, writes } = fakeStream();
+    const { stream: wrapped, park, release } = parkingStream(stream);
+    park.set({ up: 2, column: 6 });
+    writes.length = 0;
+    release();
+    wrapped.write('끝');
+    expect(writes.join('')).toBe('\x1b[2B\r\x1b[?25h끝');
+  });
+
   it('감싼 스트림도 원래 스트림의 너비를 그대로 알려 준다', () => {
     const { stream } = fakeStream();
     expect(parkingStream(stream).stream.columns).toBe(80);

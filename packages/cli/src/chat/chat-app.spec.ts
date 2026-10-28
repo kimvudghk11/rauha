@@ -120,6 +120,30 @@ describe('ChatApp', () => {
     expect(screen).toContain('지난 출력');
   });
 
+  it('화면을 비우면 화면과 스크롤을 지우고 배너부터 새로 그린다 (지난 출력은 다시 찍지 않는다)', async () => {
+    const store = new ChatStore();
+    const { stdout, lastFrame } = app(store);
+    store.print('지난 출력');
+    await tick();
+    store.clearScreen();
+    await tick();
+    expect((stdout as unknown as { frames: string[] }).frames.some((f) => f.includes('\x1b[2J\x1b[3J'))).toBe(true);
+    const screen = visible(lastScreen(lastFrame() ?? ''));
+    expect(screen).toContain('시작 박스');
+    expect(screen).not.toContain('지난 출력');
+  });
+
+  it('Ctrl+L은 터미널처럼 화면을 비운다', async () => {
+    const store = new ChatStore();
+    const { stdin, stdout } = app(store);
+    store.print('지난 출력');
+    await tick();
+    stdin.write('\x0c');
+    await tick();
+    expect((stdout as unknown as { frames: string[] }).frames.some((f) => f.includes('\x1b[2J\x1b[3J'))).toBe(true);
+    expect(store.lines).toEqual([]);
+  });
+
   it('긴 고정 줄은 창 너비에 맞춰 미리 접는다 (줄 수를 정확히 세려고)', async () => {
     const store = new ChatStore();
     const { stdout, lastFrame } = app(store);
@@ -186,6 +210,41 @@ describe('ChatApp', () => {
     expect(visible(lastFrame())).toContain('카드 100칸');
     await resize(stdout, 60, 20);
     expect(visible(lastScreen(lastFrame() ?? ''))).toContain('카드 60칸');
+  });
+
+  it('입력창에 글이 있으면 Ctrl+C는 글만 지우고 끝내기로 넘기지 않는다 (Claude Code·Kiro처럼)', async () => {
+    const onInterrupt = vi.fn();
+    const r = render(React.createElement(ChatApp, { store: new ChatStore(), banner: () => '배너', view: null, onSubmit: vi.fn(), onInterrupt }));
+    mounted.push(r);
+    await tick();
+    r.stdin.write('hello');
+    await tick();
+    r.stdin.write('\x03');
+    await tick();
+    expect(onInterrupt).not.toHaveBeenCalled();
+    expect(visible(r.lastFrame())).not.toContain('hello');
+  });
+
+  it('빈 입력창에서 Ctrl+D는 Ctrl+C처럼 끝내기로 넘긴다', async () => {
+    const onInterrupt = vi.fn();
+    const r = render(React.createElement(ChatApp, { store: new ChatStore(), banner: () => '배너', view: null, onSubmit: vi.fn(), onInterrupt }));
+    mounted.push(r);
+    await tick();
+    r.stdin.write('\x04');
+    await tick();
+    expect(onInterrupt).toHaveBeenCalledTimes(1);
+  });
+
+  it('잠깐 알림은 입력창 아래에 띄우고 지난 출력에 남기지 않는다', async () => {
+    const store = new ChatStore();
+    const { lastFrame } = app(store);
+    store.setNotice('한 번 더 누르면 끝나요');
+    await tick();
+    expect(visible(lastFrame()).split('\n').at(-1)).toContain('한 번 더 누르면 끝나요');
+    expect(store.lines).toEqual([]);
+    store.setNotice('');
+    await tick();
+    expect(visible(lastFrame())).not.toContain('한 번 더 누르면 끝나요');
   });
 
   it('Ctrl+C는 바로 끝내지 않고 onInterrupt로 알린다', async () => {

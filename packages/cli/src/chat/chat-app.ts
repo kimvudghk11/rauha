@@ -122,7 +122,7 @@ function browseHistory(count: number, at: number | null, direction: 'up' | 'down
 }
 
 /** below: 입력창 아래에 더 그리는 줄 수(상태 줄). 커서 자리를 그만큼 위로 잡는다. */
-function InputBox({ busy, history, onSubmit, cursor, below }: { busy: boolean; history: readonly string[]; onSubmit: (text: string) => void; cursor: CursorPark | null; below: number }) {
+function InputBox({ busy, history, onSubmit, onInterrupt, cursor, below }: { busy: boolean; history: readonly string[]; onSubmit: (text: string) => void; onInterrupt: () => void; cursor: CursorPark | null; below: number }) {
   const [state, setState] = useState<InputState>({ text: '', cursor: 0 });
   const [browsing, setBrowsing] = useState<{ at: number; draft: string } | null>(null);
   const [pick, setPick] = useState(0);
@@ -135,7 +135,19 @@ function InputBox({ busy, history, onSubmit, cursor, below }: { busy: boolean; h
   const fill = (text: string) => setState({ text, cursor: [...text].length });
   useInput(
     (input, key) => {
-      if (key.ctrl && input === 'c') return;
+      // Claude Code·Kiro처럼 Ctrl+C는 쓰던 글이 있으면 글만 지운다. 빈 입력창의 Ctrl+C·Ctrl+D는 끝내기로 넘긴다.
+      if (key.ctrl && (input === 'c' || input === 'd')) {
+        if (state.text !== '') {
+          if (input === 'c') {
+            fill('');
+            setBrowsing(null);
+            setPick(0);
+          }
+          return;
+        }
+        onInterrupt();
+        return;
+      }
       if (shown.length > 0 && (key.upArrow || key.downArrow)) {
         setPick((selected + (key.upArrow ? shown.length - 1 : 1)) % shown.length);
         return;
@@ -204,11 +216,19 @@ interface Screen {
   readonly rows: number;
 }
 
-/** 창 크기가 바뀌고 잠잠해지면 화면을 지우고 다시 그리게 한다. 접힌 지난 줄은 지우는 것 말고 고칠 길이 없다. */
-function useScreen(): Screen {
+/**
+ * 창 크기가 바뀌고 잠잠해지면 화면을 지우고 다시 그리게 한다. 접힌 지난 줄은 지우는 것 말고 고칠 길이 없다.
+ * clears가 바뀌어도(/clear, Ctrl+L) 같은 방법으로 화면과 스크롤을 지우고 새로 그린다.
+ */
+function useScreen(clears: number): Screen {
   const { stdout, write } = useStdout();
   const size = () => ({ columns: stdout.columns || 80, rows: stdout.rows || 0 });
   const [screen, setScreen] = useState<Screen>({ redraws: 0, ...size() });
+  useEffect(() => {
+    if (clears === 0) return;
+    write(CLEAR_ALL);
+    setScreen((s) => ({ ...s, redraws: s.redraws + 1 }));
+  }, [clears]);
   useEffect(() => {
     let timer: NodeJS.Timeout | undefined;
     const onResize = () => {
@@ -234,17 +254,21 @@ function useScreen(): Screen {
  */
 export function ChatApp({ store, banner, view, onSubmit, onInterrupt, cursor }: ChatAppProps) {
   useStore(store);
-  const screen = useScreen();
+  const screen = useScreen(store.clears);
+  const prompt = store.prompt;
+  const typing = prompt === null && !store.busy;
   // Ctrl+C는 바로 끝내지 않는다: 일하는 중이면 그 작업만 멈추고, 쉬는 중이면 한 번 더 눌러야 끝난다(run-chat이 정한다).
+  // 입력창이 받는 중에는 입력창이 Ctrl+C를 맡는다(쓰던 글부터 지운다).
+  // Ctrl+L은 터미널처럼 화면만 비운다(대화는 그대로).
   useInput((input, key) => {
-    if (key.ctrl && input === 'c') onInterrupt?.();
+    if (key.ctrl && input === 'c' && !typing) onInterrupt?.();
+    if (key.ctrl && input === 'l') store.clearScreen();
   });
   const submit = (text: string) => {
     store.remember(text);
     onSubmit(text);
   };
-  const prompt = store.prompt;
-  const below = store.status !== '' ? 1 : 0;
+  const below = (store.status !== '' ? 1 : 0) + (store.notice !== '' ? 1 : 0);
   // 마지막 칸까지 채운 줄은 터미널이 한 번 더 접어서 한 칸을 비운다. 빈 줄은 ' '로(빈 글은 높이가 0).
   const lines = [banner, ...store.lines]
     .map((item) => (typeof item === 'function' ? item(screen.columns) : item))
@@ -263,9 +287,10 @@ export function ChatApp({ store, banner, view, onSubmit, onInterrupt, cursor }: 
       store.working !== null && prompt === null ? h(WorkingLine, { working: store.working, view, rows: screen.rows }) : null,
       prompt?.kind === 'menu' ? h(MenuPrompt, { key: prompt.screen, store, prompt, view, rows: screen.rows }) : null,
       prompt?.kind === 'text' ? h(TextPrompt, { key: prompt.label, store, prompt, cursor: cursor ?? null, below }) : null,
-      prompt === null ? h(InputBox, { busy: store.busy, history: store.history, onSubmit: submit, cursor: cursor ?? null, below }) : null,
+      prompt === null ? h(InputBox, { busy: store.busy, history: store.history, onSubmit: submit, onInterrupt: () => onInterrupt?.(), cursor: cursor ?? null, below }) : null,
       // 한 줄로 자른다: 접히면 줄 수가 늘어 입력창 위치와 커서 자리가 틀어진다.
       store.status !== '' ? h(Text, { dimColor: true, wrap: 'truncate-end' }, ` ${store.status}`) : null,
+      store.notice !== '' ? h(Text, { color: SKY, wrap: 'truncate-end' }, ` ${store.notice}`) : null,
     ),
   );
 }

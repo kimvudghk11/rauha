@@ -16,7 +16,7 @@ export interface CommandHelp {
 
 /** 명령과 설명. /help와 '/'를 쳤을 때 뜨는 목록이 같은 것을 쓴다. */
 const COMMANDS: readonly { readonly kind: CommandName; readonly help: string }[] = [
-  { kind: 'clear', help: '지금 대화를 비워요. 지난 작업 기억은 남아요.' },
+  { kind: 'clear', help: '화면과 지금 대화를 비워요. 지난 작업 기억은 남아요.' },
   { kind: 'status', help: '지금 세션 상태(대화 수, 이어 일할 파일)' },
   { kind: 'usage', help: '구독 사용률(세션 5시간 · 주간)과 이번 대화 호출 수' },
   { kind: 'guide', help: '지난 작업의 자세한 읽기 안내서' },

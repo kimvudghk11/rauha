@@ -14,10 +14,11 @@ export interface CursorPark {
  * 글자가 완성되기 전까지 입력창에 안 보인다(영어는 조합이 없어 바로 보인다).
  * 그래서 Ink가 쓰는 출력을 감싸, 쓰기 전에는 커서를 Ink가 아는 자리로 돌려 두고 쓴 뒤에는 입력창 글자 자리로 옮긴다.
  */
-export function parkingStream(real: NodeJS.WriteStream): { stream: NodeJS.WriteStream; park: CursorPark } {
+export function parkingStream(real: NodeJS.WriteStream): { stream: NodeJS.WriteStream; park: CursorPark; release: () => void } {
   let wanted: CursorSpot | null = null;
   let parked: CursorSpot | null = null;
   let visible = false;
+  let released = false;
   // leave·enter는 보낼 글을 돌려주고 상태만 바꾼다. 호출하는 쪽이 한 번의 쓰기로 합쳐 보낸다:
   // 따로 보내면 터미널이 그 사이(커서가 아래에 내려가 있는 때)를 보고, 한글 조합 글자를 엉뚱한 줄에 그린다.
   const leave = () => {
@@ -27,6 +28,7 @@ export function parkingStream(real: NodeJS.WriteStream): { stream: NodeJS.WriteS
     return text;
   };
   const enter = () => {
+    if (released) return '';
     if (wanted === null) {
       const text = visible ? '\x1b[?25l' : '';
       visible = false;
@@ -65,6 +67,13 @@ export function parkingStream(real: NodeJS.WriteStream): { stream: NodeJS.WriteS
         const text = before + enter();
         if (text !== '') real.write(text);
       },
+    },
+    /** 화면을 닫은 뒤: 커서를 화면 끝으로 돌려 보이게 하고 더는 옮기지 않는다. 그 뒤에 쓰는 글이 입력창을 덮지 않게. */
+    release() {
+      released = true;
+      wanted = null;
+      real.write(`${leave()}\x1b[?25h`);
+      visible = true;
     },
   };
 }

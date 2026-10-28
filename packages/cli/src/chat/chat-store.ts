@@ -30,6 +30,8 @@ export class ChatStore {
   private isBusy = false;
   private statusText = '';
   private sent: string[] = [];
+  private cleared = 0;
+  private noticeText = '';
   private readonly listeners = new Set<() => void>();
 
   get lines(): readonly Printable[] {
@@ -47,6 +49,28 @@ export class ChatStore {
   /** 입력창 아래 상태 줄(프로필 · 사용률 · 브랜치). 빈 글이면 그리지 않는다. */
   get status(): string {
     return this.statusText;
+  }
+
+  /** 화면을 비운 횟수. 바뀌면 화면이 터미널 화면과 스크롤을 지우고 배너부터 새로 그린다. */
+  get clears(): number {
+    return this.cleared;
+  }
+
+  /** 터미널의 clear처럼 지난 출력을 화면에서 지운다(대화 내용은 세션 쪽이 따로 비운다). */
+  clearScreen(): void {
+    this.printed = [];
+    this.cleared += 1;
+    this.changed();
+  }
+
+  /** 입력창 아래에 잠깐 띄우는 알림("한 번 더 누르면 끝나요"). 지난 출력에 남지 않는다. 빈 글이면 그리지 않는다. */
+  get notice(): string {
+    return this.noticeText;
+  }
+
+  setNotice(text: string): void {
+    this.noticeText = text;
+    this.changed();
   }
 
   setStatus(text: string): void {
