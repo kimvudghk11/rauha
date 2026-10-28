@@ -27,6 +27,14 @@ describe('/review', () => {
   });
 });
 
+describe('/repo', () => {
+  it('/repo는 목록, /repo <이름>은 지금 저장소 바꾸기, /repo add <경로>는 더하기', () => {
+    expect(parseCommand('/repo')).toEqual({ kind: 'repo', action: 'list' });
+    expect(parseCommand('/repo shop-api')).toEqual({ kind: 'repo', action: 'select', name: 'shop-api' });
+    expect(parseCommand('/repo add E:\\work\\my lib')).toEqual({ kind: 'repo', action: 'add', path: 'E:\\work\\my lib' });
+  });
+});
+
 describe('/guide', () => {
   it('/guide는 지난 작업의 읽기 안내서를 여는 명령이다', () => {
     expect(parseCommand('/guide')).toEqual({ kind: 'guide' });
@@ -35,7 +43,7 @@ describe('/guide', () => {
 
 describe('suggestCommands', () => {
   it('/만 치면 모든 명령을, 더 치면 앞이 맞는 명령만 설명과 함께 보여 준다', () => {
-    expect(suggestCommands('/').map((c) => c.name)).toEqual(['/clear', '/status', '/usage', '/guide', '/review', '/update', '/help', '/exit']);
+    expect(suggestCommands('/').map((c) => c.name)).toEqual(['/clear', '/status', '/usage', '/guide', '/review', '/repo', '/update', '/help', '/exit']);
     expect(suggestCommands('/us')).toEqual([{ name: '/usage', help: expect.stringContaining('구독 사용률') }]);
     expect(suggestCommands('/up')).toEqual([{ name: '/update', help: expect.stringContaining('최신') }]);
   });

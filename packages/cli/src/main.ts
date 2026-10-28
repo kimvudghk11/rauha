@@ -56,16 +56,15 @@ function gitRemote(cwd: string): string | null {
   }
 }
 
-async function resolveProfile(flag: string | null) {
+/** 폴더 → 프로필. 작업 공간에서는 저장소마다 이 규칙으로 계정을 고른다. */
+async function profileResolver(flag: string | null) {
   const configPath = process.env['RAUHA_CONFIG'] ?? join(homedir(), '.rauha', 'config.toml');
   const book = (await loadProfileConfig(configPath)).toEntity();
-  return book.resolve({
-    cwd: workDir,
-    home: homedir(),
-    gitRemote: gitRemote(workDir),
-    flag,
-    env: process.env['RAUHA_PROFILE'] ?? null,
-  });
+  return (cwd: string) => book.resolve({ cwd, home: homedir(), gitRemote: gitRemote(cwd), flag, env: process.env['RAUHA_PROFILE'] ?? null });
+}
+
+async function resolveProfile(flag: string | null) {
+  return (await profileResolver(flag))(workDir);
 }
 
 async function login(flag: string | null): Promise<number> {
@@ -132,9 +131,10 @@ async function run(argv: readonly string[]): Promise<number> {
       return 0;
     }
     case 'chat': {
-      const { profile } = await resolveProfile(command.profile);
+      const resolveAt = await profileResolver(command.profile);
+      const { profile } = resolveAt(workDir);
       if (command.prompt === null || command.prompt.trim() === '') {
-        return runChat({ workDir, profile, home: homedir(), version: VERSION, threePass: !command.quick, resume: command.resume });
+        return runChat({ workDir, profile, home: homedir(), version: VERSION, threePass: !command.quick, resume: command.resume, profileFor: (root) => resolveAt(root).profile });
       }
       const view = process.stderr.isTTY ? mascotView(process.stderr.getColorDepth(), `v${VERSION}`, profile.badge()) : null;
       log(view ? view.banner(workDir, process.stderr.columns ?? 80) : `${profile.badge()} ${workDir}`);

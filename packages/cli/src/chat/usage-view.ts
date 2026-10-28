@@ -47,10 +47,11 @@ export function usageLines(plan: PlanUsage | null, session: SessionCalls, now: D
   ];
 }
 
-/** 입력창 아래 상태 줄: 프로필 · 세션 · 주간 · 브랜치. 모르는 값은 뺀다. */
-export function statusLine(badge: string, plan: PlanUsage | null, branch: string | null, gauge?: Gauge): string {
+/** 입력창 아래 상태 줄: 프로필 · 세션 · 주간 · [저장소] 브랜치. 모르는 값은 뺀다. repo는 여러 저장소 작업 공간일 때만. */
+export function statusLine(badge: string, plan: PlanUsage | null, branch: string | null, gauge?: Gauge, repo: string | null = null): string {
   const part = (label: string, w: UsageWindow | null | undefined) =>
     w ? `${label} ${gauge ? `${gauge(w.percent, STATUS_CELLS)} ` : ''}${Math.round(w.percent)}%` : null;
-  const items = [badge, part('세션', plan?.session), part('주간', plan?.weekly), branch];
+  const where = [repo, branch].filter((s): s is string => s !== null && s !== '').join(' ');
+  const items = [badge, part('세션', plan?.session), part('주간', plan?.weekly), where];
   return items.filter((item): item is string => item !== null && item !== '').join(' · ');
 }

@@ -1,8 +1,22 @@
 import { render } from 'ink';
 import React from 'react';
 import { execFile, spawn } from 'node:child_process';
+import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
-import { ChatSession, FileChatSnapshots, GitWorkspace, loadSecretPolicy, readPlanUsage, type PermissionAsker, type PlanUsage, type Profile, type UserPort } from '@rauha/core';
+import {
+  ChatSession,
+  discoverRepos,
+  FileChatSnapshots,
+  FileWorkspaceStore,
+  GitWorkspace,
+  isRepo,
+  loadSecretPolicy,
+  Workspace,
+  WorkspaceSession,
+  type ChatSnapshot,
+  type RepoSession,
+  type WorkspaceRepo,
+  readPlanUsage, type PermissionAsker, type PlanUsage, type Profile, type UserPort } from '@rauha/core';
 import { FACT_ANSWERED, FACT_OPTIONS, PERMISSION_ANSWERED, PERMISSION_OPTIONS, toFactAnswer, toPermissionAnswer } from '../ask.js';
 import { mascotView } from '../mascot.js';
 import { createNotifier, NOTIFY_AFTER_MS, notifyWhile } from '../notify.js';
@@ -10,7 +24,7 @@ import { createKnowledge, createLoop, createTeam, definedEnv, loadPrompts, openM
 import { ChatApp } from './chat-app.js';
 import { chatProgress } from './chat-progress.js';
 import { ChatStore } from './chat-store.js';
-import { HELP_TEXT, parseCommand } from './commands.js';
+import { HELP_TEXT, parseCommand, type ChatCommand } from './commands.js';
 import { parkingStream } from './cursor-park.js';
 import { describeTurn } from './describe-turn.js';
 import { isRauhaRepo, nodeExec, relaunch, repoRoot, runUpdate, withContinue } from '../update.js';
@@ -26,7 +40,11 @@ export interface ChatOptions {
   readonly threePass: boolean;
   /** 지난 대화를 이어서 연다(--continue) */
   readonly resume: boolean;
+  /** 저장소마다 계정(프로필) 고르기. 폴더 규칙(config.toml)을 그 저장소 경로에 적용한다. */
+  readonly profileFor: (root: string) => Profile;
 }
+
+const NO_CURRENT = '  어느 저장소인지 먼저 정해 주세요. /repo <이름>으로 고를 수 있어요.';
 
 const columns = () => process.stderr.columns ?? 80;
 /** 쉬는 중 Ctrl+C를 두 번 눌러 끝낼 때 두 번째를 기다리는 시간 */
@@ -98,36 +116,85 @@ export async function runChat(options: ChatOptions): Promise<number> {
     choose: (assumption) => asking(`요청의 해석을 정해 주세요: ${assumption.question}`, () => asker.choose(assumption)),
     confirmFact: (claim) => asking(`근거를 못 찾은 사실이 맞는지 알려 주세요: ${claim.text}`, () => asker.confirmFact(claim)),
     pickPast: (candidates) => asking('이 작업이 맞는지 알려 주세요', () => asker.pickPast(candidates)),
+    pickRepo: (candidates) =>
+      asking('어느 저장소 일인지 골라 주세요', async () => {
+        const index = (await store.ask({ kind: 'menu', screen: '? 어느 저장소 일인가요?', options: candidates.map((c) => c.name) })) as number;
+        return index >= 0 && index < candidates.length ? candidates[index]!.name : null;
+      }),
   };
 
   const prompts = await loadPrompts();
-  const ctx = { root: workDir, profile, home, ask, user, progress, requireClean: true, threePass: options.threePass };
-  const team = createTeam(ctx, prompts);
-  const memory = openMemory(ctx);
+
+  // 작업 공간: 띄운 폴더가 저장소면 그것 하나, 저장소들을 담은 폴더면 그 아래 저장소들, 없으면 띄운 폴더 하나.
+  const wsStore = new FileWorkspaceStore(join(home, '.rauha', 'workspaces'), workDir);
+  const savedWs = await wsStore.load();
+  const found = discoverRepos(workDir);
+  const extra = (savedWs?.extra ?? []).filter((r) => isRepo(r));
+  const roots = [...(found.length > 0 ? found : [workDir]), ...extra];
+  const workspace = Workspace.of(roots, savedWs?.current ?? (roots.length === 1 ? roots[0]! : null));
+  const multi = () => workspace.repos.length > 1;
+  const saveWs = () => void wsStore.save({ extra, current: workspace.current()?.root ?? null }).catch(() => undefined);
+
+  /** 저장소 하나에 딸린 것들. 저장소마다 그 저장소의 계정(프로필)으로 팀원·기억·지식을 따로 둔다. */
+  interface Bundle {
+    readonly profile: Profile;
+    readonly chat: ChatSession;
+    readonly team: ReturnType<typeof createTeam>;
+    readonly memory: ReturnType<typeof openMemory>;
+    readonly snapshots: FileChatSnapshots;
+  }
+  const bundles = new Map<string, Bundle>();
+  // --continue: 저장소마다 저장해 둔 대화를 미리 읽는다(세션은 그 저장소를 처음 쓸 때 연다).
+  const resumed = new Map<string, ChatSnapshot | null>();
+  if (options.resume) {
+    for (const repo of workspace.repos) resumed.set(repo.root, await new FileChatSnapshots(options.profileFor(repo.root).sessionsDir(home), projectRoot(repo.root)).load());
+  }
+
+  const open = (repo: WorkspaceRepo): RepoSession => {
+    const repoProfile = options.profileFor(repo.root);
+    const ctx = { root: repo.root, profile: repoProfile, home, ask, user, progress, requireClean: true, threePass: options.threePass };
+    const team = createTeam(ctx, prompts);
+    const knowledge = createKnowledge(ctx, team);
+    const memory = openMemory(ctx);
+    const deps = {
+      knowledge,
+      repoName: repo.name,
+      newLoop: (carried: ReadonlyMap<string, string>) => createLoop(ctx, prompts, team, carried, knowledge),
+      team,
+      workspace: new GitWorkspace(repo.root, loadSecretPolicy(repo.root)),
+      memory,
+      user,
+      progress,
+      roles: roleSettings(),
+      now: Date.now,
+      newId: () => crypto.randomUUID(),
+      today: () => new Date().toISOString().slice(0, 10),
+      nowText: () => `${new Date().toLocaleString('ko-KR', { dateStyle: 'full', timeStyle: 'short' })} (${Intl.DateTimeFormat().resolvedOptions().timeZone})`,
+    };
+    const saved = resumed.get(repo.root) ?? null;
+    const chat = saved !== null ? ChatSession.resume(deps, saved) : ChatSession.start(deps);
+    bundles.set(repo.root, { profile: repoProfile, chat, team, memory, snapshots: new FileChatSnapshots(repoProfile.sessionsDir(home), projectRoot(repo.root)) });
+    return { repo, profileName: repoProfile.name, chat, knowledge };
+  };
+  const ws = new WorkspaceSession({ workspace, open, user, onCurrent: () => saveWs() });
+  /** 지금 저장소의 묶음(처음이면 연다). 지금 저장소가 없으면 null. */
+  const current = (): Bundle | null => {
+    const repo = ws.current();
+    if (repo === null) return null;
+    ws.session(repo);
+    return bundles.get(repo.root) ?? null;
+  };
+  /** 입력 하나를 마칠 때마다 남겨 두어 --continue로 이어 연다. 저장 실패는 대화를 막지 않는다. */
+  const remember = (bundle: Bundle | null | undefined) => {
+    if (bundle) void bundle.snapshots.save(bundle.chat.snapshot(new Date().toISOString())).catch(() => undefined);
+  };
+  const bundleNamed = (name: string | null) => bundles.get(workspace.repos.find((r) => r.name === name)?.root ?? '') ?? null;
+  // 지금 저장소가 있으면 미리 연다(라우터·답변 팀원을 미리 띄워 첫 질문이 빠르게).
+  const first = current();
   /** 마지막 작업의 읽기 안내서. 결과 카드 대신 자세히 볼 때 /guide로 연다. */
   let lastGuide: string | null = null;
   /** /update로 갱신을 마쳐 화면을 닫은 뒤 다시 띄워야 하는지 */
   let restartAfterExit = false;
-  const snapshots = new FileChatSnapshots(profile.sessionsDir(home), projectRoot(workDir));
-  const saved = options.resume ? await snapshots.load() : null;
-  const knowledge = createKnowledge(ctx, team);
-  const sessionDeps = {
-    knowledge,
-    newLoop: (carried: ReadonlyMap<string, string>) => createLoop(ctx, prompts, team, carried, knowledge),
-    team,
-    workspace: new GitWorkspace(workDir, loadSecretPolicy(workDir)),
-    memory,
-    user,
-    progress,
-    roles: roleSettings(),
-    now: Date.now,
-    newId: () => crypto.randomUUID(),
-    today: () => new Date().toISOString().slice(0, 10),
-    nowText: () => `${new Date().toLocaleString('ko-KR', { dateStyle: 'full', timeStyle: 'short' })} (${Intl.DateTimeFormat().resolvedOptions().timeZone})`,
-  };
-  const session = saved !== null ? ChatSession.resume(sessionDeps, saved) : ChatSession.start(sessionDeps);
-  /** 입력 하나를 마칠 때마다 남겨 두어 --continue로 이어 연다. 저장 실패는 대화를 막지 않는다. */
-  const remember = () => void snapshots.save(session.snapshot(new Date().toISOString())).catch(() => undefined);
 
   const screen = parkingStream(process.stderr);
   const app = render(
@@ -142,9 +209,11 @@ export async function runChat(options: ChatOptions): Promise<number> {
     { stdout: screen.stream, exitOnCtrlC: false },
   );
 
+  if (multi()) store.print(`  작업 공간 저장소 ${workspace.repos.length}개: ${workspace.repos.map((r) => r.name).join(', ')} · /repo로 고를 수 있어요`);
   if (options.resume) {
-    const s = session.status();
-    store.print(saved !== null ? `  지난 대화를 이어요 · 대화 ${s.turns}번 · 마지막 작업: ${s.lastTitle ?? '없음'}` : '  이어 갈 대화가 없어서 새로 시작해요.');
+    const s = first?.chat.status();
+    const any = [...resumed.values()].some((v) => v !== null);
+    store.print(any && s ? `  지난 대화를 이어요 · 대화 ${s.turns}번 · 마지막 작업: ${s.lastTitle ?? '없음'}` : '  이어 갈 대화가 없어서 새로 시작해요.');
   }
 
   // Ctrl+C: 일하는 중이면 그 작업만 멈춘다(팀원 호출을 끊고 기다리던 질문은 거절로 닫는다).
@@ -152,7 +221,7 @@ export async function runChat(options: ChatOptions): Promise<number> {
   let lastInterrupt = 0;
   function interrupt(): void {
     if (store.busy) {
-      team.cancel();
+      for (const b of bundles.values()) b.team.cancel();
       store.cancelPrompts();
       store.print('  멈추는 중이에요…');
       return;
@@ -170,18 +239,22 @@ export async function runChat(options: ChatOptions): Promise<number> {
     if (command !== null) {
       switch (command.kind) {
         case 'clear':
-          session.clear();
-          remember();
+          for (const b of bundles.values()) {
+            b.chat.clear();
+            remember(b);
+          }
           store.print('  대화를 비웠어요. 지난 작업 기억은 남아 있어요.');
           return;
         case 'status': {
-          const s = session.status();
-          store.print(`  대화 ${s.turns}번 · 이어 일할 파일 ${s.carriedFiles}개 · 마지막 작업: ${s.lastTitle ?? '없음'}`);
+          const b = current();
+          if (b === null) return store.print(NO_CURRENT);
+          const s = b.chat.status();
+          store.print(`  ${multi() ? `[${ws.current()?.name}] ` : ''}대화 ${s.turns}번 · 이어 일할 파일 ${s.carriedFiles}개 · 마지막 작업: ${s.lastTitle ?? '없음'}`);
           return;
         }
         case 'usage':
           await usageTimer.now();
-          store.printLines(usageLines(plan, session.usage(), new Date(), undefined, view?.gauge));
+          store.printLines(usageLines(plan, totalUsage(), new Date(), undefined, view?.gauge));
           return;
         case 'update': {
           if (!isRauhaRepo()) {
@@ -202,12 +275,16 @@ export async function runChat(options: ChatOptions): Promise<number> {
         case 'guide':
           store.print(lastGuide !== null ? `\n${lastGuide}\n` : '  아직 끝난 작업이 없어요.');
           return;
-        case 'review':
+        case 'repo':
+          return repoCommand(command);
+        case 'review': {
+          const b = current();
+          if (b === null) return store.print(NO_CURRENT);
           store.print(`\n> ${text}`);
-          team.resume();
+          b.team.resume();
           store.setBusy(true);
           try {
-            const turn = await session.review(command.target);
+            const turn = await b.chat.review(command.target);
             finishWorking();
             store.printLines(describeTurn(turn, view));
           } catch (error) {
@@ -215,9 +292,10 @@ export async function runChat(options: ChatOptions): Promise<number> {
             store.print(`rauha: ${(error as Error).message}`);
           } finally {
             store.setBusy(false);
-            remember();
+            remember(b);
           }
           return;
+        }
         case 'help':
           store.print(HELP_TEXT);
           return;
@@ -230,37 +308,79 @@ export async function runChat(options: ChatOptions): Promise<number> {
       }
     }
     store.print(`\n> ${text}`);
-    team.resume();
+    for (const b of bundles.values()) b.team.resume();
     store.setBusy(true);
+    let handled: string | null = null;
     try {
-      const turn = await session.handle(text);
+      const turn = await ws.handle(text);
+      handled = turn.repo;
       if (turn.kind === 'work') lastGuide = turn.outcome.guide.toMarkdown();
       finishWorking();
+      if (multi() && turn.repo !== null) store.print(`  [${turn.repo}]`);
       store.printLines(describeTurn(turn, view));
     } catch (error) {
       finishWorking();
       store.print(`rauha: ${(error as Error).message}`);
     } finally {
       store.setBusy(false);
-      remember();
+      remember(bundleNamed(handled));
       void usageTimer.now();
     }
   }
 
+  /** 열린 저장소 세션들의 호출 수를 더한다. */
+  function totalUsage() {
+    const calls = { haiku: 0, sonnet: 0, opus: 0 };
+    let costUsd = 0;
+    for (const b of bundles.values()) {
+      const u = b.chat.usage();
+      costUsd += u.costUsd;
+      for (const tier of Object.keys(calls) as (keyof typeof calls)[]) calls[tier] += u.calls[tier];
+    }
+    return { calls, costUsd };
+  }
+
+  async function repoCommand(command: Extract<ChatCommand, { kind: 'repo' }>): Promise<void> {
+    if (command.action === 'add') {
+      const path = resolve(workDir, command.path);
+      if (!isRepo(path)) return store.print(`  ${command.path}는 git 저장소가 아니에요.`);
+      const repo = ws.add(path);
+      const known = (list: readonly string[]) => list.some((e) => e.toLowerCase() === path.toLowerCase());
+      if (!known(extra) && !known(found)) extra.push(path);
+      saveWs();
+      return store.print(`  작업 공간에 더했어요: ${repo.name}`);
+    }
+    if (command.action === 'select') {
+      const repo = ws.select(command.name);
+      if (repo === null) return store.print(`  ${command.name} 저장소가 작업 공간에 없어요. /repo로 목록을 볼 수 있어요.`);
+      void usageTimer.now();
+      return store.print(`  지금 저장소: ${repo.name}`);
+    }
+    const now = ws.current()?.root ?? null;
+    const lines = await Promise.all(
+      workspace.repos.map(async (r) => `  ${r.root === now ? '▸' : ' '} ${r.name}  ${(await currentBranch(r.root)) ?? '-'}  (${options.profileFor(r.root).name})`),
+    );
+    store.printLines(['', `  작업 공간 저장소 ${workspace.repos.length}개`, ...lines, '']);
+  }
+
   // 상태 줄: 시작할 때, 입력 하나가 끝날 때, 그리고 입력이 없어도 1분마다 사용률을 새로 읽는다(모델을 부르지 않는다).
   // 세션 한도가 풀린 뒤에도 옛 퍼센트가 남아 있지 않게 하려고. 읽기에 실패하면 마지막으로 읽은 값을 그대로 둔다.
-  const agentEnv = { ...definedEnv(process.env), ...profile.agentEnv(home) };
   let plan: PlanUsage | null = null;
   const usageTimer = startRefreshing(async () => {
-    const [usage, branch] = await Promise.all([readPlanUsage(agentEnv), currentBranch(workDir)]);
+    const repo = ws.current();
+    const shown = repo === null ? profile : options.profileFor(repo.root);
+    const agentEnv = { ...definedEnv(process.env), ...shown.agentEnv(home) };
+    const [usage, branch] = await Promise.all([readPlanUsage(agentEnv), currentBranch(repo?.root ?? workDir)]);
     plan = usage ?? plan;
-    store.setStatus(statusLine(profile.badge(), plan, branch, view?.gauge));
+    store.setStatus(statusLine(shown.badge(), plan, branch, view?.gauge, multi() ? (repo?.name ?? null) : null));
   }, USAGE_REFRESH_MS);
 
   await app.waitUntilExit();
   usageTimer.stop();
-  team.close();
-  memory.close();
+  for (const b of bundles.values()) {
+    b.team.close();
+    b.memory.close();
+  }
   if (restartAfterExit) return relaunch(spawn, process.execPath, process.execArgv, process.argv[1]!, withContinue(process.argv.slice(2)));
   return 0;
 }

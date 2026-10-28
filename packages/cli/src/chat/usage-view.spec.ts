@@ -53,4 +53,8 @@ describe('statusLine', () => {
   it('모르는 값은 빼고 쓴다', () => {
     expect(statusLine('[personal]', null, null)).toBe('[personal]');
   });
+
+  it('여러 저장소 작업 공간이면 지금 저장소 이름을 브랜치 앞에 보여 준다', () => {
+    expect(statusLine('[personal]', null, 'main', undefined, 'shop-api')).toBe('[personal] · shop-api main');
+  });
 });
