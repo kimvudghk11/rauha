@@ -21,6 +21,7 @@ import {
   type WorkspaceRepo,
   readPlanUsage, type PermissionAsker, type PlanUsage, type Profile, type UserPort } from '@rauha/core';
 import { FACT_ANSWERED, FACT_OPTIONS, PERMISSION_ANSWERED, PERMISSION_OPTIONS, toFactAnswer, toPermissionAnswer } from '../ask.js';
+import { readLoginStatus } from '../login-status.js';
 import { mascotView } from '../mascot.js';
 import { createNotifier, NOTIFY_AFTER_MS, notifyWhile } from '../notify.js';
 import { createKnowledge, createLoop, createTeam, definedEnv, loadPrompts, openMemory, projectRoot, roleSettings } from '../run.js';
@@ -242,6 +243,13 @@ export async function runChat(options: ChatOptions): Promise<number> {
     const s = first?.chat.status();
     const any = [...resumed.values()].some((v) => v !== null);
     store.print(any && s ? `  지난 대화를 이어요 · 대화 ${s.turns}번 · 마지막 작업: ${s.lastTitle ?? '없음'}` : '  이어 갈 대화가 없어서 새로 시작해요.');
+  }
+
+  // 로그인이 풀려 있으면 첫 요청에서 알기 전에 미리 알린다(풀린 채로 두면 요청이 엉뚱하게 처리된 적이 있다). 프로필마다 한 번, 모르면 조용히.
+  for (const checked of new Set(workspace.repos.map((r) => options.profileFor(r.root)))) {
+    void readLoginStatus({ ...definedEnv(process.env), ...checked.agentEnv(home) }).then((loggedIn) => {
+      if (loggedIn === false) store.print(`  ⚠ ${checked.badge()} Claude에 로그인되어 있지 않아요. /exit로 나가서 ${checked.name === 'personal' ? 'rauha login' : `rauha login --profile ${checked.name}`}을 실행한 뒤 다시 와 주세요.`);
+    });
   }
 
   // Ctrl+C: 일하는 중이면 그 작업만 멈춘다(팀원 호출을 끊고 기다리던 질문은 거절로 닫는다).
