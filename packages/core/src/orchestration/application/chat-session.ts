@@ -50,6 +50,33 @@ export interface ChatSessionDeps {
   readonly knowledge?: KnowledgePort;
   /** 작업 공간에서 이 세션의 저장소 이름. 여러 저장소 답의 기준에 쓴다. */
   readonly repoName?: string;
+  /** 작업 공간 폴더(rauha를 띄운 폴더)와 그 안의 저장소들. 저장소가 둘 이상이면 답변·문서 팀원에게 알려 폴더 위치를 잘못 말하지 않게 한다. */
+  readonly folder?: { readonly root: string; readonly repos: readonly { readonly name: string; readonly root: string }[] } | undefined;
+}
+
+/** 저장소가 이 수를 넘으면 문서 팀원 한 명이 다 읽지 않고, 저장소마다 나눠 읽은 요약을 모아 쓴다. */
+const GATHER_ABOVE = 4;
+/** 저장소를 나눠 읽을 때 동시에 돌리는 수 */
+const GATHER_PARALLEL = 4;
+/** 함께 묻는 다른 저장소가 이 수를 넘으면 그 저장소들의 지식은 미리 만들지 않는다(저장소마다 조사 팀원이 돌아 오래 걸린다). 답변 팀원이 직접 읽는다. */
+const ALSO_KNOWLEDGE_MAX = 3;
+
+/** 라우터가 작업으로 판정해 멈춘 뒤에 뒤늦게 시작하려던 답변. 아무 일도 하지 않은 것으로 돌려준다. */
+const STOPPED: MemberResult = {
+  output: null,
+  error: '멈춘 답변',
+  fetched: [],
+  usage: { model: 'sonnet', durationMs: 0, costUsd: 0, turns: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, denials: [], endReason: 'error' },
+};
+
+interface MemberOptions {
+  readonly signal?: AbortSignal | undefined;
+  readonly dirs?: readonly string[];
+  readonly canWrite?: (path: string) => boolean;
+  /** 역할 기본 모델 대신 쓸 모델(저장소를 나눠 읽는 일은 싼 모델로) */
+  readonly tier?: ModelTier;
+  /** 진행 줄에 "작업 중…"을 내지 않는다(여러 호출을 묶어 따로 진행을 알릴 때) */
+  readonly quiet?: boolean;
 }
 
 /** 답변 팀원에게 넘길 저장소 지식 묶음과 그 기준 */
@@ -142,11 +169,11 @@ export class ChatSession {
     const early = new AbortController();
     // 저장소 지식은 라우터와 함께 읽는다. 답변 팀원만 기다린다(라우터는 지식이 필요 없다).
     const known = this.knowledgeOf();
-    const others = Promise.all(also.map(async (r): Promise<AlsoKnown> => ({ name: r.name, root: r.root, known: await this.knowledgeOf(r.knowledge) })));
+    const others = Promise.all(also.map(async (r): Promise<AlsoKnown> => ({ name: r.name, root: r.root, known: also.length <= ALSO_KNOWLEDGE_MAX ? await this.knowledgeOf(r.knowledge) : null })));
     const asked = Promise.all([known, others]).then(([k, o]) => this.askAnswerer(input, null, k, early.signal, o));
     // 라우터를 기다리는 동안 실패해도 처리 안 된 거절로 프로세스가 죽지 않게. 쓰기로 하면 answer()가 await에서 다시 받는다.
     asked.catch(() => undefined);
-    const routed = await this.member('router', [conversation !== null ? `<conversation>\n${conversation}\n</conversation>` : '', `<message>\n${input}\n</message>`], ROUTE_SCHEMA);
+    const routed = await this.member('router', [conversation !== null ? `<conversation>\n${conversation}\n</conversation>` : '', `<message>\n${input}\n</message>`], ROUTE_SCHEMA, {});
     const route = RouteDto.read(routed.output);
     if (routed.blocked || route.mode !== 'question' || route.refersToPast) early.abort();
     if (routed.blocked) return { kind: 'blocked', ...routed.blocked };
@@ -193,19 +220,29 @@ export class ChatSession {
    * 크기로 돌려보내지 않는다. 문서 팀원은 .md만 쓸 수 있다.
    */
   private async task(input: string, conversation: string | null, also: readonly AlsoRepo[], started: number): Promise<TurnOutcome> {
-    const repos = [`- ${this.deps.repoName ?? '이 저장소'} (지금 작업 폴더, 문서는 여기에)`, ...also.map((r) => `- ${r.name}: ${r.root}`)];
+    const current = this.deps.repoName ?? '이 저장소';
+    const repos = [`- ${current} (지금 작업 폴더, 문서는 여기에)`, ...also.map((r) => `- ${r.name}: ${r.root}`)];
+    const folderRoot = this.deps.folder?.root;
+    const dirs = [...also.map((r) => r.root), ...(folderRoot !== undefined ? [folderRoot] : [])];
+
+    let digests = '';
+    if (also.length + 1 > GATHER_ABOVE) {
+      const gathered = await this.gather(input, [{ name: current, root: this.deps.folder?.repos.find((r) => r.name === current)?.root ?? null }, ...also]);
+      if ('blocked' in gathered) return { kind: 'blocked', ...gathered.blocked };
+      digests = gathered.digests;
+    }
     const result = await this.member(
       'writer',
       [
         conversation !== null ? `<conversation>\n${conversation}\n</conversation>` : '',
         `<today>${this.deps.today()}</today>`,
+        this.workspaceBlock(),
         `<repos>\n${repos.join('\n')}\n</repos>`,
+        digests !== '' ? `<digests>\n${digests}\n</digests>` : '',
         `<request>\n${input}\n</request>`,
       ],
       WRITER_SCHEMA,
-      undefined,
-      also.map((r) => r.root),
-      (path) => /\.md$/i.test(path),
+      { dirs, canWrite: (path) => /\.md$/i.test(path) },
     );
     if (result.blocked) return { kind: 'blocked', ...result.blocked };
     const report = WriterReportDto.read(result.output);
@@ -214,6 +251,55 @@ export class ChatSession {
     this.lastTitle = input.slice(0, 60);
     this.turns.push({ input, result: `문서: ${report.files.join(', ') || '없음'}` });
     return { kind: 'answer', answer, checked: [], costUsd: result.usage.costUsd, durationMs: this.deps.now() - started, basis: null };
+  }
+
+  /**
+   * 저장소가 많은 문서 요청: 저장소마다 싼 모델이 자기 저장소만 읽고 요약을 낸다(동시에 몇 개씩).
+   * 문서 팀원 한 명이 수십 개를 다 읽다 시간·턴이 모자라는 것을 피한다. 읽지 못한 저장소는 표시해서 넘긴다.
+   */
+  private async gather(
+    input: string,
+    repos: readonly { name: string; root: string | null }[],
+  ): Promise<{ digests: string } | { blocked: NonNullable<MemberResult['blocked']> }> {
+    const digests: string[] = new Array(repos.length).fill('');
+    let blocked: MemberResult['blocked'] = undefined;
+    let next = 0;
+    let finished = 0;
+    const worker = async () => {
+      while (blocked === undefined) {
+        const at = next;
+        next += 1;
+        const repo = repos[at];
+        if (repo === undefined) return;
+        const result = await this.member(
+          'writer',
+          [
+            `<today>${this.deps.today()}</today>`,
+            `<gather repo="${repo.name}"${repo.root !== null ? ` root="${repo.root}"` : ''}/>`,
+            `<request>\n${input}\n</request>`,
+          ],
+          WRITER_SCHEMA,
+          { dirs: repo.root !== null ? [repo.root] : [], canWrite: () => false, tier: 'haiku', quiet: true },
+        );
+        if (result.blocked) {
+          blocked = result.blocked;
+          return;
+        }
+        const report = WriterReportDto.read(result.output);
+        digests[at] = `<repo name="${repo.name}">\n${result.output === null ? '(읽지 못했어요)' : report.summary}\n</repo>`;
+        finished += 1;
+        this.deps.progress.step(`저장소 읽는 중 ${finished}/${repos.length}`, 'writer');
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(GATHER_PARALLEL, repos.length) }, worker));
+    return blocked !== undefined ? { blocked } : { digests: digests.join('\n') };
+  }
+
+  /** 여러 저장소 작업 공간에서 rauha를 띄운 폴더와 저장소 목록. 저장소가 하나뿐이면 빈 글. */
+  private workspaceBlock(): string {
+    const folder = this.deps.folder;
+    if (folder === undefined || folder.repos.length < 2) return '';
+    return `<workspace root="${folder.root}">\n이 폴더 아래의 저장소 ${folder.repos.length}개: ${folder.repos.map((r) => r.name).join(', ')}\n</workspace>`;
   }
 
   // ── 질문 ──────────────────────────────────────────────────
@@ -226,6 +312,8 @@ export class ChatSession {
     signal?: AbortSignal,
     others: readonly AlsoKnown[] = [],
   ): Promise<{ result: MemberResult; recalls: Recall[]; basis: string | null }> {
+    // 지식을 읽는 사이 라우터가 작업이라고 판정해 이미 멈췄으면 시작하지 않는다("작업 중" 표시가 끌 곳 없이 남는다).
+    if (signal?.aborted === true) return { result: STOPPED, recalls: [], basis: null };
     const recalls = past !== null ? [past] : await this.deps.memory.search(input, CANDIDATES);
     const block = recallBlock(recalls, MEMORY_CHARS);
     const result = await this.member(
@@ -233,10 +321,11 @@ export class ChatSession {
       [
         known?.block ?? '',
         ...others.map((o) => o.known?.block ?? `<repo name="${o.name}" root="${o.root}"/>`),
+        this.workspaceBlock(),
         `<today>${this.deps.today()}</today>`, `<now>${this.deps.nowText()}</now>`, block !== '' ? `<memory>\n기억된 지난 작업과 그때의 결정입니다.\n${block}\n</memory>` : '', `<question>\n${input}\n</question>`],
       ANSWER_SCHEMA,
-      signal,
-      others.map((o) => o.root),
+      // 여러 저장소를 함께 묻는 질문에는 작업 공간 폴더도 열어 준다("상위 폴더를 스캔해줘").
+      { signal, dirs: [...others.map((o) => o.root), ...(others.length > 0 && this.deps.folder !== undefined ? [this.deps.folder.root] : [])] },
     );
     const basis =
       others.length === 0
@@ -295,6 +384,7 @@ export class ChatSession {
         '<task>사용자가 직접 만든 변경을 검토하세요. 업무 지시서는 없습니다. 파일은 고치지 않습니다.</task>',
       ],
       REVIEWER_REPORT_SCHEMA,
+      {},
     );
     if (result.blocked) return { kind: 'blocked', ...result.blocked };
     const report = this.readReview(result.output);
@@ -333,25 +423,19 @@ export class ChatSession {
       .join('\n');
   }
 
-  private callFor(role: MemberRole, outputSchema: Record<string, unknown>, canWrite: (path: string) => boolean = () => false): PreparedCall {
-    return { role, setting: this.deps.roles.get(role), outputSchema, canWrite };
+  private callFor(role: MemberRole, outputSchema: Record<string, unknown>, canWrite: (path: string) => boolean = () => false, tier?: ModelTier): PreparedCall {
+    return { role, setting: tier === undefined ? this.deps.roles.get(role) : this.deps.roles.forAssignment(role, tier), outputSchema, canWrite };
   }
 
-  private async member(
-    role: MemberRole,
-    parts: readonly string[],
-    outputSchema: Record<string, unknown>,
-    signal?: AbortSignal,
-    additionalDirectories: readonly string[] = [],
-    canWrite?: (path: string) => boolean,
-  ): Promise<MemberResult> {
-    const call = this.callFor(role, outputSchema, canWrite);
+  private async member(role: MemberRole, parts: readonly string[], outputSchema: Record<string, unknown>, options: MemberOptions): Promise<MemberResult> {
+    const call = this.callFor(role, outputSchema, options.canWrite, options.tier);
+    const additionalDirectories = options.dirs ?? [];
     // 질문을 나누고 답하는 건 사용자에게 한 가지 일로 보이므로 누가 하는지 밝히지 않는다.
-    this.deps.progress.step('작업 중…', role);
+    if (options.quiet !== true) this.deps.progress.step('작업 중…', role);
     const result = await this.deps.team.run({
       ...call,
       userMessage: parts.filter((p) => p !== '').join('\n\n'),
-      ...(signal !== undefined ? { signal } : {}),
+      ...(options.signal !== undefined ? { signal: options.signal } : {}),
       ...(additionalDirectories.length > 0 ? { additionalDirectories } : {}),
     });
     this.costUsd += result.usage.costUsd;

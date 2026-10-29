@@ -34,6 +34,8 @@ export interface ToolGuardOptions {
   readonly secrets: SecretPolicy;
   /** 작업 폴더 아래 실제로 있는 비밀 파일(작업 폴더 기준). 폴더째 내용 검색을 막을지 정할 때 쓴다. */
   readonly secretFiles: () => readonly string[];
+  /** 작업 폴더 밖에서 함께 열어 준 폴더(다른 저장소, 작업 공간 폴더). 그 안의 쓰기는 묻지 않고 그 폴더 기준으로 역할 권한만 본다. */
+  readonly extraRoots?: readonly string[];
 }
 
 /** 파일 경로를 받는 도구와 그 경로가 든 입력 이름 */
@@ -105,6 +107,12 @@ export function createToolGuard(options: ToolGuardOptions): HookCallback {
       const rel = typeof path === 'string' ? relativeToRoot(options.root, path) : null;
       if (rel !== null && !options.canWrite(rel)) {
         return decide('deny', `이 역할은 ${rel}을(를) 쓸 수 없습니다(잠긴 테스트이거나 업무 범위 밖). 범위 안의 다른 파일로 해결하세요.`);
+      }
+      if (rel === null && typeof path === 'string') {
+        const inExtra = (options.extraRoots ?? []).map((root) => relativeToRoot(root, path)).find((r): r is string => r !== null);
+        if (inExtra !== undefined) {
+          return options.canWrite(inExtra) ? {} : decide('deny', `이 역할은 ${inExtra}을(를) 쓸 수 없습니다(문서 팀원은 .md 문서만 씁니다).`);
+        }
       }
     }
 

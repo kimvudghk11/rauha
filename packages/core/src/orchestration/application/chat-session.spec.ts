@@ -37,7 +37,7 @@ class FakeMemory implements MemoryPort {
 type Script = (call: MemberCall) => unknown;
 
 class FakeTeam implements TeamMemberPort {
-  readonly calls: { role: MemberRole; message: string; signal: AbortSignal | undefined; dirs: readonly string[] | undefined; canWrite: (path: string) => boolean }[] = [];
+  readonly calls: { role: MemberRole; message: string; signal: AbortSignal | undefined; dirs: readonly string[] | undefined; canWrite: (path: string) => boolean; tier: string }[] = [];
   readonly prepared: MemberRole[] = [];
   /** 라우터가 이 약속이 풀릴 때까지 답하지 않게 한다(동시에 도는지 보려고). */
   routerGate: Promise<void> = Promise.resolve();
@@ -50,7 +50,7 @@ class FakeTeam implements TeamMemberPort {
     this.prepared.push(call.role);
   }
   async run(call: MemberCall): Promise<MemberResult> {
-    this.calls.push({ role: call.role, message: call.userMessage, signal: call.signal, dirs: call.additionalDirectories, canWrite: call.canWrite });
+    this.calls.push({ role: call.role, message: call.userMessage, signal: call.signal, dirs: call.additionalDirectories, canWrite: call.canWrite, tier: call.setting.tier });
     if (call.role === 'router') await this.routerGate;
     if (call.role === this.limitOn) {
       const limited = "You've hit your session limit · resets 9:40pm";
@@ -278,6 +278,60 @@ describe('ChatSession — 여러 저장소', () => {
     expect(turn.answer).toContain('docs/portfolio.md');
   });
 
+  describe('작업 공간 폴더와 저장소가 많을 때', () => {
+    const folder = (n: number) => ({ root: 'E:/w', repos: Array.from({ length: n }, (_, i) => ({ name: i === 0 ? 'shop-api' : `repo${i}`, root: `E:/w/${i === 0 ? 'shop-api' : `repo${i}`}` })) });
+    const alsoOf = (n: number) => folder(n).repos.slice(1).map((r) => ({ name: r.name, root: r.root, knowledge: null }));
+    const done = () => ({ summary: '정리했어요.', files: ['RESUME.md'] });
+
+    it('문서 팀원은 작업 공간 폴더(저장소들의 부모)에도 쓸 수 있게 열린다', async () => {
+      const team = new FakeTeam({ router: [route('task')], writer: [done] });
+      await ChatSession.start({ ...sessionDeps({ team }), repoName: 'shop-api', folder: folder(3) }).handle('이력서 정리해줘', alsoOf(3));
+      const call = team.calls.find((c) => c.role === 'writer')!;
+      expect(call.dirs).toContain('E:/w');
+      expect(call.message).toContain('<workspace root="E:/w"');
+    });
+
+    it('답변 팀원은 여러 저장소 작업 공간이면 폴더 위치와 저장소 목록을 안다 (작업 폴더를 잘못 설명하지 않게)', async () => {
+      const team = new FakeTeam({ router: [route('question')], answerer: [() => ({ answer: '네.', claims: [] })] });
+      await ChatSession.start({ ...sessionDeps({ team }), repoName: 'shop-api', folder: folder(3) }).handle('상위 폴더 스캔해줘', alsoOf(3));
+      const message = team.calls.find((c) => c.role === 'answerer')!.message;
+      expect(message).toContain('<workspace root="E:/w"');
+      expect(message).toContain('repo1');
+    });
+
+    it('저장소 하나짜리 작업 공간이면 폴더 안내를 넣지 않는다', async () => {
+      const team = new FakeTeam({ router: [route('question')], answerer: [() => ({ answer: '네.', claims: [] })] });
+      await ChatSession.start({ ...sessionDeps({ team }), repoName: 'shop-api', folder: folder(1) }).handle('이 함수 뭐 해?');
+      expect(team.calls.find((c) => c.role === 'answerer')!.message).not.toContain('<workspace');
+    });
+
+    it('저장소가 4개 넘으면 저장소마다 싼 모델이 나눠 읽고(문서는 쓰지 않음), 모은 요약으로 문서 한 번 쓴다', async () => {
+      const team = new FakeTeam({ router: [route('task')], writer: [(c) => (c.userMessage.includes('<gather') ? { summary: `요약-${c.userMessage.match(/<gather repo="([^"]+)"/)![1]}`, files: [] } : done())] });
+      const steps: string[] = [];
+      const turn = await ChatSession.start({ ...sessionDeps({ team, steps }), repoName: 'shop-api', folder: folder(6) }).handle('모든 레포 이력서 정리', alsoOf(6));
+      const writers = team.calls.filter((c) => c.role === 'writer');
+      const gathers = writers.filter((c) => c.message.includes('<gather'));
+      expect(gathers).toHaveLength(6);
+      expect(gathers.every((c) => c.tier === 'haiku' && !c.canWrite('RESUME.md'))).toBe(true);
+      // 각 저장소는 자기 폴더만 열어 읽는다.
+      expect(gathers.find((c) => c.message.includes('repo3'))!.dirs).toEqual(['E:/w/repo3']);
+      const last = writers.at(-1)!;
+      expect(last.message).not.toContain('<gather');
+      expect(last.message).toContain('<digests>');
+      expect(last.message).toContain('요약-repo5');
+      expect(last.tier).toBe('sonnet');
+      expect(last.canWrite('RESUME.md')).toBe(true);
+      expect(steps.some((s) => /저장소 읽는 중 \d+\/6/.test(s))).toBe(true);
+      expect(turn.kind === 'answer' && turn.answer).toContain('RESUME.md');
+    });
+
+    it('저장소가 4개 이하면 나누지 않고 문서 팀원 한 번으로 쓴다', async () => {
+      const team = new FakeTeam({ router: [route('task')], writer: [done] });
+      await ChatSession.start({ ...sessionDeps({ team }), repoName: 'shop-api', folder: folder(4) }).handle('모든 레포 이력서 정리', alsoOf(4));
+      expect(team.calls.filter((c) => c.role === 'writer')).toHaveLength(1);
+    });
+  });
+
   it('답에 저장소마다 읽은 기준이 붙는다', async () => {
     const team = new FakeTeam({ router: [route('question')], answerer: [() => ({ answer: '네.', claims: [] })] });
     const turn = await ChatSession.start({ ...sessionDeps({ team }), knowledge: knowledgeAt('shop-api', 'main', 'a1b2c3d'), repoName: 'shop-api' }).handle('비교해줘', also);
@@ -348,6 +402,29 @@ describe('ChatSession — 빠른 답', () => {
     expect(turn.kind).toBe('work');
     expect(team.calls.find((c) => c.role === 'answerer')!.signal!.aborted).toBe(true);
     expect([...memory.nodes.values()].some((n) => n.kind === 'question')).toBe(false);
+  });
+
+  it('지식을 늦게 읽는 사이 작업으로 판정돼 이미 멈춘 답변은 뒤늦게 시작하지 않는다 (작업 중 표시가 남지 않게)', async () => {
+    let release = () => {};
+    const slow = { current: () => new Promise<null>((resolve) => (release = () => resolve(null))), noteChanged: async () => undefined };
+    const team = new FakeTeam({ router: [route('work')] });
+    const steps: string[] = [];
+    await ChatSession.start({ ...sessionDeps({ team, steps }), knowledge: slow }).handle('Money에 할인 넣어줘');
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(team.calls.some((c) => c.role === 'answerer')).toBe(false);
+    expect(steps).toEqual(['작업 중…']);
+  });
+
+  it('저장소가 많은 질문은 다른 저장소의 지식을 미리 만들지 않는다 (조사 팀원을 수십 번 부르지 않게)', async () => {
+    const touched: string[] = [];
+    const spy = (name: string) => ({ current: async () => (touched.push(name), null), noteChanged: async () => undefined });
+    const repos = Array.from({ length: 5 }, (_, i) => ({ name: `r${i}`, root: `E:/w/r${i}`, knowledge: spy(`r${i}`) }));
+    const ask = (also: typeof repos) => ChatSession.start({ ...sessionDeps({ team: new FakeTeam({ router: [route('question')], answerer: [() => ({ answer: '네.', claims: [] })] }) }), repoName: 'a' }).handle('비교해줘', also);
+    await ask(repos);
+    expect(touched).toEqual([]);
+    await ask(repos.slice(0, 3));
+    expect(touched.sort()).toEqual(['r0', 'r1', 'r2']);
   });
 
   it('흐릿하게 지난 작업을 가리킨 질문은 고른 작업으로 다시 답한다', async () => {

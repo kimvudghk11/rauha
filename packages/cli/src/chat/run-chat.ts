@@ -159,6 +159,10 @@ export async function runChat(options: ChatOptions): Promise<number> {
     const deps = {
       knowledge,
       repoName: repo.name,
+      // /repo add로 저장소가 늘 수 있어 부를 때마다 읽는다.
+      get folder() {
+        return multi() ? { root: workDir, repos: workspace.repos.map((r) => ({ name: r.name, root: r.root })) } : undefined;
+      },
       newLoop: (carried: ReadonlyMap<string, string>) => createLoop(ctx, prompts, team, carried, knowledge),
       team,
       workspace: new GitWorkspace(repo.root, loadSecretPolicy(repo.root)),

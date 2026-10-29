@@ -55,6 +55,19 @@ describe('createToolGuard', () => {
     expect(asked).toEqual([]);
   });
 
+  it('함께 열어 준 폴더(작업 공간 폴더 등) 안의 쓰기는 묻지 않고 그 폴더 기준으로 역할 권한만 본다', async () => {
+    const { guard, asked } = guardWith([], { role: 'writer', canWrite: (rel) => rel.endsWith('.md'), extraRoots: ['E:/work'] });
+    expect(await guard(input('Write', { file_path: 'E:/work/RESUME.md' }), 't1', opts)).toEqual({});
+    expect(decision(await guard(input('Write', { file_path: 'E:/work/other/src/app.ts' }), 't1', opts))).toBe('deny');
+    expect(asked).toEqual([]);
+  });
+
+  it('열어 준 폴더가 아닌 밖에 쓰는 것은 여전히 묻는다', async () => {
+    const { guard, asked } = guardWith([{ kind: 'deny', note: null }], { role: 'writer', canWrite: () => true, extraRoots: ['E:/work'] });
+    await guard(input('Write', { file_path: 'E:/elsewhere/a.md' }), 't1', opts);
+    expect(asked).toHaveLength(1);
+  });
+
   it('비밀 파일이 있는 폴더를 내용으로 Grep하거나 glob으로 비밀 파일을 겨누면 거절한다', async () => {
     const { guard } = guardWith([], { secretFiles: () => ['config/prod.json'], secrets: SecretPolicy.of(['config/prod.json']) });
     expect(decision(await guard(input('Grep', { pattern: 'password', output_mode: 'content' }), 't1', opts))).toBe('deny');

@@ -177,7 +177,7 @@ export class AgentSdkTeamMember implements TeamMemberPort {
       maxBudgetUsd: call.setting.maxBudgetUsd,
       outputFormat: { type: 'json_schema', schema: call.outputSchema },
       hooks: {
-        PreToolUse: [{ hooks: [createToolGuard({ root: this.options.cwd, role: call.role, canWrite: call.canWrite, ask: this.options.ask, remembered: this.remembered, secrets: this.options.secrets, secretFiles: this.secretFilesOnce() })] }],
+        PreToolUse: [{ hooks: [createToolGuard({ root: this.options.cwd, role: call.role, canWrite: call.canWrite, ask: this.options.ask, remembered: this.remembered, secrets: this.options.secrets, secretFiles: this.secretFilesOnce(), extraRoots: call.additionalDirectories ?? [] })] }],
         PostToolUse: [{ hooks: [session.fetchLog.hook] }],
       },
       stderr: (data) => {

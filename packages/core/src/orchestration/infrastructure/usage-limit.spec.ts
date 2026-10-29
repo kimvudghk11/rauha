@@ -21,6 +21,21 @@ describe('accountBlock', () => {
     expect(accountBlock('authentication_failed: Invalid API key')).toMatchObject({ reason: 'login' });
   });
 
+  it('로그인이 만료돼 갱신하지 못한 오류도 로그인 필요로 본다 (작업으로 잘못 넘기지 않게)', () => {
+    for (const message of [
+      'Claude Code returned an error result: Failed to authenticate: OAuth session expired and could not be refreshed',
+      'Failed to authenticate: OAuth session expired',
+      'API Error: 401 Invalid authentication credentials',
+      'OAuth token has expired',
+    ]) {
+      expect(accountBlock(message), message).toMatchObject({ reason: 'login' });
+    }
+  });
+
+  it('로그인 안내에는 다시 로그인하는 명령이 들어 있다', () => {
+    expect(accountBlock('Not logged in')!.message).toContain('rauha login');
+  });
+
   it('사용 한도 오류는 한도 문장과 함께 사용 한도로 본다', () => {
     expect(accountBlock("You've hit your session limit · resets 5:40pm")).toEqual({ reason: 'usage-limit', message: "You've hit your session limit · resets 5:40pm" });
   });
