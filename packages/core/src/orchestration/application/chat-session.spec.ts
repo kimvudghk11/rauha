@@ -255,6 +255,13 @@ describe('ChatSession — 설계 대화', () => {
     if (turn.kind === 'design') expect(turn.tasks.map((t) => t.status)).toEqual(['complete', 'complete']);
   });
 
+  it('승인된 설계의 목적과 정한 해석(누가 정했는지)을 기억에 남긴다 ("그 기능 왜 이렇게 만들었어?"에 설계의 이유로 답하려고)', async () => {
+    const memory = new FakeMemory();
+    await withDesigner({ team: new FakeTeam({ router: [route('feature')] }), loops: new FakeLoops([outcome(), outcome()]), memory }, designerThat(approved()).port).handle('쿠폰 기능 만들어줘');
+    const texts = [...memory.nodes.values()].map((n) => n.text);
+    expect(texts.some((t) => t.includes('원 미만 버림') && t.includes('rauha가 정함'))).toBe(true);
+  });
+
   it('설계 팀원은 저장소 지식·기억·앞 대화를 받는다', async () => {
     const knowledge = { current: async () => ({ block: '<repo_knowledge repo="shop-api" basis="main (a1b2c3d)">요약</repo_knowledge>', basis: RepoRef.of({ branch: 'main', commit: 'a1b2c3d'.padEnd(40, '0'), dirty: false }) }), noteChanged: async () => undefined };
     const designer = designerThat(approved());

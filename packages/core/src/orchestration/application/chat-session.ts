@@ -268,6 +268,11 @@ export class ChatSession {
     if (result.kind === 'failed') return { kind: 'notice', message: `설계를 끝내지 못했어요: ${result.message} 요청을 조금 더 구체적으로 다시 해 주세요.` };
 
     const { design, path } = result;
+    // 설계의 이유를 기억에 남긴다. 나중에 질문에 설계의 이유로 답할 수 있다(작업 기억은 작업마다 따로 남는다).
+    const decided = design.decisions.map((d) => `- ${d.what} (${d.by === 'user' ? '사용자가 정함' : 'rauha가 정함'})`);
+    await this.deps.memory.save(
+      WorkMemory.fromAnswer({ id: this.deps.newId(), at: this.at(), question: `설계 ${design.title}: ${input}`, answer: [design.purpose, ...decided].join('\n'), citedFiles: [], basis: known?.basis ?? null }),
+    );
     const order = design.runOrder();
     const results: DesignTaskResult[] = [];
     const stopped = new Set<string>();
