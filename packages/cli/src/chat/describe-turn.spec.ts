@@ -121,3 +121,32 @@ describe('describeTurn — 작업', () => {
     expect(text).not.toContain('\u001b]8;;');
   });
 });
+
+describe('describeTurn — 설계', () => {
+  const done = { changedInRun: [{ path: 'src/coupon.ts', kind: 'added' as const }], guide: { stopMessage: () => null } };
+  const stopped = { changedInRun: [], guide: { stopMessage: () => '구현 시니어까지 실패했습니다.' } };
+  const design = (tasks: unknown[]) =>
+    describeTurn({ kind: 'design', title: '쿠폰 할인', path: 'C:/designs/a.md', durationMs: 120_000, tasks: tasks as never }, null).join('\n');
+
+  it('설계 문서 경로와 작업별 결과를 보여 준다', () => {
+    const text = design([
+      { id: 't1', title: 'Coupon 값 객체', status: 'complete', outcome: done },
+      { id: 't2', title: '주문에 쿠폰 적용', status: 'stopped', outcome: stopped },
+      { id: 't3', title: '쿠폰 화면', status: 'skipped', outcome: null },
+    ]);
+    expect(text).toContain('설계 "쿠폰 할인" · 작업 3개 중 1개 완료');
+    expect(text).toContain('설계 문서: C:/designs/a.md');
+    expect(text).toContain('✓ Coupon 값 객체');
+    expect(text).toContain('✗ 주문에 쿠폰 적용');
+    expect(text).toContain('구현 시니어까지 실패했습니다.');
+    expect(text).toContain('· 쿠폰 화면');
+    expect(text).toContain('앞 작업이 멈춰서 하지 않았어요');
+    expect(text).toContain('src/coupon.ts');
+  });
+
+  it('모두 끝나면 끝났다고만 하고 멈춘 작업 안내는 쓰지 않는다', () => {
+    const text = design([{ id: 't1', title: 'Coupon 값 객체', status: 'complete', outcome: done }]);
+    expect(text).toContain('작업 1개 중 1개 완료');
+    expect(text).not.toContain('✗');
+  });
+});

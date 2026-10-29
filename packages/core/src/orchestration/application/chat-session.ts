@@ -1,3 +1,5 @@
+import type { DesignPort } from '../../design/application/design.service.js';
+import { DesignDocDto } from '../../design/application/dto/design.dto.js';
 import type { KnowledgePort } from '../../knowledge/application/ports.js';
 import type { MemoryPort } from '../../memory/application/memory.port.js';
 import { continuable, recallBlock, WorkMemory, type MemoryEntry, type Recall } from '../../memory/domain/work-memory.js';
@@ -27,10 +29,20 @@ export type TurnOutcome =
   | { readonly kind: 'answer'; readonly answer: string; readonly checked: readonly CheckedClaim[]; readonly costUsd: number; readonly durationMs: number; readonly basis: string | null }
   /** /review: 사용자의 변경을 리뷰어가 본 결과. target null = 커밋 안 한 변경. files가 비면 리뷰어를 부르지 않았다. */
   | { readonly kind: 'review'; readonly target: string | null; readonly files: readonly string[]; readonly checked: readonly CheckedClaim[]; readonly summary: string; readonly durationMs: number }
+  /** 설계 대화로 승인받은 설계와 그 작업들의 결과 */
+  | { readonly kind: 'design'; readonly title: string; readonly path: string; readonly tasks: readonly DesignTaskResult[]; readonly durationMs: number }
   /** 팀원을 부르지 않고 알릴 것(예: 여러 저장소를 한 번에 고치는 요청). */
   | { readonly kind: 'notice'; readonly message: string }
   /** 계정 문제(사용 한도, 로그인 안 됨)로 막힘. 사용 한도면 message에 풀리는 시각이 들어 있다. */
   | { readonly kind: 'blocked'; readonly reason: AccountBlock['reason']; readonly message: string };
+
+/** 설계가 나눈 작업 하나의 결과. skipped: 앞 작업이 멈춰 하지 않았다. */
+export interface DesignTaskResult {
+  readonly id: string;
+  readonly title: string;
+  readonly status: 'complete' | 'stopped' | 'skipped';
+  readonly outcome: RunOutcome | null;
+}
 
 export interface ChatSessionDeps {
   /** 요청 하나를 돌릴 최소 루프. carried = 세션 중 rauha가 남긴 파일(그 위에서 이어 일함). */
@@ -52,6 +64,8 @@ export interface ChatSessionDeps {
   readonly repoName?: string;
   /** 작업 공간 폴더(rauha를 띄운 폴더)와 그 안의 저장소들. 저장소가 둘 이상이면 답변·문서 팀원에게 알려 폴더 위치를 잘못 말하지 않게 한다. */
   readonly folder?: { readonly root: string; readonly repos: readonly { readonly name: string; readonly root: string }[] } | undefined;
+  /** 설계 대화. 없거나 사용자와 주고받을 화면이 없으면 기능 요청도 바로 작업으로 진행한다. */
+  readonly designer?: DesignPort | undefined;
 }
 
 /** 저장소가 이 수를 넘으면 문서 팀원 한 명이 다 읽지 않고, 저장소마다 나눠 읽은 요약을 모아 쓴다. */
@@ -99,7 +113,7 @@ interface AlsoKnown {
   readonly known: Known | null;
 }
 
-const MANY_REPO_WORK = '여러 저장소를 한 번에 고치는 일은 아직 하지 않아요. 저장소마다 나눠서 요청해 주세요(다음 단계의 설계 대화에서 한 번에 할 수 있게 됩니다).';
+const MANY_REPO_WORK = '여러 저장소를 한 번에 고치는 일은 아직 하지 않아요. 저장소마다 나눠서 요청해 주세요.';
 
 interface Turn {
   readonly input: string;
@@ -163,9 +177,14 @@ export class ChatSession {
    * 라우터의 판정을 기다리지 않고 답변 팀원도 함께 시작한다. 질문이면 판정 시간만큼 빨리 답하고,
    * 작업이거나 지난 작업을 골라야 하는 질문이면 미리 시작한 답변은 멈추고 버린다.
    */
-  async handle(input: string, also: readonly AlsoRepo[] = []): Promise<TurnOutcome> {
+  async handle(input: string, also: readonly AlsoRepo[] = [], force?: 'design'): Promise<TurnOutcome> {
     const started = this.deps.now();
     const conversation = this.conversation();
+    // /design: 라우터를 거치지 않고 바로 설계부터 한다.
+    if (force === 'design') {
+      if (also.length > 0) return { kind: 'notice', message: MANY_REPO_WORK };
+      return this.canDesign() ? this.feature(input, conversation, started) : { kind: 'notice', message: '설계 대화는 터미널 대화 모드에서만 할 수 있어요.' };
+    }
     const early = new AbortController();
     // 저장소 지식은 라우터와 함께 읽는다. 답변 팀원만 기다린다(라우터는 지식이 필요 없다).
     const known = this.knowledgeOf();
@@ -178,9 +197,12 @@ export class ChatSession {
     if (routed.blocked || route.mode !== 'question' || route.refersToPast) early.abort();
     if (routed.blocked) return { kind: 'blocked', ...routed.blocked };
     if (route.mode === 'task') return this.task(input, conversation, also, started);
-    if (route.mode === 'work' && also.length > 0) return { kind: 'notice', message: MANY_REPO_WORK };
+    const changesCode = route.mode === 'work' || route.mode === 'feature';
+    if (changesCode && also.length > 0) return { kind: 'notice', message: MANY_REPO_WORK };
     const past = route.refersToPast ? await this.pickPast(route.pastQuery ?? input, route.mode) : null;
-    if (route.mode === 'work') return this.work(input, conversation, past);
+    // 기능 요청은 설계 대화부터. 사용자와 주고받을 화면이 없으면(-p) 작업으로 바로 진행한다.
+    if (route.mode === 'feature' && past === null && this.canDesign()) return this.feature(input, conversation, started);
+    if (changesCode) return this.work(input, conversation, past);
     return this.answer(input, route.refersToPast ? this.askAnswerer(input, past, await known, undefined, await others) : asked, started);
   }
 
@@ -198,8 +220,8 @@ export class ChatSession {
 
   // ── 작업 ──────────────────────────────────────────────────
 
-  private async work(input: string, conversation: string | null, past: Recall | null): Promise<TurnOutcome> {
-    const outcome = await this.deps.newLoop(new Map(this.carried)).run(input, { conversation, pastWork: past === null ? null : recallBlock([past], MEMORY_CHARS) });
+  private async work(input: string, conversation: string | null, past: Recall | null, design: string | null = null): Promise<TurnOutcome> {
+    const outcome = await this.deps.newLoop(new Map(this.carried)).run(input, { conversation, pastWork: past === null ? null : recallBlock([past], MEMORY_CHARS), design });
     this.costUsd += outcome.costUsd;
     for (const tier of Object.keys(this.calls) as ModelTier[]) this.calls[tier] += outcome.usage[tier].calls;
 
@@ -211,6 +233,60 @@ export class ChatSession {
     this.lastTitle = outcome.title;
     this.turns.push({ input, result: `작업 "${outcome.title}" ${outcome.status === 'complete' ? '완료' : `멈춤(${outcome.stopReason})`}, 바뀐 파일 ${outcome.changedInRun.map((c) => c.path).join(', ') || '없음'}` });
     return { kind: 'work', outcome };
+  }
+
+  // ── 설계 대화 ─────────────────────────────────────────────
+
+  private canDesign(): boolean {
+    return this.deps.designer !== undefined && this.deps.user.interactive && typeof this.deps.user.discuss === 'function';
+  }
+
+  /**
+   * 기능 요청: 설계 팀원과 충분히 이야기해 설계를 승인받고, 승인된 설계의 작업을 순서대로 최소 루프에 넣는다.
+   * 앞 작업이 멈추면 그것에 의존하는 작업은 하지 않고, 의존하지 않는 작업은 계속한다.
+   * 승인 뒤의 접수는 설계 블록을 기준으로 거의 묻지 않는다.
+   */
+  private async feature(input: string, conversation: string | null, started: number): Promise<TurnOutcome> {
+    const known = await this.knowledgeOf();
+    const recalls = await this.deps.memory.search(input, CANDIDATES);
+    const memory = recallBlock(recalls, MEMORY_CHARS);
+    const result = await this.deps.designer!.run({
+      request: input,
+      repo: this.deps.repoName ?? '이 저장소',
+      knowledge: known?.block ?? null,
+      memory: memory !== '' ? `<memory>\n기억된 지난 작업과 그때의 결정입니다.\n${memory}\n</memory>` : null,
+      conversation,
+      basis: known?.basis ?? null,
+    });
+    this.costUsd += result.cost.costUsd;
+    this.calls[result.cost.tier] += result.cost.calls;
+    if (result.kind === 'blocked') return { kind: 'blocked', ...result.block };
+    if (result.kind === 'cancelled') {
+      this.turns.push({ input, result: '설계를 그만둠' });
+      return { kind: 'notice', message: '설계를 그만뒀어요. 필요하면 다시 말씀해 주세요.' };
+    }
+    if (result.kind === 'failed') return { kind: 'notice', message: `설계를 끝내지 못했어요: ${result.message} 요청을 조금 더 구체적으로 다시 해 주세요.` };
+
+    const { design, path } = result;
+    const order = design.runOrder();
+    const results: DesignTaskResult[] = [];
+    const stopped = new Set<string>();
+    for (const [i, task] of order.entries()) {
+      if (design.isBlocked(task.id, stopped)) {
+        stopped.add(task.id);
+        results.push({ id: task.id, title: task.title, status: 'skipped', outcome: null });
+        continue;
+      }
+      this.deps.progress.step(`설계 작업 ${i + 1}/${order.length}: ${task.title}`);
+      const { request, block } = DesignDocDto.taskRequest(design, task, path);
+      const turn = await this.work(request, null, null, block);
+      const outcome = turn.kind === 'work' ? turn.outcome : null;
+      const complete = outcome?.status === 'complete';
+      if (!complete) stopped.add(task.id);
+      results.push({ id: task.id, title: task.title, status: complete ? 'complete' : 'stopped', outcome });
+    }
+    this.turns.push({ input, result: `설계 "${design.title}" 작업 ${results.filter((r) => r.status === 'complete').length}/${results.length}개 완료` });
+    return { kind: 'design', title: design.title, path, tasks: results, durationMs: this.deps.now() - started };
   }
 
   // ── 문서 작업 ─────────────────────────────────────────────
@@ -407,7 +483,7 @@ export class ChatSession {
   private async pickPast(query: string, mode: Route['mode']): Promise<Recall | null> {
     if (!this.deps.user.interactive) return null;
     // 작업이면 질문·답을 걸러 낸 뒤에도 후보가 남도록 넉넉히 찾는다.
-    const candidates = mode === 'work' ? continuable(await this.deps.memory.search(query, CANDIDATES * 3), CANDIDATES) : await this.deps.memory.search(query, CANDIDATES);
+    const candidates = mode === 'work' || mode === 'feature' ? continuable(await this.deps.memory.search(query, CANDIDATES * 3), CANDIDATES) : await this.deps.memory.search(query, CANDIDATES);
     if (candidates.length === 0) return null;
     const picked = await this.deps.user.pickPast(candidates.map((c) => ({ id: c.work.id, title: c.work.text.split('\n')[0]!, at: c.work.at })));
     return candidates.find((c) => c.work.id === picked) ?? null;

@@ -5,10 +5,10 @@ import { Workspace, type WorkspaceRepo } from '../domain/workspace.js';
 import { WorkspaceSession, type RepoSession } from './workspace-session.js';
 
 class FakeChat {
-  readonly inputs: { input: string; also: readonly AlsoRepo[] }[] = [];
+  readonly inputs: { input: string; also: readonly AlsoRepo[]; force: 'design' | undefined }[] = [];
   constructor(private readonly name: string) {}
-  async handle(input: string, also: readonly AlsoRepo[] = []): Promise<TurnOutcome> {
-    this.inputs.push({ input, also });
+  async handle(input: string, also: readonly AlsoRepo[] = [], force?: 'design'): Promise<TurnOutcome> {
+    this.inputs.push({ input, also, force });
     return { kind: 'answer', answer: `${this.name} 답`, checked: [], costUsd: 0, durationMs: 1, basis: null };
   }
 }
@@ -54,6 +54,14 @@ describe('WorkspaceSession', () => {
     const turn = await session.handle('shop-web에서 Money 설명해줘');
     expect(turn).toMatchObject({ kind: 'answer', answer: 'shop-web 답', repo: 'shop-web' });
     expect(chats.get('shop-web')!.inputs[0]!.also).toEqual([]);
+  });
+
+  it('/design처럼 라우터를 건너뛰는 요청은 그 표시를 저장소 세션에 그대로 넘긴다', async () => {
+    const { session, chats } = setup();
+    await session.handle('shop-api 쿠폰 기능', 'design');
+    expect(chats.get('shop-api')!.inputs[0]!.force).toBe('design');
+    await session.handle('shop-api 설명');
+    expect(chats.get('shop-api')!.inputs[1]!.force).toBeUndefined();
   });
 
   it('저장소 세션은 한 번만 연다', async () => {

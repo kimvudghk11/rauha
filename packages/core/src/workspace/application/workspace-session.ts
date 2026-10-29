@@ -7,7 +7,7 @@ import type { Workspace, WorkspaceRepo } from '../domain/workspace.js';
 export interface RepoSession {
   readonly repo: WorkspaceRepo;
   readonly profileName: string;
-  readonly chat: { handle(input: string, also?: readonly AlsoRepo[]): Promise<TurnOutcome> };
+  readonly chat: { handle(input: string, also?: readonly AlsoRepo[], force?: 'design'): Promise<TurnOutcome> };
   readonly knowledge: KnowledgePort | null;
 }
 
@@ -31,7 +31,8 @@ export class WorkspaceSession {
 
   constructor(private readonly deps: WorkspaceSessionDeps) {}
 
-  async handle(input: string): Promise<TurnOutcome & { readonly repo: string | null }> {
+  /** force: /design처럼 라우터를 건너뛰고 설계부터 하게 할 때 */
+  async handle(input: string, force?: 'design'): Promise<TurnOutcome & { readonly repo: string | null }> {
     const before = this.deps.workspace.current()?.root ?? null;
     const pick = this.deps.workspace.pick(input);
     const repos = pick.kind === 'one' ? [pick.repo] : pick.kind === 'many' ? pick.repos : await this.ask(pick.candidates);
@@ -48,7 +49,7 @@ export class WorkspaceSession {
       };
     }
     const also = rest.map((s): AlsoRepo => ({ name: s.repo.name, root: s.repo.root, knowledge: s.knowledge }));
-    return { ...(await first.chat.handle(input, also)), repo: first.repo.name };
+    return { ...(await first.chat.handle(input, also, force)), repo: first.repo.name };
   }
 
   select(name: string): WorkspaceRepo | null {

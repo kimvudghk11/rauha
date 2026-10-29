@@ -52,6 +52,11 @@ export class Profile {
     return `${toPosixPath(home)}/.rauha/profiles/${this.name}/sessions`;
   }
 
+  /** 설계 문서 폴더. 설계 대화에서 승인받은 문서가 회사/개인 프로필끼리 섞이지 않게 프로필 폴더 아래에 둔다. */
+  designsDir(home: string): string {
+    return `${toPosixPath(home)}/.rauha/profiles/${this.name}/designs`;
+  }
+
   canSync(): boolean {
     return this.sync !== 'none';
   }

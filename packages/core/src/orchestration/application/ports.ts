@@ -1,3 +1,4 @@
+import type { DesignApproval, DesignPlan, DesignQuestion } from '../../design/application/ports.js';
 import type { CheckedClaim } from '../domain/fact-check.js';
 import type { TestRun } from '../domain/test-run.js';
 import type { CheckResult } from '../domain/verification.js';
@@ -134,6 +135,10 @@ export interface UserPort {
   pickPast(candidates: readonly PastCandidate[]): Promise<string | null>;
   /** 여러 저장소 작업 공간에서 어느 저장소 일인지 고르게 한다. 고른 이름, 고르지 않으면 null. 없으면 묻지 않는다. */
   pickRepo?(candidates: readonly { readonly name: string; readonly root: string }[]): Promise<string | null>;
+  /** 설계 대화: 설계 팀원의 질문 하나에 답하게 한다. 그만두면 null. 없으면 설계 대화를 하지 않는다. */
+  discuss?(question: DesignQuestion): Promise<string | null>;
+  /** 설계 대화: 설계안을 보여 주고 승인·고칠 점·그만두기를 고르게 한다. */
+  approve?(plan: DesignPlan): Promise<DesignApproval>;
 }
 
 /** 기억에서 찾은 지난 작업 후보 */

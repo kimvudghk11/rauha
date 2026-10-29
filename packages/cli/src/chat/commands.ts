@@ -1,7 +1,9 @@
-type CommandName = 'clear' | 'status' | 'usage' | 'guide' | 'review' | 'repo' | 'update' | 'help' | 'exit';
+type CommandName = 'clear' | 'status' | 'usage' | 'guide' | 'review' | 'design' | 'repo' | 'update' | 'help' | 'exit';
 
 export type ChatCommand =
-  | { readonly kind: Exclude<CommandName, 'review' | 'repo'> }
+  | { readonly kind: Exclude<CommandName, 'review' | 'repo' | 'design'> }
+  /** request: 설계부터 시작할 요청. 요청 없이 /design만 치면 null(안내) */
+  | { readonly kind: 'design'; readonly request: string | null }
   /** target: 비교할 브랜치·커밋. null = 커밋하지 않은 변경 */
   | { readonly kind: 'review'; readonly target: string | null }
   | { readonly kind: 'repo'; readonly action: 'list' }
@@ -21,6 +23,7 @@ const COMMANDS: readonly { readonly kind: CommandName; readonly help: string }[]
   { kind: 'usage', help: '구독 사용률(세션 5시간 · 주간)과 이번 대화 호출 수' },
   { kind: 'guide', help: '지난 작업의 자세한 읽기 안내서' },
   { kind: 'review', help: '내 변경(커밋 안 한 것, 또는 /review <브랜치>로 그 브랜치와 갈라진 뒤)을 리뷰어가 검토해요. 파일은 고치지 않아요.' },
+  { kind: 'design', help: '/design <요청>: 라우터를 거치지 않고 설계 대화부터 시작해요. 충분히 이야기해 설계를 승인하면 작업을 나눠 진행해요.' },
   { kind: 'repo', help: '작업 공간 저장소 보기 · /repo <이름>으로 지금 저장소 바꾸기 · /repo add <경로>로 더하기' },
   { kind: 'update', help: '최신 버전으로 갱신하고 rauha를 다시 띄워요 (지난 작업 기억은 남아요)' },
   { kind: 'help', help: '이 안내' },
@@ -35,6 +38,7 @@ export function parseCommand(text: string): ChatCommand | null {
   const known = COMMANDS.find((c) => `/${c.kind}` === name.toLowerCase());
   if (known === undefined) return { kind: 'unknown', name };
   if (known.kind === 'review') return { kind: 'review', target: rest[0] ?? null };
+  if (known.kind === 'design') return { kind: 'design', request: rest.length === 0 ? null : rest.join(' ') };
   if (known.kind === 'repo') {
     if (rest.length === 0) return { kind: 'repo', action: 'list' };
     // 경로에는 띄어쓰기가 있을 수 있어 add 뒤 전체를 경로로 본다.

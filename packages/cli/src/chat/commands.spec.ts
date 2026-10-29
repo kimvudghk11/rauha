@@ -43,7 +43,7 @@ describe('/guide', () => {
 
 describe('suggestCommands', () => {
   it('/만 치면 모든 명령을, 더 치면 앞이 맞는 명령만 설명과 함께 보여 준다', () => {
-    expect(suggestCommands('/').map((c) => c.name)).toEqual(['/clear', '/status', '/usage', '/guide', '/review', '/repo', '/update', '/help', '/exit']);
+    expect(suggestCommands('/').map((c) => c.name)).toEqual(['/clear', '/status', '/usage', '/guide', '/review', '/design', '/repo', '/update', '/help', '/exit']);
     expect(suggestCommands('/us')).toEqual([{ name: '/usage', help: expect.stringContaining('구독 사용률') }]);
     expect(suggestCommands('/up')).toEqual([{ name: '/update', help: expect.stringContaining('최신') }]);
   });
@@ -52,5 +52,20 @@ describe('suggestCommands', () => {
     expect(suggestCommands('안녕')).toEqual([]);
     expect(suggestCommands('/usage ')).toEqual([]);
     expect(suggestCommands('')).toEqual([]);
+  });
+});
+
+describe('/design', () => {
+  it('/design <요청>은 라우터를 거치지 않고 설계부터 시작하는 요청이다', () => {
+    expect(parseCommand('/design 쿠폰 기능 만들어줘')).toEqual({ kind: 'design', request: '쿠폰 기능 만들어줘' });
+    expect(parseCommand('/DESIGN   로그인 페이지  ')).toEqual({ kind: 'design', request: '로그인 페이지' });
+  });
+
+  it('요청 없이 /design만 치면 안내 대상이다', () => {
+    expect(parseCommand('/design')).toEqual({ kind: 'design', request: null });
+  });
+
+  it('입력창에서 /de를 치면 후보에 /design이 뜬다', () => {
+    expect(suggestCommands('/de').map((c) => c.name)).toContain('/design');
   });
 });

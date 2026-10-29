@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { DesignInput, DesignResult } from '../../design/application/design.service.js';
+import { Design } from '../../design/domain/design.js';
 import { RepoRef } from '../../knowledge/domain/repo-ref.js';
 import type { MemoryPort } from '../../memory/application/memory.port.js';
 import type { MemoryEntry, MemoryNode, Recall } from '../../memory/domain/work-memory.js';
@@ -129,7 +131,7 @@ class FakeLoops {
   });
 }
 
-const route = (mode: 'work' | 'question' | 'task', refersToPast = false, pastQuery: string | null = null) => () => ({ mode, refersToPast, pastQuery });
+const route = (mode: 'work' | 'question' | 'task' | 'feature', refersToPast = false, pastQuery: string | null = null) => () => ({ mode, refersToPast, pastQuery });
 
 type SessionParts = { team: FakeTeam; loops?: FakeLoops; memory?: FakeMemory; user?: UserPort; files?: Record<string, string>; steps?: string[]; changes?: FileChange[] };
 
@@ -213,6 +215,110 @@ describe('ChatSession — 질문', () => {
     const team = new FakeTeam({ router: [route('question')], answerer: [() => ({ answer: '안녕하세요.', claims: [] })] });
     const turn = await session({ team }).handle('안녕');
     expect(turn).toMatchObject({ kind: 'answer', answer: '안녕하세요.', checked: [] });
+  });
+});
+
+describe('ChatSession — 설계 대화', () => {
+  const task = (id: string, dependsOn: string[] = []) => ({ id, title: `작업 ${id}`, scope: [`src/${id}/**`], acceptance: [`${id}는 10% 쿠폰이 10,000원을 9,000원으로`], dependsOn });
+  const designOf = (tasks = [task('t1'), task('t2', ['t1'])]) =>
+    Design.of({
+      title: '쿠폰 할인',
+      purpose: '쿠폰 적용',
+      goals: [],
+      nonGoals: [],
+      scenarios: [{ given: '10,000원', when: '10% 쿠폰', then: '9,000원' }],
+      decisions: [{ what: '원 미만 버림', by: 'rauha' }],
+      tasks,
+      risks: [],
+    });
+  const cost = { calls: 3, costUsd: 0.05, tier: 'sonnet' as const };
+  const approved = (design = designOf()): DesignResult => ({ kind: 'approved', design, path: 'C:/designs/a.md', cost });
+  const designerThat = (result: DesignResult) => {
+    const inputs: DesignInput[] = [];
+    return { inputs, port: { run: async (input: DesignInput) => (inputs.push(input), result) } };
+  };
+  const talking = new FakeUser(true);
+  Object.assign(talking, { discuss: async () => '네', approve: async () => ({ kind: 'approve' }) });
+  const withDesigner = (p: SessionParts, designer: ReturnType<typeof designerThat>['port'], user: UserPort = talking) => ChatSession.start({ ...sessionDeps({ ...p, user }), designer, repoName: 'shop-api' });
+  const stopped = () => outcome({ status: 'stopped', stopReason: 'halted' });
+
+  it('기능 요청이면 설계 대화를 하고, 승인된 설계의 작업을 순서대로 최소 루프에 넣는다', async () => {
+    const loops = new FakeLoops([outcome(), outcome()]);
+    const designer = designerThat(approved());
+    const team = new FakeTeam({ router: [route('feature')] });
+    const turn = await withDesigner({ team, loops }, designer.port).handle('쿠폰 기능 만들어줘');
+    expect(loops.runs.map((r) => r.request.split('\n')[0])).toEqual(['작업 t1', '작업 t2']);
+    expect(loops.runs[0]!.context.design).toContain('<design');
+    expect(loops.runs[0]!.context.design).toContain('C:/designs/a.md');
+    expect(loops.runs[1]!.context.design).toContain('작업 t2');
+    expect(turn).toMatchObject({ kind: 'design', title: '쿠폰 할인', path: 'C:/designs/a.md' });
+    if (turn.kind === 'design') expect(turn.tasks.map((t) => t.status)).toEqual(['complete', 'complete']);
+  });
+
+  it('설계 팀원은 저장소 지식·기억·앞 대화를 받는다', async () => {
+    const knowledge = { current: async () => ({ block: '<repo_knowledge repo="shop-api" basis="main (a1b2c3d)">요약</repo_knowledge>', basis: RepoRef.of({ branch: 'main', commit: 'a1b2c3d'.padEnd(40, '0'), dirty: false }) }), noteChanged: async () => undefined };
+    const designer = designerThat(approved());
+    const team = new FakeTeam({ router: [route('feature')] });
+    await ChatSession.start({ ...sessionDeps({ team, loops: new FakeLoops([outcome(), outcome()]), user: talking }), designer: designer.port, knowledge, repoName: 'shop-api' }).handle('쿠폰 기능 만들어줘');
+    expect(designer.inputs[0]).toMatchObject({ request: '쿠폰 기능 만들어줘', repo: 'shop-api', basis: 'main (a1b2c3d)' });
+    expect(designer.inputs[0]!.knowledge).toContain('<repo_knowledge');
+  });
+
+  it('앞 작업이 멈추면 그것에 의존하는 작업은 하지 않고, 의존하지 않는 작업은 계속한다', async () => {
+    const design = designOf([task('t1'), task('t2', ['t1']), task('t3')]);
+    const loops = new FakeLoops([stopped(), outcome()]);
+    const turn = await withDesigner({ team: new FakeTeam({ router: [route('feature')] }), loops }, designerThat(approved(design)).port).handle('쿠폰 기능 만들어줘');
+    expect(loops.runs.map((r) => r.request.split('\n')[0])).toEqual(['작업 t1', '작업 t3']);
+    if (turn.kind === 'design') expect(turn.tasks.map((t) => `${t.id}:${t.status}`)).toEqual(['t1:stopped', 't2:skipped', 't3:complete']);
+  });
+
+  it('설계를 그만두면 작업하지 않고 알린다', async () => {
+    const loops = new FakeLoops();
+    const turn = await withDesigner({ team: new FakeTeam({ router: [route('feature')] }), loops }, designerThat({ kind: 'cancelled', cost }).port).handle('쿠폰 기능 만들어줘');
+    expect(loops.runs).toEqual([]);
+    expect(turn.kind).toBe('notice');
+  });
+
+  it('설계를 만들지 못하면 이유를 알린다', async () => {
+    const turn = await withDesigner({ team: new FakeTeam({ router: [route('feature')] }) }, designerThat({ kind: 'failed', message: '순환 의존', cost }).port).handle('쿠폰 기능 만들어줘');
+    expect(turn).toMatchObject({ kind: 'notice' });
+    if (turn.kind === 'notice') expect(turn.message).toContain('순환 의존');
+  });
+
+  it('구독 한도나 로그인 문제로 막히면 그대로 알린다', async () => {
+    const turn = await withDesigner({ team: new FakeTeam({ router: [route('feature')] }) }, designerThat({ kind: 'blocked', block: { reason: 'login', message: 'x' }, cost }).port).handle('쿠폰 기능 만들어줘');
+    expect(turn).toMatchObject({ kind: 'blocked', reason: 'login' });
+  });
+
+  it('화면이 없으면(-p) 설계 대화 없이 바로 작업으로 진행한다', async () => {
+    const loops = new FakeLoops();
+    const designer = designerThat(approved());
+    const turn = await withDesigner({ team: new FakeTeam({ router: [route('feature')] }), loops }, designer.port, new FakeUser(false)).handle('쿠폰 기능 만들어줘');
+    expect(designer.inputs).toEqual([]);
+    expect(loops.runs).toHaveLength(1);
+    expect(turn.kind).toBe('work');
+  });
+
+  it('/design은 라우터를 거치지 않고 바로 설계부터 한다', async () => {
+    const team = new FakeTeam({});
+    const designer = designerThat(approved());
+    await withDesigner({ team, loops: new FakeLoops([outcome(), outcome()]) }, designer.port).handle('쿠폰 기능 만들어줘', [], 'design');
+    expect(team.calls.map((c) => c.role)).not.toContain('router');
+    expect(designer.inputs).toHaveLength(1);
+  });
+
+  it('여러 저장소에 걸친 기능 요청은 하지 않고 알린다', async () => {
+    const loops = new FakeLoops();
+    const turn = await withDesigner({ team: new FakeTeam({ router: [route('feature')] }), loops }, designerThat(approved()).port).handle('둘 다 만들어줘', [{ name: 'web', root: 'E:/w/web', knowledge: null }]);
+    expect(turn.kind).toBe('notice');
+    expect(loops.runs).toEqual([]);
+  });
+
+  it('설계 팀원이 쓴 호출과 비용이 사용량에 더해진다', async () => {
+    const chat = withDesigner({ team: new FakeTeam({ router: [route('feature')] }), loops: new FakeLoops([outcome(), outcome()]) }, designerThat(approved()).port);
+    await chat.handle('쿠폰 기능 만들어줘');
+    expect(chat.usage().calls.sonnet).toBeGreaterThanOrEqual(3);
+    expect(chat.usage().costUsd).toBeGreaterThanOrEqual(0.05);
   });
 });
 

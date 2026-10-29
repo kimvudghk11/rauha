@@ -1,7 +1,7 @@
 import { DomainError } from '../../../shared/domain-error.js';
 import type { ModelTier } from '../../domain/team.js';
 
-export type MemberRole = 'intake' | 'tester' | 'implementer' | 'reviewer' | 'router' | 'answerer' | 'surveyor' | 'writer';
+export type MemberRole = 'intake' | 'tester' | 'implementer' | 'reviewer' | 'router' | 'answerer' | 'surveyor' | 'writer' | 'designer';
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 export interface RoleSetting {
@@ -18,7 +18,7 @@ const READ_TOOLS = ['Read', 'Grep', 'Glob', 'WebSearch', 'WebFetch'];
 const WRITE_TOOLS = [...READ_TOOLS, 'Edit', 'Write', 'Bash'];
 const TIERS: readonly ModelTier[] = ['haiku', 'sonnet', 'opus'];
 const EFFORTS: readonly Effort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
-const ROLES: readonly MemberRole[] = ['intake', 'tester', 'implementer', 'reviewer', 'router', 'answerer', 'surveyor', 'writer'];
+const ROLES: readonly MemberRole[] = ['intake', 'tester', 'implementer', 'reviewer', 'router', 'answerer', 'surveyor', 'writer', 'designer'];
 
 /** 상태 머신이 sonnet으로 올렸을 때 쓰는 설정. 표에 없는 조합은 역할 기본값에서 모델만 바꾼다. */
 const ESCALATED: Readonly<Partial<Record<MemberRole, Partial<Record<ModelTier, Partial<RoleSetting>>>>>> = {
@@ -52,6 +52,8 @@ export class RoleSettingsDto {
       surveyor: { tier: 'haiku', effort: 'low', maxTurns: 20, maxBudgetUsd: 0.5, tools: ['Read', 'Grep', 'Glob'], readsProject: true },
       // 코드가 아닌 결과물(포트폴리오·보고서·정리 문서)을 만든다. git 기록을 읽어야 해서 Bash, 문서만 쓰므로 Write·Edit은 .md로 막는다.
       writer: { tier: 'sonnet', effort: 'medium', maxTurns: 60, maxBudgetUsd: 3, tools: ['Read', 'Grep', 'Glob', 'Bash', 'Write', 'Edit'], readsProject: true },
+      // 설계 대화: 사용자와 여러 번 주고받으며 설계안을 쓴다. 코드와 문서는 읽기만 한다.
+      designer: { tier: 'sonnet', effort: 'medium', maxTurns: 25, maxBudgetUsd: 1.5, tools: READ_TOOLS, readsProject: true },
     });
   }
 

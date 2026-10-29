@@ -75,6 +75,24 @@ export function describeTurn(turn: TurnOutcome, view: MascotView | null): Printa
         '',
       ];
     }
+    case 'design': {
+      const ok = turn.tasks.filter((t) => t.status === 'complete').length;
+      const files = [...new Set(turn.tasks.flatMap((t) => t.outcome?.changedInRun.map((c) => c.path) ?? []))];
+      const line = (t: (typeof turn.tasks)[number]) => {
+        if (t.status === 'complete') return [`  ✓ ${t.title}`];
+        if (t.status === 'skipped') return [`  · ${t.title}`, '      앞 작업이 멈춰서 하지 않았어요'];
+        return [`  ✗ ${t.title}`, ...(t.outcome?.guide.stopMessage() ? [`      ${t.outcome.guide.stopMessage()}`] : [])];
+      };
+      return [
+        '',
+        `  설계 "${turn.title}" · 작업 ${turn.tasks.length}개 중 ${ok}개 완료 · ${formatElapsed(turn.durationMs)}`,
+        `  설계 문서: ${turn.path}`,
+        '',
+        ...turn.tasks.flatMap(line),
+        ...(files.length > 0 ? ['', '  바뀐 파일 (커밋은 직접 하세요)', ...files.map((f) => `    ${f}`)] : []),
+        '',
+      ];
+    }
     case 'notice':
       return ['', `  ${turn.message}`, ''];
     case 'blocked':

@@ -5,8 +5,10 @@ import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import {
   ChatSession,
+  DesignService,
   discoverRepos,
   FileChatSnapshots,
+  FileDesignStore,
   FileWorkspaceStore,
   GitWorkspace,
   isRepo,
@@ -14,6 +16,7 @@ import {
   Workspace,
   WorkspaceSession,
   type ChatSnapshot,
+  type DesignUserPort,
   type RepoSession,
   type WorkspaceRepo,
   readPlanUsage, type PermissionAsker, type PlanUsage, type Profile, type UserPort } from '@rauha/core';
@@ -116,6 +119,23 @@ export async function runChat(options: ChatOptions): Promise<number> {
     choose: (assumption) => asking(`요청의 해석을 정해 주세요: ${assumption.question}`, () => asker.choose(assumption)),
     confirmFact: (claim) => asking(`근거를 못 찾은 사실이 맞는지 알려 주세요: ${claim.text}`, () => asker.confirmFact(claim)),
     pickPast: (candidates) => asking('이 작업이 맞는지 알려 주세요', () => asker.pickPast(candidates)),
+    discuss: (q) =>
+      asking(`설계 질문에 답해 주세요: ${q.question}`, async () => {
+        store.printLines(['', `  ? 설계 질문 ${q.round}: ${q.question}`]);
+        if (q.suggestion !== null) store.print(`    추천: ${q.suggestion}`);
+        store.print('    (Enter 또는 "알아서 해" = 추천대로, /cancel = 설계 그만두기)');
+        const text = ((await store.ask({ kind: 'text', label: '답' })) as string).trim();
+        return text.toLowerCase() === '/cancel' ? null : text;
+      }),
+    approve: (plan) =>
+      asking(`설계를 보고 승인해 주세요: ${plan.title}`, async () => {
+        store.printLines(['', ...plan.summary, `  설계 문서: ${plan.path} (직접 고쳐도 돼요)`, '']);
+        const index = (await store.ask({ kind: 'menu', screen: '? 이 설계로 진행할까요?', options: ['승인하고 시작', '고칠 점 말하기', '그만두기'] })) as number;
+        if (index === 0) return { kind: 'approve' } as const;
+        if (index !== 1) return { kind: 'cancel' } as const;
+        const note = ((await store.ask({ kind: 'text', label: '고칠 점' })) as string).trim();
+        return note === '' ? ({ kind: 'cancel' } as const) : ({ kind: 'revise', note } as const);
+      }),
     pickRepo: (candidates) =>
       asking('어느 저장소 일인지 골라 주세요', async () => {
         const index = (await store.ask({ kind: 'menu', screen: '? 어느 저장소 일인가요?', options: candidates.map((c) => c.name) })) as number;
@@ -124,6 +144,9 @@ export async function runChat(options: ChatOptions): Promise<number> {
   };
 
   const prompts = await loadPrompts();
+
+  /** 설계 서비스가 쓰는 사용자 쪽(위 user의 설계 대화 부분) */
+  const designUser: DesignUserPort = { discuss: (q) => user.discuss!(q), approve: (plan) => user.approve!(plan) };
 
   // 작업 공간: 띄운 폴더가 저장소면 그것 하나, 저장소들을 담은 폴더면 그 아래 저장소들, 없으면 띄운 폴더 하나.
   const wsStore = new FileWorkspaceStore(join(home, '.rauha', 'workspaces'), workDir);
@@ -163,6 +186,7 @@ export async function runChat(options: ChatOptions): Promise<number> {
       get folder() {
         return multi() ? { root: workDir, repos: workspace.repos.map((r) => ({ name: r.name, root: r.root })) } : undefined;
       },
+      designer: new DesignService({ team, roles: roleSettings(), user: designUser, store: new FileDesignStore(repoProfile.designsDir(home), repo.root), progress, today: () => new Date().toISOString().slice(0, 10) }),
       newLoop: (carried: ReadonlyMap<string, string>) => createLoop(ctx, prompts, team, carried, knowledge),
       team,
       workspace: new GitWorkspace(repo.root, loadSecretPolicy(repo.root)),
@@ -305,6 +329,10 @@ export async function runChat(options: ChatOptions): Promise<number> {
           }
           return;
         }
+        case 'design': {
+          if (command.request === null) return store.print('  /design <요청>으로 설계부터 시작해요. 예: /design 쿠폰 기능 만들어줘');
+          return runTurn(text, command.request, 'design');
+        }
         case 'help':
           store.print(HELP_TEXT);
           return;
@@ -316,12 +344,17 @@ export async function runChat(options: ChatOptions): Promise<number> {
           return;
       }
     }
-    store.print(`\n> ${text}`);
+    return runTurn(text, text);
+  }
+
+  /** 입력 하나를 작업 공간에 보내고 결과를 화면에 낸다. shown: 화면에 "> " 뒤로 보일 글, force: /design처럼 라우터를 건너뛸 때 */
+  async function runTurn(shown: string, request: string, force?: 'design'): Promise<void> {
+    store.print(`\n> ${shown}`);
     for (const b of bundles.values()) b.team.resume();
     store.setBusy(true);
     let handled: string | null = null;
     try {
-      const turn = await ws.handle(text);
+      const turn = await ws.handle(request, force);
       handled = turn.repo;
       if (turn.kind === 'work') lastGuide = turn.outcome.guide.toMarkdown();
       finishWorking();
