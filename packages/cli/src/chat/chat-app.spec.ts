@@ -445,3 +445,43 @@ describe('ChatApp — 큰 창의 작은 Delfi', () => {
     expect(artLines()).toBeGreaterThan(5);
   });
 });
+
+describe('ChatApp — @파일 자동완성', () => {
+  const files = () => ['README.md', 'src/money.ts', 'src/cart.ts'];
+  const open = () => {
+    const r = render(React.createElement(ChatApp, { store: new ChatStore(), banner: () => '배너', view: null, onSubmit: vi.fn(), files }));
+    mounted.push(r);
+    return r;
+  };
+
+  it('@를 치면 맞는 파일을 보여 주고 Tab으로 채운다', async () => {
+    const r = open();
+    await tick();
+    r.stdin.write('이거 @mon');
+    await tick();
+    expect(visible(r.lastFrame())).toContain('@src/money.ts');
+    r.stdin.write('\t');
+    await tick();
+    expect(visible(r.lastFrame())).toContain('> 이거 @src/money.ts');
+  });
+
+  it('Enter는 후보를 고르지 않고 쓴 글 그대로 보낸다', async () => {
+    const onSubmit = vi.fn();
+    const r = render(React.createElement(ChatApp, { store: new ChatStore(), banner: () => '배너', view: null, onSubmit, files }));
+    mounted.push(r);
+    await tick();
+    r.stdin.write('@mon');
+    await tick();
+    r.stdin.write('\r');
+    await tick();
+    expect(onSubmit).toHaveBeenCalledWith('@mon');
+  });
+
+  it('@가 없으면 파일 후보를 띄우지 않는다', async () => {
+    const r = open();
+    await tick();
+    r.stdin.write('money');
+    await tick();
+    expect(visible(r.lastFrame())).not.toContain('src/money.ts');
+  });
+});

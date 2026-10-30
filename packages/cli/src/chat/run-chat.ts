@@ -68,6 +68,16 @@ async function currentBranch(cwd: string): Promise<string | null> {
   }
 }
 
+/** 저장소의 파일 목록(추적 중이거나 아직 추적하지 않지만 무시되지 않은 것). git이 없거나 실패하면 빈 목록. */
+async function listFiles(cwd: string): Promise<string[]> {
+  try {
+    const { stdout } = await promisify(execFile)('git', ['ls-files', '-co', '--exclude-standard'], { cwd, maxBuffer: 32 * 1024 * 1024 });
+    return stdout.split(/\r?\n/).filter((l) => l !== '');
+  } catch {
+    return [];
+  }
+}
+
 /** rauha(인자 없음): Claude Code 같은 대화 화면. 화면이 없으면 열지 않는다. */
 export async function runChat(options: ChatOptions): Promise<number> {
   if (process.stdin.isTTY !== true || process.stderr.isTTY !== true) {
@@ -234,6 +244,11 @@ export async function runChat(options: ChatOptions): Promise<number> {
   /** 마지막으로 보낸 요청 글(/retry로 다시 보낸다) */
   let lastRequest: string | null = null;
 
+  // @를 치면 보여 줄 파일 목록. 저장소가 바뀌거나 일이 끝나면 다시 읽는다.
+  let fileList: string[] = [];
+  const refreshFiles = () => void listFiles(ws.current()?.root ?? workDir).then((list) => (fileList = list));
+  refreshFiles();
+
   const screen = parkingStream(process.stderr);
   const app = render(
     React.createElement(ChatApp, {
@@ -243,6 +258,7 @@ export async function runChat(options: ChatOptions): Promise<number> {
       onSubmit: (text: string) => submit(text),
       onInterrupt: () => interrupt(),
       cursor: screen.park,
+      files: () => fileList,
     }),
     { stdout: screen.stream, exitOnCtrlC: false },
   );
@@ -436,6 +452,7 @@ export async function runChat(options: ChatOptions): Promise<number> {
       notifyIfLong(notifier, startedAt, Date.now(), LONG_WORK_MS, `${profile.badge()} 작업이 끝났어요`, shown);
       remember(bundleNamed(handled));
       void usageTimer.now();
+      refreshFiles();
     }
   }
 
@@ -465,6 +482,7 @@ export async function runChat(options: ChatOptions): Promise<number> {
       const repo = ws.select(command.name);
       if (repo === null) return store.print(`  ${command.name} 저장소가 작업 공간에 없어요. /repo로 목록을 볼 수 있어요.`);
       void usageTimer.now();
+      refreshFiles();
       return store.print(`  지금 저장소: ${repo.name}`);
     }
     const now = ws.current()?.root ?? null;

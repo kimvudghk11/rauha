@@ -7,6 +7,7 @@ import { displayWidth, fitLines, truncateWidth } from '../text-width.js';
 import type { CursorPark, CursorSpot } from './cursor-park.js';
 import type { ChatStore, Prompt, Working } from './chat-store.js';
 import { suggestCommands } from './commands.js';
+import { completeMention, mentionAt, suggestFiles } from './file-mention.js';
 import { editInput, inputLayout, type InputState } from './input-line.js';
 
 const h = React.createElement;
@@ -33,6 +34,8 @@ export interface ChatAppProps {
   readonly onInterrupt?: () => void;
   /** 진짜 터미널 커서를 입력 자리로 옮기는 곳. 없으면 반전 글자로 커서를 흉내 낸다. */
   readonly cursor?: CursorPark;
+  /** 지금 저장소의 파일 목록(@를 치면 후보로 보여 준다). 없으면 @ 자동완성을 하지 않는다. */
+  readonly files?: () => readonly string[];
 }
 
 function useStore(store: ChatStore): void {
@@ -127,13 +130,17 @@ function browseHistory(count: number, at: number | null, direction: 'up' | 'down
 }
 
 /** below: 입력창 아래에 더 그리는 줄 수(상태 줄). 커서 자리를 그만큼 위로 잡는다. */
-function InputBox({ width, history, onSubmit, onInterrupt, onEscape, cursor, below }: { width: number; history: readonly string[]; onSubmit: (text: string) => void; onInterrupt: () => void; onEscape: () => void; cursor: CursorPark | null; below: number }) {
+function InputBox({ width, history, files, onSubmit, onInterrupt, onEscape, cursor, below }: { width: number; history: readonly string[]; files: (() => readonly string[]) | null; onSubmit: (text: string) => void; onInterrupt: () => void; onEscape: () => void; cursor: CursorPark | null; below: number }) {
   const [state, setState] = useState<InputState>({ text: '', cursor: 0 });
   const [browsing, setBrowsing] = useState<{ at: number; draft: string } | null>(null);
   const [pick, setPick] = useState(0);
   // '/'로 시작하는 글을 치는 동안 명령 후보를 띄운다. 명령을 다 쳤으면 띄우지 않는다.
   const candidates = suggestCommands(state.text);
-  const shown = candidates.length === 1 && candidates[0]!.name === state.text ? [] : candidates;
+  const commandsShown = candidates.length === 1 && candidates[0]!.name === state.text ? [] : candidates;
+  // 명령 후보가 없을 때 커서 앞이 "@검색어"이면 파일 후보를 띄운다(Tab으로 채운다).
+  const mention = commandsShown.length === 0 && files !== null ? mentionAt(state) : null;
+  const fileMatches = mention !== null && files !== null ? suggestFiles(mention.query, files()) : [];
+  const shown = commandsShown.length > 0 ? commandsShown : fileMatches.map((path) => ({ name: `@${path}`, help: '' }));
   const selected = Math.min(pick, Math.max(0, shown.length - 1));
   const fill = (text: string) => setState({ text, cursor: [...text].length });
   useInput(
@@ -159,7 +166,12 @@ function InputBox({ width, history, onSubmit, onInterrupt, onEscape, cursor, bel
         setPick((selected + (key.upArrow ? shown.length - 1 : 1)) % shown.length);
         return;
       }
-      if (shown.length > 0 && (key.tab || key.return)) {
+      if (mention !== null && fileMatches.length > 0 && key.tab) {
+        setState(completeMention(state, mention, fileMatches[selected]!));
+        setPick(0);
+        return;
+      }
+      if (commandsShown.length > 0 && (key.tab || key.return)) {
         const name = shown[selected]!.name;
         setPick(0);
         if (key.tab) return fill(name);
@@ -210,7 +222,7 @@ function InputBox({ width, history, onSubmit, onInterrupt, onEscape, cursor, bel
     ),
     // 후보 줄은 접히면 커서 자리가 틀어져서 넘치는 설명은 자른다.
     ...shown.map((c, i) =>
-      h(Text, { key: c.name, wrap: 'truncate', ...(i === selected ? { color: SKY, bold: true } : { dimColor: true }) }, `  ${c.name.padEnd(9)} ${c.help}`),
+      h(Text, { key: c.name, wrap: 'truncate', ...(i === selected ? { color: SKY, bold: true } : { dimColor: true }) }, c.help === '' ? `  ${c.name}` : `  ${c.name.padEnd(9)} ${c.help}`),
     ),
   );
 }
@@ -258,7 +270,7 @@ function useScreen(clears: number): Screen {
  * 다시 그린다. Claude Code처럼 입력창은 화면 맨 아래에 붙인다: 지난 출력이 화면을 다 채우기 전에는
  * 그 사이를 빈 줄로 채운다. 그러려면 지난 출력이 몇 줄인지 알아야 해서, 고정 줄은 미리 창 너비로 접어 둔다.
  */
-export function ChatApp({ store, banner, view, onSubmit, onInterrupt, cursor }: ChatAppProps) {
+export function ChatApp({ store, banner, view, onSubmit, onInterrupt, cursor, files }: ChatAppProps) {
   useStore(store);
   const screen = useScreen(store.clears);
   const prompt = store.prompt;
@@ -295,7 +307,7 @@ export function ChatApp({ store, banner, view, onSubmit, onInterrupt, cursor }: 
       prompt?.kind === 'text' ? h(TextPrompt, { key: prompt.label, store, prompt, cursor: cursor ?? null, below }) : null,
       // 일하는 중에 받아 둔 입력. 지금 일이 끝나면 차례로 처리한다.
       ...(prompt === null ? store.queue.map((text, i) => h(Text, { key: `q${i}`, dimColor: true, wrap: 'truncate-end' }, `  대기 ${i + 1}  ${text}`)) : []),
-      prompt === null ? h(InputBox, { width: Math.max(20, screen.columns - 1), history: store.history, onSubmit: submit, onInterrupt: () => onInterrupt?.(), onEscape: () => store.busy && onInterrupt?.(), cursor: cursor ?? null, below }) : null,
+      prompt === null ? h(InputBox, { width: Math.max(20, screen.columns - 1), history: store.history, files: files ?? null, onSubmit: submit, onInterrupt: () => onInterrupt?.(), onEscape: () => store.busy && onInterrupt?.(), cursor: cursor ?? null, below }) : null,
       // 한 줄로 자른다: 접히면 줄 수가 늘어 입력창 위치와 커서 자리가 틀어진다.
       store.status !== '' ? h(Text, { dimColor: true, wrap: 'truncate-end' }, ` ${store.status}`) : null,
       store.notice !== '' ? h(Text, { color: SKY, wrap: 'truncate-end' }, ` ${store.notice}`) : null,
