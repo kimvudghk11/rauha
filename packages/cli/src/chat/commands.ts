@@ -60,4 +60,4 @@ export function suggestCommands(text: string): CommandHelp[] {
   return COMMANDS.filter((c) => `/${c.kind}`.startsWith(text.toLowerCase())).map((c) => ({ name: `/${c.kind}`, help: c.help }));
 }
 
-export const HELP_TEXT = ['명령', ...COMMANDS.map((c) => `  ${`/${c.kind}`.padEnd(9)} ${c.help}`), '그 밖의 글은 요청이나 질문으로 보내요.'].join('\n');
+export const HELP_TEXT = ['명령', ...COMMANDS.map((c) => `  ${`/${c.kind}`.padEnd(9)} ${c.help}`), '그 밖의 글은 요청이나 질문으로 보내요.', '줄바꿈은 Alt+Enter, Ctrl+J 또는 줄 끝 \\ 뒤 Enter · @를 치면 파일 후보 · 일하는 중 Esc로 멈춤'].join('\n');

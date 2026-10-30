@@ -8,7 +8,7 @@ import type { CursorPark, CursorSpot } from './cursor-park.js';
 import type { ChatStore, Prompt, Working } from './chat-store.js';
 import { suggestCommands } from './commands.js';
 import { completeMention, mentionAt, suggestFiles } from './file-mention.js';
-import { editInput, inputLayout, type InputState } from './input-line.js';
+import { editInput, inputLayout, moveVertical, type InputState } from './input-line.js';
 
 const h = React.createElement;
 
@@ -108,7 +108,9 @@ function TextPrompt({ store, prompt, cursor, below }: { store: ChatStore; prompt
       store.answer(state.text.trim());
       return;
     }
-    setState(editInput(state, input, key).state);
+    // 한 줄짜리 답이라 붙여넣은 줄바꿈은 띄어쓰기로 바꾼다(글자 수가 같아 커서 자리는 그대로).
+    const next = editInput(state, input, key).state;
+    setState({ text: next.text.replaceAll('\n', ' '), cursor: next.cursor });
   });
   const label = `  ${prompt.label}: `;
   const before = [...state.text].slice(0, state.cursor).join('');
@@ -179,6 +181,14 @@ function InputBox({ width, history, files, onSubmit, onInterrupt, onEscape, curs
         onSubmit(name);
         return;
       }
+      if ((key.upArrow || key.downArrow) && layout.lines.length > 1) {
+        // 여러 줄이면 위·아래 화살표는 먼저 줄 사이를 오간다. 맨 위·맨 아래 줄에서만 지난 입력으로 넘어간다.
+        const moved = moveVertical(state, layout, key.upArrow ? -1 : 1);
+        if (moved !== null) {
+          setState(moved);
+          return;
+        }
+      }
       if (key.upArrow || key.downArrow) {
         const next = browseHistory(history.length, browsing?.at ?? null, key.upArrow ? 'up' : 'down');
         if (next === undefined) return;
@@ -204,7 +214,7 @@ function InputBox({ width, history, files, onSubmit, onInterrupt, onEscape, curs
   const layout = inputLayout(state, width - 6);
   // 입력 줄 아래에 아래 테두리·명령 후보·상태 줄이 있고, Ink는 그린 뒤 커서를 그다음 줄에 둔다.
   useParkedCursor(cursor, { up: layout.lines.length - layout.row + 1 + shown.length + below, column: 4 + layout.column });
-  const offset = state.cursor - layout.lines.slice(0, layout.row).reduce((sum, l) => sum + [...l].length, 0);
+  const offset = layout.offset;
   const line = (text: string, row: number) =>
     h(
       Box,

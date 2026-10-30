@@ -485,3 +485,49 @@ describe('ChatApp — @파일 자동완성', () => {
     expect(visible(r.lastFrame())).not.toContain('src/money.ts');
   });
 });
+
+describe('ChatApp — 여러 줄 입력', () => {
+  const ESC = String.fromCharCode(27);
+  const open = (onSubmit = vi.fn()) => {
+    const r = render(React.createElement(ChatApp, { store: new ChatStore(), banner: () => '배너', view: null, onSubmit, cursor: { set: () => {} } }));
+    mounted.push(r);
+    return { r, onSubmit };
+  };
+
+  it('Alt+Enter로 줄을 바꿔 쓰고, Enter로 여러 줄을 한 번에 보낸다', async () => {
+    const { r, onSubmit } = open();
+    await tick();
+    r.stdin.write('첫째');
+    await tick();
+    r.stdin.write(`${ESC}\r`);
+    await tick();
+    r.stdin.write('둘째');
+    await tick();
+    const rows = visible(r.lastFrame()).split('\n');
+    expect(rows.some((l) => l.includes('> 첫째'))).toBe(true);
+    expect(rows.some((l) => l.includes('둘째') && !l.includes('첫째'))).toBe(true);
+    r.stdin.write('\r');
+    await tick();
+    expect(onSubmit).toHaveBeenCalledWith('첫째\n둘째');
+  });
+
+  it('여러 줄이면 위 화살표는 먼저 윗줄로 간다 (지난 입력을 부르지 않는다)', async () => {
+    const store = new ChatStore();
+    store.restoreHistory(['지난 입력']);
+    const r = render(React.createElement(ChatApp, { store, banner: () => '배너', view: null, onSubmit: vi.fn(), cursor: { set: () => {} } }));
+    mounted.push(r);
+    await tick();
+    r.stdin.write('가');
+    await tick();
+    r.stdin.write(`${ESC}\r`);
+    await tick();
+    r.stdin.write('나');
+    await tick();
+    r.stdin.write(`${ESC}[A`);
+    await tick();
+    expect(visible(r.lastFrame())).not.toContain('지난 입력');
+    r.stdin.write(`${ESC}[A`);
+    await tick();
+    expect(visible(r.lastFrame())).toContain('지난 입력');
+  });
+});
