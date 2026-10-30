@@ -262,6 +262,9 @@ export async function runChat(options: ChatOptions): Promise<number> {
   let running = false;
   function submit(text: string): void {
     void inputHistory.append(text);
+    // 쌓아 둔 입력을 다루는 명령은 줄 서지 않고 바로 처리한다.
+    const command = parseCommand(text);
+    if (command?.kind === 'queue') return queueCommand(command.action);
     if (running) {
       store.enqueue(text);
       return;
@@ -275,6 +278,16 @@ export async function runChat(options: ChatOptions): Promise<number> {
     } finally {
       running = false;
     }
+  }
+
+  function queueCommand(action: 'show' | 'clear'): void {
+    if (action === 'clear') {
+      const dropped = store.clearQueue();
+      store.print(dropped > 0 ? `  기다리던 입력 ${dropped}개를 지웠어요.` : '  기다리는 입력이 없어요.');
+      return;
+    }
+    const queued = store.queue;
+    store.printLines(queued.length === 0 ? ['  기다리는 입력이 없어요.'] : ['', `  기다리는 입력 ${queued.length}개 (/queue clear로 비워요)`, ...queued.map((t, i) => `    ${i + 1}. ${t}`)]);
   }
 
   // Ctrl+C: 일하는 중이면 그 작업만 멈춘다(팀원 호출을 끊고 기다리던 질문은 거절로 닫는다).
@@ -367,6 +380,8 @@ export async function runChat(options: ChatOptions): Promise<number> {
           if (command.request === null) return store.print('  /design <요청>으로 설계부터 시작해요. 예: /design 쿠폰 기능 만들어줘');
           return runTurn(text, command.request, 'design');
         }
+        case 'queue':
+          return queueCommand(command.action);
         case 'retry':
           if (lastRequest === null) return store.print('  다시 보낼 요청이 아직 없어요.');
           return runTurn(lastRequest, lastRequest);

@@ -1,11 +1,13 @@
-type CommandName = 'clear' | 'status' | 'usage' | 'guide' | 'review' | 'design' | 'repo' | 'update' | 'retry' | 'help' | 'exit';
+type CommandName = 'clear' | 'status' | 'usage' | 'guide' | 'review' | 'design' | 'repo' | 'update' | 'retry' | 'queue' | 'help' | 'exit';
 
 export type ChatCommand =
-  | { readonly kind: Exclude<CommandName, 'review' | 'repo' | 'design'> }
+  | { readonly kind: Exclude<CommandName, 'review' | 'repo' | 'design' | 'queue'> }
   /** request: 설계부터 시작할 요청. 요청 없이 /design만 치면 null(안내) */
   | { readonly kind: 'design'; readonly request: string | null }
   /** target: 비교할 브랜치·커밋. null = 커밋하지 않은 변경 */
   | { readonly kind: 'review'; readonly target: string | null }
+  /** 일하는 중에 쌓아 둔 입력 보기·비우기 */
+  | { readonly kind: 'queue'; readonly action: 'show' | 'clear' }
   | { readonly kind: 'repo'; readonly action: 'list' }
   | { readonly kind: 'repo'; readonly action: 'select'; readonly name: string }
   | { readonly kind: 'repo'; readonly action: 'add'; readonly path: string }
@@ -26,6 +28,7 @@ const COMMANDS: readonly { readonly kind: CommandName; readonly help: string }[]
   { kind: 'design', help: '/design <요청>: 라우터를 거치지 않고 설계 대화부터 시작해요. 충분히 이야기해 설계를 승인하면 작업을 나눠 진행해요.' },
   { kind: 'repo', help: '작업 공간 저장소 보기 · /repo <이름>으로 지금 저장소 바꾸기 · /repo add <경로>로 더하기' },
   { kind: 'retry', help: '마지막 요청을 한 번 더 보내요 (멈췄거나 마음에 안 들 때)' },
+  { kind: 'queue', help: '일하는 중에 쌓아 둔 입력 보기 · /queue clear로 비우기' },
   { kind: 'update', help: '최신 버전으로 갱신하고 rauha를 다시 띄워요 (지난 작업 기억은 남아요)' },
   { kind: 'help', help: '이 안내' },
   { kind: 'exit', help: '끝내기 (Ctrl+C 두 번도 됨)' },
@@ -39,6 +42,7 @@ export function parseCommand(text: string): ChatCommand | null {
   const known = COMMANDS.find((c) => `/${c.kind}` === name.toLowerCase());
   if (known === undefined) return { kind: 'unknown', name };
   if (known.kind === 'review') return { kind: 'review', target: rest[0] ?? null };
+  if (known.kind === 'queue') return { kind: 'queue', action: rest[0]?.toLowerCase() === 'clear' ? 'clear' : 'show' };
   if (known.kind === 'design') return { kind: 'design', request: rest.length === 0 ? null : rest.join(' ') };
   if (known.kind === 'repo') {
     if (rest.length === 0) return { kind: 'repo', action: 'list' };
