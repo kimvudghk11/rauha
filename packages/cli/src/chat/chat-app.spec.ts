@@ -237,6 +237,22 @@ describe('ChatApp', () => {
     expect(visible(r.lastFrame())).not.toContain('hello');
   });
 
+  it('일하는 중에 Esc를 누르면 Ctrl+C처럼 그 작업을 멈추고, 쉬는 중의 Esc는 아무 일도 없다', async () => {
+    const onInterrupt = vi.fn();
+    const store = new ChatStore();
+    const r = render(React.createElement(ChatApp, { store, banner: () => '배너', view: null, onSubmit: vi.fn(), onInterrupt }));
+    mounted.push(r);
+    await tick();
+    r.stdin.write(String.fromCharCode(27));
+    await tick();
+    expect(onInterrupt).not.toHaveBeenCalled();
+    store.setBusy(true);
+    await tick();
+    r.stdin.write(String.fromCharCode(27));
+    await tick();
+    expect(onInterrupt).toHaveBeenCalledTimes(1);
+  });
+
   it('빈 입력창에서 Ctrl+D는 Ctrl+C처럼 끝내기로 넘긴다', async () => {
     const onInterrupt = vi.fn();
     const r = render(React.createElement(ChatApp, { store: new ChatStore(), banner: () => '배너', view: null, onSubmit: vi.fn(), onInterrupt }));

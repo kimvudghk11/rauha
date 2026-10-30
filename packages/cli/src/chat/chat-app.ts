@@ -124,7 +124,7 @@ function browseHistory(count: number, at: number | null, direction: 'up' | 'down
 }
 
 /** below: 입력창 아래에 더 그리는 줄 수(상태 줄). 커서 자리를 그만큼 위로 잡는다. */
-function InputBox({ width, history, onSubmit, onInterrupt, cursor, below }: { width: number; history: readonly string[]; onSubmit: (text: string) => void; onInterrupt: () => void; cursor: CursorPark | null; below: number }) {
+function InputBox({ width, history, onSubmit, onInterrupt, onEscape, cursor, below }: { width: number; history: readonly string[]; onSubmit: (text: string) => void; onInterrupt: () => void; onEscape: () => void; cursor: CursorPark | null; below: number }) {
   const [state, setState] = useState<InputState>({ text: '', cursor: 0 });
   const [browsing, setBrowsing] = useState<{ at: number; draft: string } | null>(null);
   const [pick, setPick] = useState(0);
@@ -146,6 +146,10 @@ function InputBox({ width, history, onSubmit, onInterrupt, cursor, below }: { wi
           return;
         }
         onInterrupt();
+        return;
+      }
+      if (key.escape) {
+        onEscape();
         return;
       }
       if (shown.length > 0 && (key.upArrow || key.downArrow)) {
@@ -288,7 +292,7 @@ export function ChatApp({ store, banner, view, onSubmit, onInterrupt, cursor }: 
       prompt?.kind === 'text' ? h(TextPrompt, { key: prompt.label, store, prompt, cursor: cursor ?? null, below }) : null,
       // 일하는 중에 받아 둔 입력. 지금 일이 끝나면 차례로 처리한다.
       ...(prompt === null ? store.queue.map((text, i) => h(Text, { key: `q${i}`, dimColor: true, wrap: 'truncate-end' }, `  대기 ${i + 1}  ${text}`)) : []),
-      prompt === null ? h(InputBox, { width: Math.max(20, screen.columns - 1), history: store.history, onSubmit: submit, onInterrupt: () => onInterrupt?.(), cursor: cursor ?? null, below }) : null,
+      prompt === null ? h(InputBox, { width: Math.max(20, screen.columns - 1), history: store.history, onSubmit: submit, onInterrupt: () => onInterrupt?.(), onEscape: () => store.busy && onInterrupt?.(), cursor: cursor ?? null, below }) : null,
       // 한 줄로 자른다: 접히면 줄 수가 늘어 입력창 위치와 커서 자리가 틀어진다.
       store.status !== '' ? h(Text, { dimColor: true, wrap: 'truncate-end' }, ` ${store.status}`) : null,
       store.notice !== '' ? h(Text, { color: SKY, wrap: 'truncate-end' }, ` ${store.notice}`) : null,

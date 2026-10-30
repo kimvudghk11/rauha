@@ -1,4 +1,4 @@
-type CommandName = 'clear' | 'status' | 'usage' | 'guide' | 'review' | 'design' | 'repo' | 'update' | 'help' | 'exit';
+type CommandName = 'clear' | 'status' | 'usage' | 'guide' | 'review' | 'design' | 'repo' | 'update' | 'retry' | 'help' | 'exit';
 
 export type ChatCommand =
   | { readonly kind: Exclude<CommandName, 'review' | 'repo' | 'design'> }
@@ -25,6 +25,7 @@ const COMMANDS: readonly { readonly kind: CommandName; readonly help: string }[]
   { kind: 'review', help: '내 변경(커밋 안 한 것, 또는 /review <브랜치>로 그 브랜치와 갈라진 뒤)을 리뷰어가 검토해요. 파일은 고치지 않아요.' },
   { kind: 'design', help: '/design <요청>: 라우터를 거치지 않고 설계 대화부터 시작해요. 충분히 이야기해 설계를 승인하면 작업을 나눠 진행해요.' },
   { kind: 'repo', help: '작업 공간 저장소 보기 · /repo <이름>으로 지금 저장소 바꾸기 · /repo add <경로>로 더하기' },
+  { kind: 'retry', help: '마지막 요청을 한 번 더 보내요 (멈췄거나 마음에 안 들 때)' },
   { kind: 'update', help: '최신 버전으로 갱신하고 rauha를 다시 띄워요 (지난 작업 기억은 남아요)' },
   { kind: 'help', help: '이 안내' },
   { kind: 'exit', help: '끝내기 (Ctrl+C 두 번도 됨)' },

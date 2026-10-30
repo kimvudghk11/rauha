@@ -43,7 +43,7 @@ describe('/guide', () => {
 
 describe('suggestCommands', () => {
   it('/만 치면 모든 명령을, 더 치면 앞이 맞는 명령만 설명과 함께 보여 준다', () => {
-    expect(suggestCommands('/').map((c) => c.name)).toEqual(['/clear', '/status', '/usage', '/guide', '/review', '/design', '/repo', '/update', '/help', '/exit']);
+    expect(suggestCommands('/').map((c) => c.name)).toEqual(['/clear', '/status', '/usage', '/guide', '/review', '/design', '/repo', '/retry', '/update', '/help', '/exit']);
     expect(suggestCommands('/us')).toEqual([{ name: '/usage', help: expect.stringContaining('구독 사용률') }]);
     expect(suggestCommands('/up')).toEqual([{ name: '/update', help: expect.stringContaining('최신') }]);
   });
@@ -67,5 +67,12 @@ describe('/design', () => {
 
   it('입력창에서 /de를 치면 후보에 /design이 뜬다', () => {
     expect(suggestCommands('/de').map((c) => c.name)).toContain('/design');
+  });
+});
+
+describe('/retry', () => {
+  it('/retry는 마지막 요청을 다시 보내는 명령이다', () => {
+    expect(parseCommand('/retry')).toEqual({ kind: 'retry' });
+    expect(suggestCommands('/re').map((c) => c.name)).toContain('/retry');
   });
 });

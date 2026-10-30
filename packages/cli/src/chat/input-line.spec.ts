@@ -52,3 +52,21 @@ describe('inputLayout', () => {
     expect(inputLayout({ text: '', cursor: 0 }, 4)).toEqual({ lines: [''], row: 0, column: 0 });
   });
 });
+
+describe('editInput — 편집 단축키', () => {
+  const ctrl = (state: InputState, input: string) => editInput(state, input, { ctrl: true }).state;
+
+  it('Ctrl+A는 맨 앞, Ctrl+E는 맨 끝으로 간다', () => {
+    expect(ctrl({ text: '할인 넣어줘', cursor: 3 }, 'a').cursor).toBe(0);
+    expect(ctrl({ text: '할인 넣어줘', cursor: 3 }, 'e').cursor).toBe(6);
+  });
+
+  it('Ctrl+W는 커서 앞 한 단어를 지운다', () => {
+    expect(ctrl({ text: 'Money 할인 넣어줘', cursor: 9 }, 'w')).toEqual({ text: 'Money 넣어줘', cursor: 6 });
+    expect(ctrl({ text: 'Money  ', cursor: 7 }, 'w')).toEqual({ text: '', cursor: 0 });
+  });
+
+  it('Ctrl+K는 커서부터 끝까지 지운다', () => {
+    expect(ctrl({ text: 'Money 할인', cursor: 5 }, 'k')).toEqual({ text: 'Money', cursor: 5 });
+  });
+});

@@ -39,6 +39,16 @@ export function editInput(state: InputState, input: string, key: InputKey): { st
     return text === '' ? keep(state) : { state: EMPTY, submit: text };
   }
   if (key.ctrl && input === 'u') return keep(EMPTY);
+  if (key.ctrl && input === 'a') return keep({ text: state.text, cursor: 0 });
+  if (key.ctrl && input === 'e') return keep({ text: state.text, cursor: chars.length });
+  if (key.ctrl && input === 'k') return keep({ text: chars.slice(0, at).join(''), cursor: at });
+  if (key.ctrl && input === 'w') {
+    // 커서 앞의 띄어쓰기를 건너뛰고, 그 앞 한 단어를 지운다.
+    let start = at;
+    while (start > 0 && chars[start - 1] === ' ') start -= 1;
+    while (start > 0 && chars[start - 1] !== ' ') start -= 1;
+    return keep({ text: [...chars.slice(0, start), ...chars.slice(at)].join(''), cursor: start });
+  }
   if (key.leftArrow) return keep({ text: state.text, cursor: Math.max(0, at - 1) });
   if (key.rightArrow) return keep({ text: state.text, cursor: Math.min(chars.length, at + 1) });
   if (key.home) return keep({ text: state.text, cursor: 0 });

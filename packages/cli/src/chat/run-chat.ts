@@ -224,6 +224,8 @@ export async function runChat(options: ChatOptions): Promise<number> {
   let lastGuide: string | null = null;
   /** /update로 갱신을 마쳐 화면을 닫은 뒤 다시 띄워야 하는지 */
   let restartAfterExit = false;
+  /** 마지막으로 보낸 요청 글(/retry로 다시 보낸다) */
+  let lastRequest: string | null = null;
 
   const screen = parkingStream(process.stderr);
   const app = render(
@@ -360,6 +362,9 @@ export async function runChat(options: ChatOptions): Promise<number> {
           if (command.request === null) return store.print('  /design <요청>으로 설계부터 시작해요. 예: /design 쿠폰 기능 만들어줘');
           return runTurn(text, command.request, 'design');
         }
+        case 'retry':
+          if (lastRequest === null) return store.print('  다시 보낼 요청이 아직 없어요.');
+          return runTurn(lastRequest, lastRequest);
         case 'help':
           store.print(HELP_TEXT);
           return;
@@ -371,6 +376,7 @@ export async function runChat(options: ChatOptions): Promise<number> {
           return;
       }
     }
+    lastRequest = text;
     return runTurn(text, text);
   }
 
