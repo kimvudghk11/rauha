@@ -6,7 +6,7 @@ export type Prompt =
   | { readonly kind: 'text'; readonly label: string };
 
 /** 화면에 고정할 글. 창 너비에 따라 달라지는 것(박스)은 너비를 받아 만드는 함수로 두어 창을 바꾸면 다시 만든다. */
-export type Printable = string | ((columns: number) => string);
+export type Printable = string | ((columns: number, rows: number) => string);
 
 export interface Working {
   readonly text: string;
@@ -30,6 +30,7 @@ export class ChatStore {
   private isBusy = false;
   private statusText = '';
   private sent: string[] = [];
+  private queued: string[] = [];
   private cleared = 0;
   private noticeText = '';
   private readonly listeners = new Set<() => void>();
@@ -136,6 +137,33 @@ export class ChatStore {
     this.waiting = [];
     for (const p of pending) p.resolve(p.prompt.kind === 'menu' ? -1 : '');
     this.changed();
+  }
+
+  /** 일하는 중에 미리 받아 둔 입력. 지금 일이 끝나면 넣은 순서대로 하나씩 처리한다. */
+  get queue(): readonly string[] {
+    return this.queued;
+  }
+
+  enqueue(text: string): void {
+    this.queued = [...this.queued, text];
+    this.changed();
+  }
+
+  dequeue(): string | undefined {
+    const [head, ...rest] = this.queued;
+    if (head === undefined) return undefined;
+    this.queued = rest;
+    this.changed();
+    return head;
+  }
+
+  /** 대기열을 비우고 지운 개수를 돌려준다. */
+  clearQueue(): number {
+    const count = this.queued.length;
+    if (count === 0) return 0;
+    this.queued = [];
+    this.changed();
+    return count;
   }
 
   /** 보낸 입력(위 화살표로 다시 부른다). 바로 앞과 같으면 한 번만. */

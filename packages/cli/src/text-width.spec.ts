@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { displayWidth, fitLines } from './text-width.js';
+import { displayWidth, fitLines, truncateWidth } from './text-width.js';
 
 describe('fitLines', () => {
   it('줄마다 너비를 넘지 않게 접고, 원래 줄바꿈도 지킨다', () => {
@@ -32,5 +32,17 @@ describe('fitLines', () => {
 
   it('빈 줄도 한 줄로 남는다', () => {
     expect(fitLines('a\n\nb', 10)).toEqual(['a', '', 'b']);
+  });
+});
+
+describe('truncateWidth', () => {
+  it('너비 안이면 그대로 둔다', () => {
+    expect(truncateWidth('접수 > 구현', 20)).toBe('접수 > 구현');
+  });
+
+  it('너비를 넘으면 끝을 …로 줄여 한 줄에 맞춘다', () => {
+    const cut = truncateWidth('접수 > 테스트 > 구현 > 테스트(2) > 구현(2)', 14);
+    expect(cut.endsWith('…')).toBe(true);
+    expect(displayWidth(cut)).toBeLessThanOrEqual(14);
   });
 });

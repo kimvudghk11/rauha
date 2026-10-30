@@ -48,16 +48,25 @@ describe('ChatApp', () => {
     expect(onSubmit).toHaveBeenCalledWith('고쳐줘');
   });
 
-  it('일하는 중에는 입력을 받지 않는다', async () => {
+  it('일하는 중에도 입력을 받는다 (줄 세우는 건 onSubmit을 받는 쪽이 한다)', async () => {
     const store = new ChatStore();
     store.setBusy(true);
-    const { stdin, onSubmit, lastFrame } = app(store);
+    const { stdin, onSubmit } = app(store);
     await tick();
     stdin.write('abc');
+    await tick();
     stdin.write('\r');
     await tick();
-    expect(onSubmit).not.toHaveBeenCalled();
-    expect(visible(lastFrame())).toContain('일하는 중');
+    expect(onSubmit).toHaveBeenCalledWith('abc');
+  });
+
+  it('일하는 중에 받아 둔 입력은 입력창 위에 대기로 보인다', async () => {
+    const store = new ChatStore();
+    store.setBusy(true);
+    store.enqueue('테스트도 추가해줘');
+    const { lastFrame } = app(store);
+    await tick();
+    expect(visible(lastFrame())).toContain('대기 1  테스트도 추가해줘');
   });
 
   it('메뉴 질문이 뜨면 아래 화살표와 Enter로 고른다', async () => {
@@ -83,11 +92,14 @@ describe('ChatApp', () => {
     expect(await answer).toBe('build만 지워');
   });
 
-  it('입력창은 76칸을 넘지 않는다 (창을 조금 줄여도 접히지 않게)', () => {
-    const { lastFrame } = app();
-    const box = visible(lastFrame()).split('\n').filter((l) => l.includes('▁') || l.includes('▕') || l.includes('▔'));
-    expect(box.length).toBeGreaterThan(0);
-    for (const line of box) expect([...line.trimEnd()].length).toBeLessThanOrEqual(76);
+  it('입력창은 창 너비를 따라 넓어지고 줄어든다 (마지막 칸은 비운다)', async () => {
+    const { lastFrame, stdout } = app();
+    const widest = () => Math.max(...visible(lastFrame() ?? '').split('\n').filter((l) => l.includes('▁') || l.includes('▔')).map((l) => [...l.trimEnd()].length));
+    await resize(stdout, 140, 40);
+    expect(widest()).toBeGreaterThan(100);
+    expect(widest()).toBeLessThanOrEqual(139);
+    await resize(stdout, 50, 40);
+    expect(widest()).toBeLessThanOrEqual(49);
   });
 
   it('입력창은 화면 맨 아래에 붙는다 (위 출력과 입력창 사이를 빈 줄로 채운다)', async () => {
@@ -154,7 +166,7 @@ describe('ChatApp', () => {
     for (const line of lines) expect(line.length).toBeLessThanOrEqual(14);
   });
 
-  it('진짜 커서를 입력창의 글자 자리로 옮기고, 일하는 동안에는 치운다 (한글 조합이 입력창에 보이게)', async () => {
+  it('진짜 커서를 입력창의 글자 자리로 옮기고, 일하는 동안에도 그 자리에 둔다 (한글 조합이 입력창에 보이게)', async () => {
     const spots: unknown[] = [];
     const store = new ChatStore();
     const r = render(React.createElement(ChatApp, { store, banner: () => '배너', view: null, onSubmit: vi.fn(), cursor: { set: (s) => spots.push(s) } }));
@@ -166,7 +178,7 @@ describe('ChatApp', () => {
     expect(spots.at(-1)).toEqual({ up: 2, column: 7 });
     store.setBusy(true);
     await tick();
-    expect(spots.at(-1)).toBeNull();
+    expect(spots.at(-1)).toEqual({ up: 2, column: 7 });
   });
 
   it('입력창 아래에 상태 줄을 흐리게 보여 주고, 커서 자리는 그만큼 위로 잡는다', async () => {

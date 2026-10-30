@@ -81,3 +81,23 @@ describe('ChatStore', () => {
     expect(() => store.answer(0)).not.toThrow();
   });
 });
+
+describe('ChatStore — 입력 대기열', () => {
+  it('일하는 중에 넣은 입력은 넣은 순서대로 하나씩 꺼낸다', () => {
+    const store = new ChatStore();
+    store.enqueue('첫째');
+    store.enqueue('둘째');
+    expect(store.queue).toEqual(['첫째', '둘째']);
+    expect(store.dequeue()).toBe('첫째');
+    expect(store.dequeue()).toBe('둘째');
+    expect(store.dequeue()).toBeUndefined();
+  });
+
+  it('대기열을 비우면 지운 개수를 돌려준다', () => {
+    const store = new ChatStore();
+    store.enqueue('하나');
+    store.enqueue('둘');
+    expect(store.clearQueue()).toBe(2);
+    expect(store.queue).toEqual([]);
+  });
+});

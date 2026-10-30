@@ -3,7 +3,7 @@ import React, { useEffect, useReducer, useState } from 'react';
 import { formatElapsed } from '../live-line.js';
 import type { MascotView } from '../mascot.js';
 import { menuKey, menuLines } from '../menu.js';
-import { displayWidth, fitLines } from '../text-width.js';
+import { displayWidth, fitLines, truncateWidth } from '../text-width.js';
 import type { CursorPark, CursorSpot } from './cursor-park.js';
 import type { ChatStore, Prompt, Working } from './chat-store.js';
 import { suggestCommands } from './commands.js';
@@ -17,8 +17,6 @@ const SPINNER = ['▖', '▘', '▝', '▗'] as const;
 /** 1/8 블록 테두리. 선 문자(╭─╮)는 한글 글꼴 cmd에서 가로선이 사라질 때가 있다. */
 const BLOCK_BORDER = { topLeft: ' ', top: '▁', topRight: ' ', left: '▕', right: '▏', bottomLeft: ' ', bottom: '▔', bottomRight: ' ' };
 const SKY = '#8FD3F7';
-/** 입력창 최대 너비. 창 너비를 다 쓰면 창을 조금만 줄여도 cmd가 줄을 접어 지난 테두리가 남는다. */
-const MAX_INPUT_WIDTH = 76;
 
 /** 창 크기를 바꾸는 동안 여러 번 오는 resize를 모아, 멈춘 뒤 한 번만 다시 그린다. */
 const REDRAW_DELAY_MS = 150;
@@ -28,7 +26,7 @@ const CLEAR_ALL = '\x1b[2J\x1b[3J\x1b[H';
 export interface ChatAppProps {
   readonly store: ChatStore;
   /** 맨 위 시작 박스. 창 너비가 바뀌면 새 너비로 다시 만든다. */
-  readonly banner: (columns: number) => string;
+  readonly banner: (columns: number, rows: number) => string;
   readonly view: MascotView | null;
   readonly onSubmit: (text: string) => void;
   /** Ctrl+C를 눌렀을 때 */
@@ -51,8 +49,10 @@ function withCursor(state: InputState): React.ReactNode {
 
 /** 이 높이보다 낮은 창에서는 작은 Delfi(4줄) 대신 한 줄짜리 작업 중 표시를 쓴다. */
 const MIN_ROWS_FOR_MINI_DELFI = 16;
+/** 작업 줄에서 글 말고 차지하는 칸: 작은 Delfi(2+10) + 사이 1 + 스피너·띄어쓰기 3 + 시간(최대 8) + 여유 1 */
+const WORKING_CHROME = 25;
 
-function WorkingLine({ working, view, rows }: { working: Working; view: MascotView | null; rows: number }) {
+function WorkingLine({ working, view, rows, columns }: { working: Working; view: MascotView | null; rows: number; columns: number }) {
   const [frame, setFrame] = useState(0);
   useEffect(() => {
     const timer = setInterval(() => setFrame((f) => f + 1), 120);
@@ -61,8 +61,10 @@ function WorkingLine({ working, view, rows }: { working: Working; view: MascotVi
   const spinner = SPINNER[frame % SPINNER.length]!;
   const elapsed = formatElapsed(Date.now() - working.startedAt);
   const small = rows > 0 && rows < MIN_ROWS_FOR_MINI_DELFI;
-  const drawn = small ? view?.working(spinner, working.text, working.role, elapsed) : view?.workingDelfi(spinner, working.text, working.role, elapsed, frame);
-  return h(Text, null, drawn ?? `  ${spinner} ${working.text} ${elapsed}`);
+  // 작업 줄이 창 너비를 넘어 접히면 Ink가 다시 그릴 때 지울 줄 수가 틀어져 지난 줄이 쌓인다. 그림·스피너·시간 자리를 빼고 한 줄에 맞춘다.
+  const text = truncateWidth(working.text, Math.max(8, columns - WORKING_CHROME));
+  const drawn = small ? view?.working(spinner, text, working.role, elapsed) : view?.workingDelfi(spinner, text, working.role, elapsed, frame);
+  return h(Text, null, drawn ?? `  ${spinner} ${text} ${elapsed}`);
 }
 
 function MenuPrompt({ store, prompt, view, rows }: { store: ChatStore; prompt: Extract<Prompt, { kind: 'menu' }>; view: MascotView | null; rows: number }) {
@@ -122,12 +124,10 @@ function browseHistory(count: number, at: number | null, direction: 'up' | 'down
 }
 
 /** below: 입력창 아래에 더 그리는 줄 수(상태 줄). 커서 자리를 그만큼 위로 잡는다. */
-function InputBox({ busy, history, onSubmit, onInterrupt, cursor, below }: { busy: boolean; history: readonly string[]; onSubmit: (text: string) => void; onInterrupt: () => void; cursor: CursorPark | null; below: number }) {
+function InputBox({ width, history, onSubmit, onInterrupt, cursor, below }: { width: number; history: readonly string[]; onSubmit: (text: string) => void; onInterrupt: () => void; cursor: CursorPark | null; below: number }) {
   const [state, setState] = useState<InputState>({ text: '', cursor: 0 });
   const [browsing, setBrowsing] = useState<{ at: number; draft: string } | null>(null);
   const [pick, setPick] = useState(0);
-  const { stdout } = useStdout();
-  const width = Math.min((stdout.columns || 80) - 1, MAX_INPUT_WIDTH);
   // '/'로 시작하는 글을 치는 동안 명령 후보를 띄운다. 명령을 다 쳤으면 띄우지 않는다.
   const candidates = suggestCommands(state.text);
   const shown = candidates.length === 1 && candidates[0]!.name === state.text ? [] : candidates;
@@ -180,12 +180,11 @@ function InputBox({ busy, history, onSubmit, onInterrupt, cursor, below }: { bus
       }
       if (result.submit !== null) onSubmit(result.submit);
     },
-    { isActive: !busy },
   );
   // 테두리 두 칸, 여백 두 칸, '> ' 두 칸을 빼고 접는다. Ink가 따로 접지 않게 미리 접어야 커서 자리를 안다.
   const layout = inputLayout(state, width - 6);
   // 입력 줄 아래에 아래 테두리·명령 후보·상태 줄이 있고, Ink는 그린 뒤 커서를 그다음 줄에 둔다.
-  useParkedCursor(cursor, busy ? null : { up: layout.lines.length - layout.row + 1 + shown.length + below, column: 4 + layout.column });
+  useParkedCursor(cursor, { up: layout.lines.length - layout.row + 1 + shown.length + below, column: 4 + layout.column });
   const offset = state.cursor - layout.lines.slice(0, layout.row).reduce((sum, l) => sum + [...l].length, 0);
   const line = (text: string, row: number) =>
     h(
@@ -200,7 +199,7 @@ function InputBox({ busy, history, onSubmit, onInterrupt, cursor, below }: { bus
     h(
       Box,
       { borderStyle: BLOCK_BORDER, borderColor: SKY, paddingX: 1, width, flexDirection: 'column' },
-      busy ? h(Text, { dimColor: true }, '팀원이 일하는 중이에요… (Ctrl+C로 멈출 수 있어요)') : layout.lines.map(line),
+      layout.lines.map(line),
     ),
     // 후보 줄은 접히면 커서 자리가 틀어져서 넘치는 설명은 자른다.
     ...shown.map((c, i) =>
@@ -256,7 +255,7 @@ export function ChatApp({ store, banner, view, onSubmit, onInterrupt, cursor }: 
   useStore(store);
   const screen = useScreen(store.clears);
   const prompt = store.prompt;
-  const typing = prompt === null && !store.busy;
+  const typing = prompt === null;
   // Ctrl+C는 바로 끝내지 않는다: 일하는 중이면 그 작업만 멈추고, 쉬는 중이면 한 번 더 눌러야 끝난다(run-chat이 정한다).
   // 입력창이 받는 중에는 입력창이 Ctrl+C를 맡는다(쓰던 글부터 지운다).
   // Ctrl+L은 터미널처럼 화면만 비운다(대화는 그대로).
@@ -271,7 +270,7 @@ export function ChatApp({ store, banner, view, onSubmit, onInterrupt, cursor }: 
   const below = (store.status !== '' ? 1 : 0) + (store.notice !== '' ? 1 : 0);
   // 마지막 칸까지 채운 줄은 터미널이 한 번 더 접어서 한 칸을 비운다. 빈 줄은 ' '로(빈 글은 높이가 0).
   const lines = [banner, ...store.lines]
-    .map((item) => (typeof item === 'function' ? item(screen.columns) : item))
+    .map((item) => (typeof item === 'function' ? item(screen.columns, screen.rows) : item))
     .flatMap((item) => fitLines(item, screen.columns - 1))
     .map((line) => line || ' ');
   // 그린 뒤 커서가 한 줄 더 내려가므로 화면 높이보다 한 줄 적게 채운다.
@@ -284,10 +283,12 @@ export function ChatApp({ store, banner, view, onSubmit, onInterrupt, cursor }: 
       Box,
       { flexDirection: 'column', justifyContent: 'flex-end', minHeight: fill },
       // 질문이 떠 있는 동안은 일이 멈춰 기다리는 중이라 작업 중 줄을 감춘다(돌아가는 스피너가 화면을 계속 다시 그리게 하지 않는다).
-      store.working !== null && prompt === null ? h(WorkingLine, { working: store.working, view, rows: screen.rows }) : null,
+      store.working !== null && prompt === null ? h(WorkingLine, { working: store.working, view, rows: screen.rows, columns: screen.columns }) : null,
       prompt?.kind === 'menu' ? h(MenuPrompt, { key: prompt.screen, store, prompt, view, rows: screen.rows }) : null,
       prompt?.kind === 'text' ? h(TextPrompt, { key: prompt.label, store, prompt, cursor: cursor ?? null, below }) : null,
-      prompt === null ? h(InputBox, { busy: store.busy, history: store.history, onSubmit: submit, onInterrupt: () => onInterrupt?.(), cursor: cursor ?? null, below }) : null,
+      // 일하는 중에 받아 둔 입력. 지금 일이 끝나면 차례로 처리한다.
+      ...(prompt === null ? store.queue.map((text, i) => h(Text, { key: `q${i}`, dimColor: true, wrap: 'truncate-end' }, `  대기 ${i + 1}  ${text}`)) : []),
+      prompt === null ? h(InputBox, { width: Math.max(20, screen.columns - 1), history: store.history, onSubmit: submit, onInterrupt: () => onInterrupt?.(), cursor: cursor ?? null, below }) : null,
       // 한 줄로 자른다: 접히면 줄 수가 늘어 입력창 위치와 커서 자리가 틀어진다.
       store.status !== '' ? h(Text, { dimColor: true, wrap: 'truncate-end' }, ` ${store.status}`) : null,
       store.notice !== '' ? h(Text, { color: SKY, wrap: 'truncate-end' }, ` ${store.notice}`) : null,

@@ -86,3 +86,14 @@ export function wrapText(text: string, width: number): string[] {
   lines.push(current);
   return lines;
 }
+
+/** 너비를 넘으면 끝을 '…'로 줄여 한 줄에 맞춘다. 줄이 접히면 Ink가 다시 그릴 때 지울 줄 수가 틀어진다. */
+export function truncateWidth(text: string, width: number): string {
+  if (displayWidth(text) <= width) return text;
+  let out = '';
+  for (const ch of text) {
+    if (displayWidth(out + ch) > width - 1) break;
+    out += ch;
+  }
+  return `${out}…`;
+}

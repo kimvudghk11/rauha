@@ -229,9 +229,9 @@ export async function runChat(options: ChatOptions): Promise<number> {
   const app = render(
     React.createElement(ChatApp, {
       store,
-      banner: (width: number) => view?.banner(workDir, width) ?? `${profile.badge()} ${workDir}`,
+      banner: (width: number, rows: number) => view?.banner(workDir, width, rows) ?? `${profile.badge()} ${workDir}`,
       view,
-      onSubmit: (text: string) => void handle(text),
+      onSubmit: (text: string) => submit(text),
       onInterrupt: () => interrupt(),
       cursor: screen.park,
     }),
@@ -252,6 +252,24 @@ export async function runChat(options: ChatOptions): Promise<number> {
     });
   }
 
+  // 일하는 중에 받은 입력은 대기열에 세우고, 지금 일이 끝나면 넣은 순서대로 하나씩 처리한다.
+  let running = false;
+  function submit(text: string): void {
+    if (running) {
+      store.enqueue(text);
+      return;
+    }
+    void drain(text);
+  }
+  async function drain(first: string): Promise<void> {
+    running = true;
+    try {
+      for (let next: string | undefined = first; next !== undefined; next = store.dequeue()) await handle(next).catch((error: Error) => store.print(`rauha: ${error.message}`));
+    } finally {
+      running = false;
+    }
+  }
+
   // Ctrl+C: 일하는 중이면 그 작업만 멈춘다(팀원 호출을 끊고 기다리던 질문은 거절로 닫는다).
   // 쉬는 중이면 2초 안에 한 번 더 눌러야 끝난다.
   let lastInterrupt = 0;
@@ -259,7 +277,8 @@ export async function runChat(options: ChatOptions): Promise<number> {
     if (store.busy) {
       for (const b of bundles.values()) b.team.cancel();
       store.cancelPrompts();
-      store.print('  멈추는 중이에요…');
+      const dropped = store.clearQueue();
+      store.print(dropped > 0 ? `  멈추는 중이에요… (기다리던 입력 ${dropped}개도 지웠어요)` : '  멈추는 중이에요…');
       return;
     }
     if (Date.now() - lastInterrupt < EXIT_WINDOW_MS) {

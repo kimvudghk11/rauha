@@ -113,6 +113,14 @@ export function paintMiniDelfi(tick = 0): Pixels {
   return px;
 }
 
+/** 픽셀 하나를 k×k로 키운다. 칸은 가로 1·세로 2(위아래 픽셀)라 가로·세로를 같은 배수로 키워야 모양이 안 일그러진다. */
+export function scalePixels(px: Pixels, k: number): Pixels {
+  return px.flatMap((row) => {
+    const wide = row.flatMap((p) => Array<string | null>(k).fill(p));
+    return Array.from({ length: k }, () => [...wide]);
+  });
+}
+
 export function paintDelfi(face: Face): Pixels {
   const spec = FACES[face];
   const px: Pixels = BODY.map((row) => [...row.padEnd(WIDTH, '.')].map((k) => (k === '.' ? null : COLORS[k]!)));
@@ -224,6 +232,8 @@ export function beside(art: readonly string[], text: readonly string[], gap = 2)
  */
 const MAX_BANNER_WIDTH = 60;
 const GREETING = '오늘도 신나게 헤엄쳐요';
+/** 시작 화면 Delfi를 키울 수 있는 배수. 큰 것부터 맞는지 본다. */
+const SCALES = [3, 2] as const;
 
 /** 허락 박스의 최대 너비. 긴 명령은 이 안에서 접는다. */
 const MAX_PERMISSION_WIDTH = 76;
@@ -260,7 +270,8 @@ const FILE_MARK: Readonly<Record<ResultCard['files'][number]['kind'], readonly [
 
 export interface MascotView {
   /** columns: 터미널 너비. 박스가 이보다 넓어지지 않게 작업 폴더 경로를 줄인다. */
-  banner(workDir: string, columns: number): string;
+  /** columns·rows: 터미널 크기. rows를 알려 주면 창이 넓고 높을 때 Delfi를 정수 배로 키운다. */
+  banner(workDir: string, columns: number, rows?: number): string;
   step(message: string, role?: MemberRole): string;
   /** 팀원이 일하는 동안 다시 그리는 한 줄 */
   working(frame: string, message: string, role: MemberRole, elapsed: string): string;
@@ -290,17 +301,25 @@ export function mascotView(depth: number, version: string, badge: string): Masco
   const dim = (text: string) => `\x1b[2m${text}${RESET}`;
   /** Delfi를 왼쪽에서 두 칸 띄우고, 글과는 세 칸 띄운다. */
   const GAP = 3;
-  const art = (face: Face) => toAnsi(paintDelfi(face), depth).map((line) => `  ${line}`);
+  const art = (face: Face, k = 1) => toAnsi(k === 1 ? paintDelfi(face) : scalePixels(paintDelfi(face), k), depth).map((line) => `  ${line}`);
   const say = (face: Face, text: string[]) => beside(art(face), text, GAP).join('\n');
   return {
     // Claude Code 시작 화면처럼 맨 위에 박스 하나: 왼쪽 Delfi, 오른쪽 rauha·인사말·작업 폴더.
     // 창이 좁으면 Delfi 아래에 글을 두고, 그것도 안 되면 박스 없이 글만 쓴다.
-    banner: (workDir, columns) => {
+    banner: (workDir, columns, rows = 0) => {
       // 마지막 칸까지 채운 줄은 터미널이 다음 줄로 접어 버려서 한 칸을 비운다.
       const limit = Math.min(columns - 1, MAX_BANNER_WIDTH);
       const picture = art('hello');
       const title = `\x1b[1m${fg(COLORS['B']!, 'rauha')} ${dim(version)}  ${dim(badge)}`;
       const textWidth = Math.max(displayWidth(title), displayWidth(GREETING));
+      // 창이 넓고 높으면 Delfi를 키워서 옆에 글을 둔다. 박스(위아래 테두리·빈 줄 2)까지 창 높이의 절반 안에 들어가는 가장 큰 배수.
+      for (const k of rows > 0 ? SCALES : []) {
+        const big = art('hello', k);
+        const room = columns - 1 - 4 - displayWidth(big[0]!) - GAP;
+        if (big.length + 4 > rows / 2 || room < textWidth) continue;
+        const text = [title, GREETING, '', dim(shortenMiddle(workDir, room))];
+        return box(['', ...beside(big, text, GAP), ''], COLORS['B']!, depth).join('\n');
+      }
       const sideRoom = limit - 4 - displayWidth(picture[0]!) - GAP;
       if (sideRoom >= textWidth) {
         const text = [title, GREETING, '', dim(shortenMiddle(workDir, sideRoom))];

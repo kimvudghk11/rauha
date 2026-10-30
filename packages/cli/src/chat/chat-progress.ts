@@ -8,6 +8,10 @@ const QUIET: ReadonlySet<MemberRole> = new Set(['router', 'answerer']);
 /** 작업 단계 이름. 진행 줄은 "접수 > 테스트 > 구현 중…"처럼 지나온 단계를 한 줄에 잇는다. */
 const STAGE: Readonly<Partial<Record<MemberRole, string>>> = { intake: '접수', tester: '테스트', implementer: '구현', reviewer: '리뷰' };
 
+/** 진행 줄에 보이는 단계 수. 되돌아가는 일이 길어져도 줄이 창 너비를 넘지 않게 최근 단계만 보인다. */
+const SHOWN_STAGES = 4;
+const shownStages = (stages: readonly string[]) => (stages.length > SHOWN_STAGES ? ['…', ...stages.slice(-(SHOWN_STAGES - 1))] : stages).join(' > ');
+
 /**
  * 진행 알림 → 대화 화면. role이 붙은 알림 = 그 팀원이 일을 시작함.
  * 작업 팀원은 줄을 쌓지 않고 한 진행 줄에서 단계를 이어 가고, finish 때 지나온 단계와 걸린 시간을 한 줄로 남긴다.
@@ -31,7 +35,7 @@ export function chatProgress(store: ChatStore, view: MascotView | null, now: () 
   const finish = () => {
     endQuiet();
     if (stages.length === 0 || lastRole === null) return;
-    const text = stages.join(' > ');
+    const text = shownStages(stages);
     const elapsed = formatElapsed(now() - pipelineStart);
     store.stopWorking(view?.done(text, lastRole, elapsed) ?? `  ◆ ${text} ${elapsed}`);
     stages = [];
@@ -55,7 +59,7 @@ export function chatProgress(store: ChatStore, view: MascotView | null, now: () 
       if (stages.length === 0) pipelineStart = now();
       stages = [...stages, stageLabel(role)];
       lastRole = role;
-      store.startWorking(`${stages.join(' > ')} 중…`, role, now());
+      store.startWorking(`${shownStages(stages)} 중…`, role, now());
     },
   };
 }

@@ -660,6 +660,24 @@ describe('ChatSession — 세션', () => {
     expect(chat.status().carriedFiles).toBe(2);
   });
 
+  it('이어지는 질문에는 답변 팀원에게도 바로 앞 대화와 앞 답의 끝까지를 넘긴다', async () => {
+    const long = `${'앞 답의 앞부분입니다. '.repeat(20)}마지막 문장입니다.`;
+    const team = new FakeTeam({ router: [route('question')], answerer: [() => ({ answer: long, claims: [] }), () => ({ answer: '네.', claims: [] })] });
+    const chat = session({ team });
+    await chat.handle('ECS와 Fargate 차이 알려줘');
+    await chat.handle('두 번째 거 더 자세히');
+    const second = team.calls.filter((c) => c.role === 'answerer')[1]!.message;
+    expect(second).toContain('<conversation>');
+    expect(second).toContain('ECS와 Fargate 차이 알려줘');
+    expect(second).toContain('마지막 문장입니다.');
+  });
+
+  it('첫 질문의 답변 팀원에게는 앞 대화 블록을 넘기지 않는다', async () => {
+    const team = new FakeTeam({ router: [route('question')], answerer: [() => ({ answer: '네.', claims: [] })] });
+    await session({ team }).handle('안녕');
+    expect(team.calls.find((c) => c.role === 'answerer')!.message).not.toContain('<conversation>');
+  });
+
   it('이어 간 세션은 앞 대화와 이어 일할 파일을 그대로 쓴다', async () => {
     const loops = new FakeLoops();
     const team = new FakeTeam({ router: [route('work')] });

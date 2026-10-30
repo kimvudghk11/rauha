@@ -39,6 +39,16 @@ describe('chatProgress', () => {
     expect(store.working?.text).toBe('접수 > 구현 > 구현(2) 중…');
   });
 
+  it('단계가 길어지면 최근 몇 단계만 보이고 앞은 …로 줄인다', () => {
+    const store = new ChatStore();
+    const progress = chatProgress(store, null, () => 0);
+    progress.step('x', 'intake');
+    for (const role of ['tester', 'implementer', 'tester', 'implementer', 'tester', 'implementer'] as const) progress.step('x', role);
+    expect(store.working?.text).toBe('… > 구현(2) > 테스트(3) > 구현(3) 중…');
+    progress.finish();
+    expect(store.lines).toEqual(['  ◆ … > 구현(2) > 테스트(3) > 구현(3) 0초']);
+  });
+
   it('팀원 사이의 알림은 줄로 남기되 진행 줄은 이어 간다', () => {
     const store = new ChatStore();
     const progress = chatProgress(store, null, () => 0);

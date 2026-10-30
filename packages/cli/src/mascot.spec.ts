@@ -315,3 +315,31 @@ describe('mascotView', () => {
     expect(visible(view.finale('complete'))).not.toBe(visible(view.finale('stopped')));
   });
 });
+
+describe('Delfi 그림 키우기', () => {
+  const view = mascotView(24, 'v0.0.0', '[personal]')!;
+  const lines = (columns: number, rows?: number) => view.banner('E:\work', columns, rows).split('\n');
+
+  it('창이 넓고 높으면 시작 화면의 Delfi가 정수 배로 커진다', () => {
+    const small = lines(120, 24);
+    const big = lines(160, 60);
+    expect(big.length).toBeGreaterThan(small.length * 1.5);
+    expect(Math.max(...big.map(displayWidth))).toBeGreaterThan(Math.max(...small.map(displayWidth)));
+    for (const line of big) expect(displayWidth(line)).toBeLessThanOrEqual(159);
+  });
+
+  it('창이 낮으면 넓어도 키우지 않는다', () => {
+    expect(lines(200, 20)).toEqual(lines(200));
+  });
+
+  it('높이를 모르면 키우지 않는다 (-p의 한 줄 진행 표시 등)', () => {
+    expect(lines(200).length).toBe(lines(80).length);
+  });
+
+  it('커진 Delfi도 박스 모양은 그대로다', () => {
+    const big = lines(160, 60).map(visible);
+    expect(big[0]).toMatch(/^ ▁+ $/);
+    expect(big.at(-1)).toMatch(/^ ▔+ $/);
+    expect(new Set(big.map(displayWidth)).size).toBe(1);
+  });
+});
