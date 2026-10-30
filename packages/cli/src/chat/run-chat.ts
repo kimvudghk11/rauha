@@ -23,6 +23,7 @@ import {
 import { FACT_ANSWERED, FACT_OPTIONS, PERMISSION_ANSWERED, PERMISSION_OPTIONS, toFactAnswer, toPermissionAnswer } from '../ask.js';
 import { readLoginStatus } from '../login-status.js';
 import { mascotView } from '../mascot.js';
+import { copyToClipboard } from '../clipboard.js';
 import { createNotifier, LONG_WORK_MS, NOTIFY_AFTER_MS, notifyIfLong, notifyWhile } from '../notify.js';
 import { createKnowledge, createLoop, createTeam, definedEnv, loadPrompts, openMemory, projectRoot, roleSettings } from '../run.js';
 import { ChatApp } from './chat-app.js';
@@ -226,6 +227,8 @@ export async function runChat(options: ChatOptions): Promise<number> {
   const first = current();
   /** 마지막 작업의 읽기 안내서. 결과 카드 대신 자세히 볼 때 /guide로 연다. */
   let lastGuide: string | null = null;
+  /** 마지막 답 글(/copy로 클립보드에 복사한다) */
+  let lastAnswer: string | null = null;
   /** /update로 갱신을 마쳐 화면을 닫은 뒤 다시 띄워야 하는지 */
   let restartAfterExit = false;
   /** 마지막으로 보낸 요청 글(/retry로 다시 보낸다) */
@@ -382,6 +385,12 @@ export async function runChat(options: ChatOptions): Promise<number> {
         }
         case 'queue':
           return queueCommand(command.action);
+        case 'copy': {
+          const text = lastAnswer ?? lastGuide;
+          if (text === null) return store.print('  복사할 답이 아직 없어요.');
+          store.print((await copyToClipboard(text)) ? '  마지막 답을 클립보드에 복사했어요.' : '  클립보드에 복사하지 못했어요. (Windows는 PowerShell, macOS는 pbcopy, Linux는 xclip이 필요해요)');
+          return;
+        }
         case 'retry':
           if (lastRequest === null) return store.print('  다시 보낼 요청이 아직 없어요.');
           return runTurn(lastRequest, lastRequest);
@@ -410,7 +419,11 @@ export async function runChat(options: ChatOptions): Promise<number> {
     try {
       const turn = await ws.handle(request, force);
       handled = turn.repo;
-      if (turn.kind === 'work') lastGuide = turn.outcome.guide.toMarkdown();
+      if (turn.kind === 'work') {
+        lastGuide = turn.outcome.guide.toMarkdown();
+        lastAnswer = null;
+      }
+      if (turn.kind === 'answer') lastAnswer = turn.answer;
       finishWorking();
       if (multi() && turn.repo !== null) store.print(`  [${turn.repo}]`);
       store.printLines(describeTurn(turn, view));

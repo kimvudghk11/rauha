@@ -1,4 +1,4 @@
-type CommandName = 'clear' | 'status' | 'usage' | 'guide' | 'review' | 'design' | 'repo' | 'update' | 'retry' | 'queue' | 'help' | 'exit';
+type CommandName = 'clear' | 'status' | 'usage' | 'guide' | 'review' | 'design' | 'repo' | 'update' | 'retry' | 'queue' | 'copy' | 'help' | 'exit';
 
 export type ChatCommand =
   | { readonly kind: Exclude<CommandName, 'review' | 'repo' | 'design' | 'queue'> }
@@ -29,6 +29,7 @@ const COMMANDS: readonly { readonly kind: CommandName; readonly help: string }[]
   { kind: 'repo', help: '작업 공간 저장소 보기 · /repo <이름>으로 지금 저장소 바꾸기 · /repo add <경로>로 더하기' },
   { kind: 'retry', help: '마지막 요청을 한 번 더 보내요 (멈췄거나 마음에 안 들 때)' },
   { kind: 'queue', help: '일하는 중에 쌓아 둔 입력 보기 · /queue clear로 비우기' },
+  { kind: 'copy', help: '마지막 답(작업이었다면 읽기 안내서)을 클립보드에 복사해요' },
   { kind: 'update', help: '최신 버전으로 갱신하고 rauha를 다시 띄워요 (지난 작업 기억은 남아요)' },
   { kind: 'help', help: '이 안내' },
   { kind: 'exit', help: '끝내기 (Ctrl+C 두 번도 됨)' },
