@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ansi256, beside, box, displayWidth, mascotView, paintDelfi, toAnsi } from './mascot.js';
+import { ansi256, beside, box, displayWidth, mascotView, paintDelfi, paintMiniDelfiScaled, toAnsi } from './mascot.js';
 
 const visible = (line: string) => line.replace(/\x1b\[[0-9;]*m/g, '');
 
@@ -341,5 +341,26 @@ describe('Delfi 그림 키우기', () => {
     expect(big[0]).toMatch(/^ ▁+ $/);
     expect(big.at(-1)).toMatch(/^ ▔+ $/);
     expect(new Set(big.map(displayWidth)).size).toBe(1);
+  });
+});
+
+describe('일하는 중 작은 Delfi 키우기', () => {
+  const view = mascotView(24, 'v0.0.0', '[personal]')!;
+
+  it('2배로 키우면 줄 수가 두 배가 된다', () => {
+    const one = view.workingDelfi('▖', '작업 중…', 'implementer', '3초', 0).split('\n');
+    const two = view.workingDelfi('▖', '작업 중…', 'implementer', '3초', 0, 2).split('\n');
+    expect(one).toHaveLength(5);
+    expect(two).toHaveLength(10);
+  });
+
+  it('키운 그림도 줄마다 마지막으로 칠한 칸은 위아래 중 하나만 칠한다 (cmd에서 배경이 번지지 않게)', () => {
+    for (const tick of [0, 3, 6, 9, 13]) {
+      const px = paintMiniDelfiScaled(tick, 2);
+      for (let y = 0; y < px.length; y += 2) {
+        const last = Math.max(...[px[y]!, px[y + 1]!].map((row) => row.findLastIndex((c) => c !== null)));
+        if (last >= 0) expect(px[y]![last] !== null && px[y + 1]![last] !== null).toBe(false);
+      }
+    }
   });
 });

@@ -121,6 +121,20 @@ export function scalePixels(px: Pixels, k: number): Pixels {
   });
 }
 
+/**
+ * 작은 Delfi를 k배로 키운다. 키우면 위아래 픽셀이 같은 색이 되어 줄 끝 칸이 배경색 빈칸이 되므로(cmd 창 크기를 바꿀 때 번진다),
+ * 줄마다 마지막으로 칠한 칸은 아래 픽셀을 비워 위만 칠한다.
+ */
+export function paintMiniDelfiScaled(tick: number, k: number): Pixels {
+  const px = k === 1 ? paintMiniDelfi(tick) : scalePixels(paintMiniDelfi(tick), k);
+  if (k === 1) return px;
+  for (let y = 0; y + 1 < px.length; y += 2) {
+    const last = Math.max(px[y]!.findLastIndex((c) => c !== null), px[y + 1]!.findLastIndex((c) => c !== null));
+    if (last >= 0 && px[y]![last] !== null && px[y + 1]![last] !== null) px[y + 1]![last] = null;
+  }
+  return px;
+}
+
 export function paintDelfi(face: Face): Pixels {
   const spec = FACES[face];
   const px: Pixels = BODY.map((row) => [...row.padEnd(WIDTH, '.')].map((k) => (k === '.' ? null : COLORS[k]!)));
@@ -276,7 +290,7 @@ export interface MascotView {
   /** 팀원이 일하는 동안 다시 그리는 한 줄 */
   working(frame: string, message: string, role: MemberRole, elapsed: string): string;
   /** 대화 화면용: 작은 Delfi 옆에 그린 작업 중 줄(여러 줄이라 -p의 한 줄 진행 표시에는 못 쓴다) */
-  workingDelfi(frame: string, message: string, role: MemberRole, elapsed: string, tick?: number): string;
+  workingDelfi(frame: string, message: string, role: MemberRole, elapsed: string, tick?: number, scale?: number): string;
   /** 팀원 일이 끝나 고정되는 줄 */
   done(message: string, role: MemberRole, elapsed: string): string;
   finale(status: 'complete' | 'stopped'): string;
@@ -334,8 +348,8 @@ export function mascotView(depth: number, version: string, badge: string): Masco
     },
     step: (message, role) => (role === undefined ? `  ${dim('·')} ${dim(message)}` : `  ${fg(ROLE_COLOR[role], '◆')} ${message}`),
     working: (frame, message, role, elapsed) => `  ${fg(ROLE_COLOR[role], frame)} ${message} ${dim(elapsed)}`,
-    workingDelfi: (frame, message, role, elapsed, tick = 0) => {
-      const mini = toAnsi(paintMiniDelfi(tick), depth).map((line) => `  ${line}`);
+    workingDelfi: (frame, message, role, elapsed, tick = 0, scale = 1) => {
+      const mini = toAnsi(paintMiniDelfiScaled(tick, scale), depth).map((line) => `  ${line}`);
       return beside(mini, [`${fg(ROLE_COLOR[role], frame)} ${message} ${dim(elapsed)}`], 1).join('\n');
     },
     done: (message, role, elapsed) => `  ${fg(ROLE_COLOR[role], '◆')} ${message.replace(/ 작업 중…$/, '')} ${dim(elapsed)}`,

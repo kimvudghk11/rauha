@@ -49,8 +49,10 @@ function withCursor(state: InputState): React.ReactNode {
 
 /** 이 높이보다 낮은 창에서는 작은 Delfi(4줄) 대신 한 줄짜리 작업 중 표시를 쓴다. */
 const MIN_ROWS_FOR_MINI_DELFI = 16;
-/** 작업 줄에서 글 말고 차지하는 칸: 작은 Delfi(2+10) + 사이 1 + 스피너·띄어쓰기 3 + 시간(최대 8) + 여유 1 */
-const WORKING_CHROME = 25;
+/** 작업 줄에서 글 말고 차지하는 칸: 작은 Delfi(2+10칸×배수) + 사이 1 + 스피너·띄어쓰기 3 + 시간(최대 8) + 여유 1 */
+const workingChrome = (scale: number) => 15 + 10 * scale;
+/** 작은 Delfi를 2배로 키우는 창 높이(2배는 10줄이라 낮은 창에서는 쓰지 않는다) */
+const MIN_ROWS_FOR_BIG_DELFI = 40;
 
 function WorkingLine({ working, view, rows, columns }: { working: Working; view: MascotView | null; rows: number; columns: number }) {
   const [frame, setFrame] = useState(0);
@@ -62,8 +64,9 @@ function WorkingLine({ working, view, rows, columns }: { working: Working; view:
   const elapsed = formatElapsed(Date.now() - working.startedAt);
   const small = rows > 0 && rows < MIN_ROWS_FOR_MINI_DELFI;
   // 작업 줄이 창 너비를 넘어 접히면 Ink가 다시 그릴 때 지울 줄 수가 틀어져 지난 줄이 쌓인다. 그림·스피너·시간 자리를 빼고 한 줄에 맞춘다.
-  const text = truncateWidth(working.text, Math.max(8, columns - WORKING_CHROME));
-  const drawn = small ? view?.working(spinner, text, working.role, elapsed) : view?.workingDelfi(spinner, text, working.role, elapsed, frame);
+  const scale = rows >= MIN_ROWS_FOR_BIG_DELFI ? 2 : 1;
+  const text = truncateWidth(working.text, Math.max(8, columns - workingChrome(scale)));
+  const drawn = small ? view?.working(spinner, text, working.role, elapsed) : view?.workingDelfi(spinner, text, working.role, elapsed, frame, scale);
   return h(Text, null, drawn ?? `  ${spinner} ${text} ${elapsed}`);
 }
 

@@ -401,7 +401,7 @@ describe('ChatApp', () => {
     const view = mascotView(24, 'v0', '[personal]');
     const r = render(React.createElement(ChatApp, { store, banner: () => '배너', view, onSubmit: vi.fn() }));
     mounted.push(r);
-    await resize(r.stdout, 100, 40);
+    await resize(r.stdout, 100, 30);
     store.startWorking('접수 중…', 'intake', Date.now());
     const seen = new Set<string>();
     for (let i = 0; i < 14; i++) {
@@ -426,5 +426,22 @@ describe('ChatApp', () => {
     await tick();
     const frame = visible(lastFrame());
     expect(frame.indexOf('첫 줄')).toBeLessThan(frame.indexOf('둘째 줄'));
+  });
+});
+
+describe('ChatApp — 큰 창의 작은 Delfi', () => {
+  it('창이 높으면 일하는 중 Delfi가 2배(10줄)로 그려지고 낮으면 5줄이다', async () => {
+    const store = new ChatStore();
+    const view = mascotView(24, 'v0', '[personal]');
+    const r = render(React.createElement(ChatApp, { store, banner: () => '배너', view, onSubmit: vi.fn() }));
+    mounted.push(r);
+    const artLines = () => visible(r.lastFrame()).split('\n').filter((l) => /[▀▄]/.test(l.slice(0, 24))).length;
+    await resize(r.stdout, 100, 30);
+    store.startWorking('접수 중…', 'intake', Date.now());
+    await tick();
+    expect(artLines()).toBeLessThanOrEqual(5);
+    await resize(r.stdout, 100, 50);
+    await tick();
+    expect(artLines()).toBeGreaterThan(5);
   });
 });
