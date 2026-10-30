@@ -23,7 +23,7 @@ import {
 import { FACT_ANSWERED, FACT_OPTIONS, PERMISSION_ANSWERED, PERMISSION_OPTIONS, toFactAnswer, toPermissionAnswer } from '../ask.js';
 import { readLoginStatus } from '../login-status.js';
 import { mascotView } from '../mascot.js';
-import { createNotifier, NOTIFY_AFTER_MS, notifyWhile } from '../notify.js';
+import { createNotifier, LONG_WORK_MS, NOTIFY_AFTER_MS, notifyIfLong, notifyWhile } from '../notify.js';
 import { createKnowledge, createLoop, createTeam, definedEnv, loadPrompts, openMemory, projectRoot, roleSettings } from '../run.js';
 import { ChatApp } from './chat-app.js';
 import { chatProgress } from './chat-progress.js';
@@ -31,6 +31,7 @@ import { ChatStore } from './chat-store.js';
 import { HELP_TEXT, parseCommand, type ChatCommand } from './commands.js';
 import { parkingStream } from './cursor-park.js';
 import { describeTurn } from './describe-turn.js';
+import { InputHistoryFile } from './input-history.js';
 import { isRauhaRepo, nodeExec, relaunch, repoRoot, runUpdate, withContinue } from '../update.js';
 import { startRefreshing } from './status-refresh.js';
 import { statusLine, usageLines } from './usage-view.js';
@@ -75,6 +76,9 @@ export async function runChat(options: ChatOptions): Promise<number> {
   const { workDir, profile, home } = options;
   const view = mascotView(process.stderr.getColorDepth(), `v${options.version}`, profile.badge());
   const store = new ChatStore();
+  // 보낸 입력은 파일에 남겨 다음에 열어도 위 화살표로 부를 수 있다.
+  const inputHistory = new InputHistoryFile(join(home, '.rauha', 'input-history.txt'));
+  store.restoreHistory(await inputHistory.load());
 
   const progress = chatProgress(store, view, Date.now);
   const finishWorking = progress.finish;
@@ -257,6 +261,7 @@ export async function runChat(options: ChatOptions): Promise<number> {
   // 일하는 중에 받은 입력은 대기열에 세우고, 지금 일이 끝나면 넣은 순서대로 하나씩 처리한다.
   let running = false;
   function submit(text: string): void {
+    void inputHistory.append(text);
     if (running) {
       store.enqueue(text);
       return;
@@ -385,6 +390,7 @@ export async function runChat(options: ChatOptions): Promise<number> {
     store.print(`\n> ${shown}`);
     for (const b of bundles.values()) b.team.resume();
     store.setBusy(true);
+    const startedAt = Date.now();
     let handled: string | null = null;
     try {
       const turn = await ws.handle(request, force);
@@ -398,6 +404,8 @@ export async function runChat(options: ChatOptions): Promise<number> {
       store.print(`rauha: ${(error as Error).message}`);
     } finally {
       store.setBusy(false);
+      // 오래 걸린 일이 끝나면 다른 창에 있어도 알 수 있게 알린다.
+      notifyIfLong(notifier, startedAt, Date.now(), LONG_WORK_MS, `${profile.badge()} 작업이 끝났어요`, shown);
       remember(bundleNamed(handled));
       void usageTimer.now();
     }

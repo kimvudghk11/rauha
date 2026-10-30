@@ -109,3 +109,11 @@ export async function notifyWhile<T>(notifier: Notifier | null, delayMs: number,
 
 /** 사용자가 바로 답하지 않을 때만 알린다. 이 시간 안에 답하면 알림은 뜨지 않는다. */
 export const NOTIFY_AFTER_MS = 4000;
+
+/** 이 시간 넘게 걸린 일이 끝나면 알린다. 그보다 짧은 일은 사용자가 화면을 보고 있었을 테니 알리지 않는다. */
+export const LONG_WORK_MS = 20_000;
+
+/** 일이 startedAt에 시작해 now에 끝났고 minMs 이상 걸렸다면 알린다. */
+export function notifyIfLong(notifier: Notifier | null, startedAt: number, now: number, minMs: number, title: string, body: string): void {
+  if (notifier !== null && now - startedAt >= minMs) notifier.notify(title, body);
+}

@@ -101,3 +101,12 @@ describe('ChatStore — 입력 대기열', () => {
     expect(store.queue).toEqual([]);
   });
 });
+
+describe('ChatStore — 입력 기록 불러오기', () => {
+  it('지난 실행의 기록을 앞에 깔고, 새로 보낸 입력이 그 뒤에 붙는다', () => {
+    const store = new ChatStore();
+    store.restoreHistory(['옛날 1', '옛날 2']);
+    store.remember('새 입력');
+    expect(store.history).toEqual(['옛날 1', '옛날 2', '새 입력']);
+  });
+});

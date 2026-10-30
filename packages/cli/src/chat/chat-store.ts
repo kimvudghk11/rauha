@@ -171,6 +171,11 @@ export class ChatStore {
     return this.sent;
   }
 
+  /** 지난 실행에서 남긴 기록을 앞에 깐다(파일에서 읽은 것). */
+  restoreHistory(lines: readonly string[]): void {
+    this.sent = [...lines];
+  }
+
   remember(text: string): void {
     if (this.sent.at(-1) === text) return;
     this.sent = [...this.sent, text];

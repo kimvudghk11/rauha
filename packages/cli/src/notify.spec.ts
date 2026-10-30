@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createNotifier, notifyAfter, notifyCommand, notifyWhile, type NotifyCommand } from './notify.js';
+import { createNotifier, notifyAfter, notifyCommand, notifyIfLong, notifyWhile, type NotifyCommand } from './notify.js';
 
 afterEach(() => vi.useRealTimers());
 
@@ -154,5 +154,22 @@ describe('notifyAfter', () => {
     vi.advanceTimersByTime(10_000);
     expect(sent).toHaveLength(0);
     expect(() => cancel()).not.toThrow();
+  });
+});
+
+describe('notifyIfLong', () => {
+  const sent: string[] = [];
+  const notifier = { notify: (title: string, body: string) => void sent.push(`${title}|${body}`) };
+
+  it('걸린 시간이 기준 이상일 때만 알린다 (화면을 보고 있었을 짧은 작업은 알리지 않는다)', () => {
+    sent.length = 0;
+    notifyIfLong(notifier, 1000, 20_999, 20_000, '끝', '내용');
+    expect(sent).toEqual([]);
+    notifyIfLong(notifier, 1000, 21_000, 20_000, '끝', '내용');
+    expect(sent).toEqual(['끝|내용']);
+  });
+
+  it('notifier가 없으면 아무 일도 없다', () => {
+    expect(() => notifyIfLong(null, 0, 99_999, 20_000, '끝', '내용')).not.toThrow();
   });
 });
