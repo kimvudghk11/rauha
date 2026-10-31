@@ -173,7 +173,7 @@ export const ROUTE_SCHEMA: Record<string, unknown> = {
   additionalProperties: false,
   required: ['mode', 'refersToPast', 'pastQuery'],
   properties: {
-    mode: { enum: ['work', 'question', 'task', 'feature'], description: 'work: 범위가 분명한 작은 코드 수정, feature: 새 기능이나 동작 변경(해석이 갈리거나 여러 파일에 걸침), question: 코드를 바꾸지 않는 질문, task: 코드가 아닌 결과물(문서·보고서·정리 파일)을 만드는 요청' },
+    mode: { enum: ['work', 'question', 'task', 'feature', 'ops'], description: 'ops: aws·terraform·kubectl 같은 명령으로 클라우드·인프라를 조회하거나 바꾸는 요청(코드 수정 아님), work: 범위가 분명한 작은 코드 수정, feature: 새 기능이나 동작 변경(해석이 갈리거나 여러 파일에 걸침), question: 코드를 바꾸지 않는 질문, task: 코드가 아닌 결과물(문서·보고서·정리 파일)을 만드는 요청' },
     refersToPast: { type: 'boolean', description: '이름 없이 지난 작업을 가리키는지("아까 그 기능", "방금 거")' },
     pastQuery: { ...nullableStr, description: '기억에서 찾을 검색어(코드 이름·기능 단어). 없으면 null' },
   },
@@ -204,6 +204,16 @@ export const WRITER_SCHEMA: Record<string, unknown> = {
   properties: {
     summary: { ...str, description: '무엇을 어디서 읽어 무엇을 만들었는지, 사용자가 읽을 짧은 보고' },
     files: { ...strList, description: '만들거나 고친 문서 경로' },
+  },
+};
+
+export const OPS_SCHEMA: Record<string, unknown> = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['answer', 'commands'],
+  properties: {
+    answer: { ...str, description: '무엇을 확인하거나 바꿨는지, 이번에 명령이 출력한 것만으로 쓴 보고' },
+    commands: { ...strList, description: '이번에 실행한 명령을 실행한 순서대로, 비밀 값은 지운 채' },
   },
 };
 

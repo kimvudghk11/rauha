@@ -131,7 +131,7 @@ class FakeLoops {
   });
 }
 
-const route = (mode: 'work' | 'question' | 'task' | 'feature', refersToPast = false, pastQuery: string | null = null) => () => ({ mode, refersToPast, pastQuery });
+const route = (mode: 'work' | 'question' | 'task' | 'feature' | 'ops', refersToPast = false, pastQuery: string | null = null) => () => ({ mode, refersToPast, pastQuery });
 
 type SessionParts = { team: FakeTeam; loops?: FakeLoops; memory?: FakeMemory; user?: UserPort; files?: Record<string, string>; steps?: string[]; changes?: FileChange[] };
 
@@ -644,6 +644,36 @@ describe('ChatSession — 사용 한도', () => {
     expect(turn).toMatchObject({ kind: 'blocked', reason: 'login' });
     expect(loops.runs).toEqual([]);
     expect(team.calls.filter((c) => c.role === 'answerer').every((c) => c.signal!.aborted)).toBe(true);
+  });
+});
+
+describe('ChatSession — 운영 요청', () => {
+  const ops = (answer: string, commands: string[] = []) => () => ({ answer, commands });
+
+  it('ops로 가려진 요청은 운영 팀원이 명령으로 처리하고, 실행한 명령을 답 뒤에 붙인다 (작업 루프는 돌리지 않는다)', async () => {
+    const loops = new FakeLoops();
+    const team = new FakeTeam({ router: [route('ops')], operator: [ops('버킷이 2개 있어요.', ['aws s3 ls'])] });
+    const turn = await session({ team, loops }).handle('내 S3 버킷 목록 알려줘');
+    expect(turn).toMatchObject({ kind: 'answer', answer: '버킷이 2개 있어요.\n\n■ 실행한 명령\n- aws s3 ls' });
+    expect(loops.runs).toEqual([]);
+    expect(team.calls.some((c) => c.role === 'operator' && c.message.includes('내 S3 버킷 목록 알려줘'))).toBe(true);
+    expect(team.calls.filter((c) => c.role === 'answerer').every((c) => c.signal!.aborted)).toBe(true);
+  });
+
+  it('운영 팀원도 앞 대화를 받고, 이 턴은 다음 대화에 이어진다', async () => {
+    const team = new FakeTeam({ router: [route('ops')], operator: [ops('첫 답'), ops('둘째 답')] });
+    const chat = session({ team });
+    await chat.handle('버킷 목록');
+    await chat.handle('첫 번째 거 지워줘');
+    const second = team.calls.filter((c) => c.role === 'operator')[1]!.message;
+    expect(second).toContain('<conversation>');
+    expect(second).toContain('버킷 목록');
+    expect(second).toContain('첫 답');
+  });
+
+  it('사용 한도에 걸리면 막힘으로 알린다', async () => {
+    const team = new FakeTeam({ router: [route('ops')] }, 'operator');
+    expect(await session({ team }).handle('버킷 목록')).toMatchObject({ kind: 'blocked', reason: 'usage-limit' });
   });
 });
 

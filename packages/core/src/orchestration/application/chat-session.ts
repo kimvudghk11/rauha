@@ -11,8 +11,9 @@ import type { ChatSnapshot } from './dto/chat-snapshot.dto.js';
 import { FilesBlockDto } from './dto/files-block.dto.js';
 import { ReviewReportDto } from './dto/review-report.dto.js';
 import { RouteDto, type Route } from './dto/route.dto.js';
-import { ANSWER_SCHEMA, REVIEWER_REPORT_SCHEMA, ROUTE_SCHEMA, WRITER_SCHEMA } from './dto/schemas.js';
+import { ANSWER_SCHEMA, OPS_SCHEMA, REVIEWER_REPORT_SCHEMA, ROUTE_SCHEMA, WRITER_SCHEMA } from './dto/schemas.js';
 import { WriterReportDto } from './dto/writer-report.dto.js';
+import { OpsReportDto } from './dto/ops-report.dto.js';
 import type { RunContextBlocks, RunOutcome } from './minimal-loop.service.js';
 import type { AccountBlock, MemberResult, PreparedCall, ProgressPort, TeamMemberPort, UserPort, WorkspacePort } from './ports.js';
 
@@ -200,6 +201,7 @@ export class ChatSession {
     if (routed.blocked || route.mode !== 'question' || route.refersToPast) early.abort();
     if (routed.blocked) return { kind: 'blocked', ...routed.blocked };
     if (route.mode === 'task') return this.task(input, conversation, also, started);
+    if (route.mode === 'ops') return this.ops(input, conversation, started);
     const changesCode = route.mode === 'work' || route.mode === 'feature';
     if (changesCode && also.length > 0) return { kind: 'notice', message: MANY_REPO_WORK };
     const past = route.refersToPast ? await this.pickPast(route.pastQuery ?? input, route.mode) : null;
@@ -295,6 +297,26 @@ export class ChatSession {
     }
     this.turns.push({ input, result: `설계 "${design.title}" 작업 ${results.filter((r) => r.status === 'complete').length}/${results.length}개 완료` });
     return { kind: 'design', title: design.title, path, tasks: results, durationMs: this.deps.now() - started };
+  }
+
+  // ── 운영 요청 ─────────────────────────────────────────────
+
+  /**
+   * aws·terraform·kubectl 같은 명령으로 클라우드·인프라를 조회하거나 바꾸는 요청. 코드 작업이 아니라 TDD 루프를 돌리지 않는다.
+   * 운영 팀원이 명령을 직접 실행하고, 위험한 명령은 도구 검사가 사용자에게 묻는다. 자격 증명 설정(aws configure)은 하지 않는다.
+   */
+  private async ops(input: string, conversation: string | null, started: number): Promise<TurnOutcome> {
+    const result = await this.member(
+      'operator',
+      [conversation !== null ? `<conversation>\n${conversation}\n</conversation>` : '', `<today>${this.deps.today()}</today>`, `<request>\n${input}\n</request>`],
+      OPS_SCHEMA,
+      {},
+    );
+    if (result.blocked) return { kind: 'blocked', ...result.blocked };
+    const answer = OpsReportDto.read(result.output).toAnswer();
+    await this.deps.memory.save(WorkMemory.fromAnswer({ id: this.deps.newId(), at: this.at(), question: input, answer, citedFiles: [], basis: null }));
+    this.turns.push({ input, result: `운영: ${answer.slice(0, KEPT_RESULT_CHARS)}` });
+    return { kind: 'answer', answer, checked: [], costUsd: result.usage.costUsd, durationMs: this.deps.now() - started, basis: null };
   }
 
   // ── 문서 작업 ─────────────────────────────────────────────

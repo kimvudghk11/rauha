@@ -18,6 +18,7 @@
 - [ ] **여러 저장소 작업 공간 화면**: 저장소들을 담은 폴더에서 `rauha` → `/repo`, 저장소 이름으로 질문, 두 저장소 비교 질문, 이름 없는 요청에서 고르기 메뉴. 코어는 테스트로만 확인했다.
 - [ ] **이 PC(Windows) 로그인**: 2026-10-29에 `personal` 프로필 로그인이 만료돼 있었다(`rauha login`을 다시 해야 모델을 부르는 확인을 이어 갈 수 있다). 이제 rauha가 시작할 때 알려 준다.
 - [ ] **맥에서 `/clear`·Ctrl+L**: 터미널이 스크롤까지 지우는지(Windows의 PTY에서는 스크롤에 지난 화면이 조금 남았다).
+- [ ] **운영 요청(ops)·전문 분야**(2026-10-31 구현, 모델과는 아직 안 돌려 봄): "내 S3 버킷 목록 보여줘", "aws로 ... 만들어줘"가 라우터에서 `ops`로 가는지, 운영 팀원(`prompts/operator.md`)이 `aws` 변경 명령 앞에서 허락을 받는지(`ToolRisk`), `aws configure`를 시도하지 않는지. 접수 팀장이 `specialties`를 과하게 고르지 않는지(`prompts/intake.md` 7번).
 - [ ] **벤치 폴더 정리**(허락 필요): `E:\rauha-bench`(작업 폴더들), zzenddo-plugin의 worktree 2개와 `bench/inspect-url-rauha`·`bench/inspect-url-claude` 브랜치.
 - [ ] `/update`: 다른 PC에서 새 커밋이 있을 때 내려받기까지 되는지(이 PC에서는 "이미 최신"만 확인했다).
 
