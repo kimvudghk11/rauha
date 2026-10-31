@@ -6,15 +6,15 @@ import type { ChatStore } from './chat-store.js';
 /** 질문을 나누고 답하는 팀원. 사용자에게는 한 가지 "작업 중"으로 보이고, 끝나도 줄을 남기지 않는다(답이 곧 결과). */
 const QUIET: ReadonlySet<MemberRole> = new Set(['router', 'answerer']);
 /** 작업 단계 이름. 진행 줄은 "접수 > 테스트 > 구현 중…"처럼 지나온 단계를 한 줄에 잇는다. */
-const STAGE: Readonly<Partial<Record<MemberRole, string>>> = { intake: '접수', tester: '테스트', implementer: '구현', reviewer: '리뷰', operator: '운영', debugger: '진단', riskchecker: '점검', planner: '기획', chief: '부서장', bm: '사업모델', marketer: '마케팅', growth: '그로스', uxdesigner: 'UX', brand: '브랜드', securitychecker: '보안', releaser: '릴리스' };
+const STAGE: Readonly<Partial<Record<MemberRole, string>>> = { intake: '접수', tester: '테스트', implementer: '구현', reviewer: '리뷰', operator: '운영', surveyor: '파악', writer: '문서', designer: '설계', debugger: '진단', riskchecker: '점검', planner: '기획', chief: '부서장', bm: '사업모델', marketer: '마케팅', growth: '그로스', uxdesigner: 'UX', brand: '브랜드', securitychecker: '보안', releaser: '릴리스' };
 
-/** 진행 줄에 보이는 단계 수. 되돌아가는 일이 길어져도 줄이 창 너비를 넘지 않게 최근 단계만 보인다. */
+/** 끝난 뒤 남는 요약에 보이는 단계 수. 되돌아가는 일이 길어져도 줄이 창 너비를 넘지 않게 최근 단계만 보인다. */
 const SHOWN_STAGES = 4;
 const shownStages = (stages: readonly string[]) => (stages.length > SHOWN_STAGES ? ['…', ...stages.slice(-(SHOWN_STAGES - 1))] : stages).join(' > ');
 
 /**
  * 진행 알림 → 대화 화면. role이 붙은 알림 = 그 팀원이 일을 시작함.
- * 작업 팀원은 줄을 쌓지 않고 한 진행 줄에서 단계를 이어 가고, finish 때 지나온 단계와 걸린 시간을 한 줄로 남긴다.
+ * 작업 팀원은 줄을 쌓지 않고 한 진행 줄에서 지금 단계만 바꿔 보이고, finish 때 지나온 단계와 걸린 시간을 한 줄로 남긴다.
  */
 export function chatProgress(store: ChatStore, view: MascotView | null, now: () => number) {
   let quiet: { role: MemberRole; startedAt: number } | null = null;
@@ -59,7 +59,8 @@ export function chatProgress(store: ChatStore, view: MascotView | null, now: () 
       if (stages.length === 0) pipelineStart = now();
       stages = [...stages, stageLabel(role)];
       lastRole = role;
-      store.startWorking(`${shownStages(stages)} 중…`, role, now());
+      // 진행 줄은 같은 자리에서 지금 단계만 바꾼다. 지나온 단계는 끝났을 때 한 줄 요약으로 남는다.
+      store.startWorking(`${stages.at(-1)} 중…`, role, now());
     },
   };
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { looksLikeQuestion } from './question-hint.js';
+import { isSmallTalk, looksLikeQuestion } from './question-hint.js';
 
 describe('looksLikeQuestion', () => {
   it('물음표나 의문 표현이 있으면 질문처럼 보인다', () => {
@@ -22,5 +22,18 @@ describe('looksLikeQuestion', () => {
 
   it('긴 서술이 의문 표현 없이 이어지면 질문처럼 보지 않는다', () => {
     expect(looksLikeQuestion('결제 모듈에 할인 쿠폰 적용 순서를 장바구니 단위로 바꾸는 방향으로 정리하고 싶어요')).toBe(false);
+  });
+});
+
+describe('isSmallTalk', () => {
+  it('짧은 인사·맞장구는 인사로 본다', () => {
+    expect(isSmallTalk('안녕')).toBe(true);
+    expect(isSmallTalk('고마워')).toBe(true);
+  });
+
+  it('물음이나 시키는 말이 들어 있으면 인사가 아니다', () => {
+    expect(isSmallTalk('이거 뭐야?')).toBe(false);
+    expect(isSmallTalk('고쳐줘')).toBe(false);
+    expect(isSmallTalk('결제 모듈에 쿠폰 순서 설명해줘 제발')).toBe(false);
   });
 });

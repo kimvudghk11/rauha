@@ -491,6 +491,34 @@ describe('ChatSession — 내 변경 검토', () => {
   });
 });
 
+describe('ChatSession — 저장소 지식은 필요할 때만', () => {
+  const counting = () => {
+    const reads = { n: 0 };
+    return { reads, knowledge: { current: async () => { reads.n += 1; return null; }, noteChanged: async () => undefined } };
+  };
+
+  it('작업 요청은 저장소 지식을 읽지 않는다 (처음 파악하는 조사 팀원을 부르지 않는다)', async () => {
+    const { reads, knowledge } = counting();
+    await ChatSession.start({ ...sessionDeps({ team: new FakeTeam({ router: [route('work')] }) }), knowledge }).handle('Money에 할인 넣어줘');
+    expect(reads.n).toBe(0);
+  });
+
+  it('인사에는 저장소 지식을 읽지 않고 답한다', async () => {
+    const { reads, knowledge } = counting();
+    const team = new FakeTeam({ router: [route('question')], answerer: [() => ({ answer: '안녕하세요.', claims: [] })] });
+    const turn = await ChatSession.start({ ...sessionDeps({ team }), knowledge }).handle('안녕');
+    expect(turn).toMatchObject({ kind: 'answer', answer: '안녕하세요.' });
+    expect(reads.n).toBe(0);
+  });
+
+  it('코드에 대한 질문은 저장소 지식을 읽는다', async () => {
+    const { reads, knowledge } = counting();
+    const team = new FakeTeam({ router: [route('question')], answerer: [() => ({ answer: '네.', claims: [] })] });
+    await ChatSession.start({ ...sessionDeps({ team }), knowledge }).handle('이 함수 뭐 해?');
+    expect(reads.n).toBe(1);
+  });
+});
+
 describe('ChatSession — 빠른 답', () => {
   it('세션을 시작하면 라우터와 답변 팀원을 미리 띄워 둔다', () => {
     const team = new FakeTeam({});

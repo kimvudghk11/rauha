@@ -4,7 +4,7 @@ import type { KnowledgePort } from '../../knowledge/application/ports.js';
 import type { MemoryPort } from '../../memory/application/memory.port.js';
 import { continuable, recallBlock, WorkMemory, type MemoryEntry, type Recall } from '../../memory/domain/work-memory.js';
 import { citedPaths, FactCheck, normalizeUrl, type CheckedClaim } from '../domain/fact-check.js';
-import { looksLikeQuestion } from '../domain/question-hint.js';
+import { isSmallTalk, looksLikeQuestion } from '../domain/question-hint.js';
 import { Department, LAUNCH_ORDER, type DepartmentMemberRole } from '../domain/department.js';
 import type { ModelTier } from '../domain/team.js';
 import { AnswerDto } from './dto/answer.dto.js';
@@ -198,11 +198,14 @@ export class ChatSession {
       return this.canDesign() ? this.feature(input, conversation, started) : { kind: 'notice', message: '설계 대화는 터미널 대화 모드에서만 할 수 있어요.' };
     }
     const early = new AbortController();
-    // 저장소 지식은 라우터와 함께 읽는다. 답변 팀원만 기다린다(라우터는 지식이 필요 없다).
-    const known = this.knowledgeOf();
-    const others = Promise.all(also.map(async (r): Promise<AlsoKnown> => ({ name: r.name, root: r.root, known: also.length <= ALSO_KNOWLEDGE_MAX ? await this.knowledgeOf(r.knowledge) : null })));
+    // 저장소 지식은 답변 팀원이 필요할 때 처음 한 번만 읽는다(처음이면 조사 팀원이 저장소를 훑는다). 작업·인사에는 읽지 않는다.
+    const smallTalk = isSmallTalk(input);
+    let knownRun: Promise<Known | null> | undefined;
+    let othersRun: Promise<AlsoKnown[]> | undefined;
+    const known = () => (knownRun ??= smallTalk ? Promise.resolve(null) : this.knowledgeOf());
+    const others = () => (othersRun ??= smallTalk ? Promise.resolve([]) : Promise.all(also.map(async (r): Promise<AlsoKnown> => ({ name: r.name, root: r.root, known: also.length <= ALSO_KNOWLEDGE_MAX ? await this.knowledgeOf(r.knowledge) : null }))));
     // 질문처럼 보일 때만 미리 시작한다. 시키는 말에 미리 시작하면 판정이 나는 순간 버려질 호출이 하나 생긴다.
-    const asked = looksLikeQuestion(input) ? Promise.all([known, others]).then(([k, o]) => this.askAnswerer(input, null, k, conversation, early.signal, o)) : null;
+    const asked = looksLikeQuestion(input) ? Promise.all([known(), others()]).then(([k, o]) => this.askAnswerer(input, null, k, conversation, early.signal, o)) : null;
     // 라우터를 기다리는 동안 실패해도 처리 안 된 거절로 프로세스가 죽지 않게. 쓰기로 하면 answer()가 await에서 다시 받는다.
     asked?.catch(() => undefined);
     const routed = await this.member('router', [conversation !== null ? `<conversation>\n${conversation}\n</conversation>` : '', `<message>\n${input}\n</message>`], ROUTE_SCHEMA, {});
@@ -222,7 +225,7 @@ export class ChatSession {
     // 기능 요청은 설계 대화부터. 사용자와 주고받을 화면이 없으면(-p) 작업으로 바로 진행한다.
     if (route.mode === 'feature' && past === null && this.canDesign()) return this.feature(input, conversation, started);
     if (changesCode) return this.work(input, conversation, past);
-    return this.answer(input, route.refersToPast || asked === null ? this.askAnswerer(input, past, await known, conversation, undefined, await others) : asked, started);
+    return this.answer(input, route.refersToPast || asked === null ? this.askAnswerer(input, past, await known(), conversation, undefined, await others()) : asked, started);
   }
 
   clear(): void {

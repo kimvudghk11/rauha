@@ -3,6 +3,12 @@ const QUESTION = /(\?|？|뭐|왜|어떻게|어디|언제|누가|무엇|얼마|�
 /** 이 길이 이하의 짧은 말은 인사·맞장구로 본다 */
 const SMALL_TALK_CHARS = 8;
 
+/** 인사·맞장구처럼 저장소를 몰라도 답할 수 있는 짧은 말. 이런 말에는 저장소 지식(조사 팀원)을 읽지 않는다. */
+export function isSmallTalk(input: string): boolean {
+  const text = input.trim();
+  return text.length <= SMALL_TALK_CHARS && !ACTION.test(text) && !QUESTION.test(text);
+}
+
 /**
  * 입력이 질문처럼 보이는지. 라우터가 답하기 전에 답변 팀원을 미리 띄울지 정하는 데만 쓴다.
  * 틀려도 정답이 바뀌지 않는다: 질문인데 놓치면 라우터 뒤에 시작해 조금 느릴 뿐이고,
