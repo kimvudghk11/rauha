@@ -1,7 +1,7 @@
 import { DomainError } from '../../../shared/domain-error.js';
 import type { ModelTier } from '../../domain/team.js';
 
-export type MemberRole = 'intake' | 'tester' | 'implementer' | 'reviewer' | 'router' | 'answerer' | 'surveyor' | 'writer' | 'designer' | 'operator' | 'debugger' | 'riskchecker' | 'planner';
+export type MemberRole = 'intake' | 'tester' | 'implementer' | 'reviewer' | 'router' | 'answerer' | 'surveyor' | 'writer' | 'designer' | 'operator' | 'debugger' | 'riskchecker' | 'planner' | 'chief' | 'bm' | 'marketer' | 'growth' | 'uxdesigner' | 'brand' | 'securitychecker' | 'releaser';
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 export interface RoleSetting {
@@ -18,7 +18,7 @@ const READ_TOOLS = ['Read', 'Grep', 'Glob', 'WebSearch', 'WebFetch'];
 const WRITE_TOOLS = [...READ_TOOLS, 'Edit', 'Write', 'Bash'];
 const TIERS: readonly ModelTier[] = ['haiku', 'sonnet', 'opus'];
 const EFFORTS: readonly Effort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
-const ROLES: readonly MemberRole[] = ['intake', 'tester', 'implementer', 'reviewer', 'router', 'answerer', 'surveyor', 'writer', 'designer', 'operator', 'debugger', 'riskchecker', 'planner'];
+const ROLES: readonly MemberRole[] = ['intake', 'tester', 'implementer', 'reviewer', 'router', 'answerer', 'surveyor', 'writer', 'designer', 'operator', 'debugger', 'riskchecker', 'planner', 'chief', 'bm', 'marketer', 'growth', 'uxdesigner', 'brand', 'securitychecker', 'releaser'];
 
 /** 상태 머신이 sonnet으로 올렸을 때 쓰는 설정. 표에 없는 조합은 역할 기본값에서 모델만 바꾼다. */
 const ESCALATED: Readonly<Partial<Record<MemberRole, Partial<Record<ModelTier, Partial<RoleSetting>>>>>> = {
@@ -62,6 +62,17 @@ export class RoleSettingsDto {
       riskchecker: { tier: 'sonnet', effort: 'medium', maxTurns: 30, maxBudgetUsd: 1, tools: [...READ_TOOLS, 'Bash'], readsProject: true },
       // 사업·제품 아이디어와 앱·웹 구성, 알맞은 아키텍처·패턴을 제안한다. 비슷한 서비스를 찾아볼 수 있어야 해서 웹 도구를 쓰고, 파일은 쓰지 않는다. 참신함이 중요해 노력 수준을 높인다.
       planner: { tier: 'sonnet', effort: 'high', maxTurns: 30, maxBudgetUsd: 1.5, tools: READ_TOOLS, readsProject: true },
+      // 부서장: 7년차 이상의 판단으로 부서 일을 나누고(계획) 팀원의 보고를 하나로 모은다(종합). 호출 수가 적어 가장 높은 모델을 쓴다. 파일은 쓰지 않는다.
+      chief: { tier: 'opus', effort: 'medium', maxTurns: 20, maxBudgetUsd: 2, tools: READ_TOOLS, readsProject: true },
+      bm: { tier: 'sonnet', effort: 'medium', maxTurns: 25, maxBudgetUsd: 1, tools: READ_TOOLS, readsProject: true },
+      marketer: { tier: 'sonnet', effort: 'medium', maxTurns: 25, maxBudgetUsd: 1, tools: READ_TOOLS, readsProject: true },
+      growth: { tier: 'sonnet', effort: 'medium', maxTurns: 25, maxBudgetUsd: 1, tools: READ_TOOLS, readsProject: true },
+      uxdesigner: { tier: 'sonnet', effort: 'medium', maxTurns: 25, maxBudgetUsd: 1, tools: READ_TOOLS, readsProject: true },
+      brand: { tier: 'sonnet', effort: 'medium', maxTurns: 20, maxBudgetUsd: 1, tools: READ_TOOLS, readsProject: true },
+      // 의존성 점검 같은 읽기 명령을 돌릴 수 있다. 파일은 고치지 않는다.
+      securitychecker: { tier: 'sonnet', effort: 'medium', maxTurns: 30, maxBudgetUsd: 1, tools: [...READ_TOOLS, 'Bash'], readsProject: true },
+      // 릴리스 노트를 쓰려고 git 기록을 읽는다.
+      releaser: { tier: 'sonnet', effort: 'low', maxTurns: 25, maxBudgetUsd: 1, tools: [...READ_TOOLS, 'Bash'], readsProject: true },
     });
   }
 

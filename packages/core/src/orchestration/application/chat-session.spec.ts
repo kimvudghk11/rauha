@@ -131,7 +131,7 @@ class FakeLoops {
   });
 }
 
-const route = (mode: 'work' | 'question' | 'task' | 'feature' | 'ops' | 'debug' | 'risk' | 'ideate', refersToPast = false, pastQuery: string | null = null) => () => ({ mode, refersToPast, pastQuery });
+const route = (mode: 'work' | 'question' | 'task' | 'feature' | 'ops' | 'debug' | 'risk' | 'ideate' | 'company' | 'launch', refersToPast = false, pastQuery: string | null = null, extra: { department?: string; member?: string | null } = {}) => () => ({ mode, refersToPast, pastQuery, ...extra });
 
 type SessionParts = { team: FakeTeam; loops?: FakeLoops; memory?: FakeMemory; user?: UserPort; files?: Record<string, string>; steps?: string[]; changes?: FileChange[] };
 
@@ -737,6 +737,109 @@ describe('ChatSession — 기획', () => {
   it('사용 한도에 걸리면 막힘으로 알린다', async () => {
     const team = new FakeTeam({ router: [route('ideate')] }, 'planner');
     expect(await session({ team }).handle('아이디어 내줘')).toMatchObject({ kind: 'blocked', reason: 'usage-limit' });
+  });
+});
+
+describe('ChatSession — 회사 부서', () => {
+  const memberReport = (answer: string, files: string[] = []) => () => ({ answer, files });
+  /** 부서장: 계획 일이면 팀원 배정을, 종합·섹션 일이면 글을 돌려준다 */
+  const chief = (assignments: { member: string; brief: string }[], text = '부서장 종합') => (call: { userMessage: string }) =>
+    call.userMessage.includes('<job>plan</job>') ? { note: '나눔', assignments } : { answer: text, files: ['docs/x.md'] };
+  const callsOf = (team: FakeTeam, role: string) => team.calls.filter((c) => c.role === role);
+
+  it('팀원이 정해진 일은 부서장 없이 그 팀원이 혼자 한다 (호출 하나)', async () => {
+    const loops = new FakeLoops();
+    const team = new FakeTeam({ router: [route('company', false, null, { department: 'marketing', member: 'marketer' })], marketer: [memberReport('스토어 문구 초안', ['README.md'])] });
+    const turn = await session({ team, loops }).handle('앱스토어 설명 써줘');
+    expect(turn).toMatchObject({ kind: 'answer', answer: '스토어 문구 초안\n\n■ 살펴본 파일\n- README.md' });
+    expect(callsOf(team, 'chief')).toEqual([]);
+    expect(loops.runs).toEqual([]);
+  });
+
+  it('넓은 요청은 부서장이 팀원을 나눠 맡기고, 팀원은 자기 지시를 받아 일한다', async () => {
+    const team = new FakeTeam({
+      router: [route('company', false, null, { department: 'marketing', member: null })],
+      chief: [chief([{ member: 'marketer', brief: '문구를 써라' }, { member: 'growth', brief: '지표를 짜라' }])],
+      marketer: [memberReport('문구 안')],
+      growth: [memberReport('지표 안', ['src/a.ts'])],
+    });
+    const turn = await session({ team }).handle('출시 마케팅 전반을 잡아줘');
+    expect(callsOf(team, 'marketer')[0]!.message).toContain('문구를 써라');
+    expect(callsOf(team, 'growth')[0]!.message).toContain('지표를 짜라');
+    expect(callsOf(team, 'chief')).toHaveLength(2);
+    expect(turn).toMatchObject({ kind: 'answer', answer: expect.stringContaining('부서장 종합') });
+    expect(turn.kind === 'answer' && turn.answer).toContain('- docs/x.md');
+    expect(turn.kind === 'answer' && turn.answer).toContain('- src/a.ts');
+  });
+
+  it('부서장이 한 명만 고르면 종합 호출을 건너뛰어 호출을 아낀다', async () => {
+    const team = new FakeTeam({
+      router: [route('company', false, null, { department: 'planning', member: null })],
+      chief: [chief([{ member: 'bm', brief: '구독 모델' }])],
+      bm: [memberReport('구독이 맞아요.')],
+    });
+    const turn = await session({ team }).handle('수익 구조 어떻게 하지');
+    expect(callsOf(team, 'chief')).toHaveLength(1);
+    expect(turn).toMatchObject({ kind: 'answer', answer: '구독이 맞아요.' });
+  });
+
+  it('부서장의 종합 입력에는 팀원들의 보고가 담긴다', async () => {
+    const team = new FakeTeam({
+      router: [route('company', false, null, { department: 'design', member: null })],
+      chief: [chief([{ member: 'uxdesigner', brief: 'a' }, { member: 'brand', brief: 'b' }])],
+      uxdesigner: [memberReport('흐름 명세')],
+      brand: [memberReport('이름 후보')],
+    });
+    await session({ team }).handle('디자인 전반');
+    const merge = callsOf(team, 'chief')[1]!.message;
+    expect(merge).toContain('<job>merge</job>');
+    expect(merge).toContain('흐름 명세');
+    expect(merge).toContain('이름 후보');
+  });
+
+  it('부서 팀원도 앞 대화를 받는다', async () => {
+    const team = new FakeTeam({ router: [route('company', false, null, { department: 'design', member: 'brand' })], brand: [memberReport('첫 이름들'), memberReport('둘째')] });
+    const chat = session({ team });
+    await chat.handle('이름 지어줘');
+    await chat.handle('두 번째 거 더 다듬어줘');
+    expect(callsOf(team, 'brand')[1]!.message).toContain('첫 이름들');
+  });
+
+  it('운영 부서의 운영 팀원이 한 일은 실행한 명령이 답에 붙는다', async () => {
+    const team = new FakeTeam({ router: [route('company', false, null, { department: 'operations', member: 'operator' })], operator: [() => ({ answer: '버킷 2개', commands: ['aws s3 ls'] })] });
+    const turn = await session({ team }).handle('버킷 보여줘');
+    expect(turn).toMatchObject({ kind: 'answer', answer: '버킷 2개\n\n■ 실행한 명령\n- aws s3 ls' });
+  });
+
+  it('팀원이 사용 한도에 걸리면 막힘으로 알린다', async () => {
+    const team = new FakeTeam({ router: [route('company', false, null, { department: 'marketing', member: 'marketer' })] }, 'marketer');
+    expect(await session({ team }).handle('광고 문구')).toMatchObject({ kind: 'blocked', reason: 'usage-limit' });
+  });
+
+  it('런칭 계획은 부서장이 부서마다 한 번씩 순서대로 쓰고, 앞 부서의 글을 뒤 부서가 받는다', async () => {
+    const loops = new FakeLoops();
+    const team = new FakeTeam({ router: [route('launch')], chief: [(call) => ({ answer: `${call.userMessage.includes('Planning') ? '기획안' : call.userMessage.includes('Design') ? '디자인안' : '다른 부서안'}`, files: [] })] });
+    const steps: string[] = [];
+    const turn = await session({ team, loops, steps }).handle('동네 모임 앱이랑 웹 런칭 계획 짜줘');
+    expect(callsOf(team, 'chief')).toHaveLength(5);
+    expect(callsOf(team, 'chief')[1]!.message).toContain('기획안');
+    expect(turn.kind === 'answer' && turn.answer.indexOf('기획·전략부')).toBeLessThan(turn.kind === 'answer' ? turn.answer.indexOf('운영·유지보수부') : 0);
+    expect(turn.kind === 'answer' && turn.answer).toContain('설계 시작');
+    expect(loops.runs).toEqual([]);
+    expect(steps.some((s) => s.includes('마케팅·그로스부'))).toBe(true);
+  });
+
+  it('런칭 계획 중 한도에 걸리면 막힘으로 알린다', async () => {
+    const team = new FakeTeam({ router: [route('launch')] }, 'chief');
+    expect(await session({ team }).handle('런칭 계획')).toMatchObject({ kind: 'blocked', reason: 'usage-limit' });
+  });
+
+  it('런칭 계획을 낸 턴은 다음 대화에서 앞 대화로 이어진다', async () => {
+    const team = new FakeTeam({ router: [route('launch'), route('question')], chief: [() => ({ answer: '핵심 계획', files: [] })] });
+    const chat = session({ team });
+    await chat.handle('런칭 계획');
+    await chat.handle('개발부터 시작하자');
+    expect(callsOf(team, 'answerer').pop()!.message).toContain('핵심 계획');
   });
 });
 

@@ -4,6 +4,7 @@ import type { KnowledgePort } from '../../knowledge/application/ports.js';
 import type { MemoryPort } from '../../memory/application/memory.port.js';
 import { continuable, recallBlock, WorkMemory, type MemoryEntry, type Recall } from '../../memory/domain/work-memory.js';
 import { citedPaths, FactCheck, normalizeUrl, type CheckedClaim } from '../domain/fact-check.js';
+import { Department, LAUNCH_ORDER, type DepartmentMemberRole } from '../domain/department.js';
 import type { ModelTier } from '../domain/team.js';
 import { AnswerDto } from './dto/answer.dto.js';
 import type { MemberRole, RoleSettingsDto } from './dto/role-settings.dto.js';
@@ -12,7 +13,8 @@ import { FilesBlockDto } from './dto/files-block.dto.js';
 import { ReviewReportDto } from './dto/review-report.dto.js';
 import { RouteDto, type Route } from './dto/route.dto.js';
 import { AnalysisReportDto } from './dto/analysis-report.dto.js';
-import { ANALYSIS_SCHEMA, ANSWER_SCHEMA, OPS_SCHEMA, REVIEWER_REPORT_SCHEMA, ROUTE_SCHEMA, WRITER_SCHEMA } from './dto/schemas.js';
+import { CompanyPlanDto } from './dto/company-plan.dto.js';
+import { ANALYSIS_SCHEMA, ANSWER_SCHEMA, COMPANY_PLAN_SCHEMA, OPS_SCHEMA, REVIEWER_REPORT_SCHEMA, ROUTE_SCHEMA, WRITER_SCHEMA } from './dto/schemas.js';
 import { WriterReportDto } from './dto/writer-report.dto.js';
 import { OpsReportDto } from './dto/ops-report.dto.js';
 import type { RunContextBlocks, RunOutcome } from './minimal-loop.service.js';
@@ -23,6 +25,10 @@ export type { RunContextBlocks };
 /** 팀장에게 넘길 앞 대화 턴 수와 기억 묶음 글자 수 상한 */
 const CONVERSATION_TURNS = 6;
 /** 결과 글을 얼마나 남기고 넘기는지. 바로 앞 턴은 길게("두 번째 거 더 자세히"가 가리키는 곳이 거기다), 그 전은 짧게. */
+/** 읽기만 하고 보고하는 팀원(기획·디버깅·위험 점검·회사 부서 팀원, 운영 팀원) */
+type ReportRole = DepartmentMemberRole;
+/** 런칭 계획에서 부서별로 앞 대화에 남기는 글자 수(다섯 부서를 합쳐도 KEPT_RESULT_CHARS 안에 든다) */
+const LAUNCH_KEPT_CHARS = 190;
 const KEPT_RESULT_CHARS = 1200;
 const OLDER_RESULT_CHARS = 300;
 const MEMORY_CHARS = 3000;
@@ -204,6 +210,8 @@ export class ChatSession {
     if (route.mode === 'task') return this.task(input, conversation, also, started);
     if (route.mode === 'ops') return this.ops(input, conversation, started);
     if (route.mode === 'debug') return this.analyze('debugger', '디버깅', input, conversation, started);
+    if (route.mode === 'company') return this.company(input, conversation, route, started);
+    if (route.mode === 'launch') return this.launch(input, conversation, started);
     if (route.mode === 'ideate') return this.analyze('planner', '기획', input, conversation, started);
     if (route.mode === 'risk') return this.analyze('riskchecker', '위험 점검', input, conversation, started);
     const changesCode = route.mode === 'work' || route.mode === 'feature';
@@ -323,24 +331,124 @@ export class ChatSession {
     return { kind: 'answer', answer, checked: [], costUsd: result.usage.costUsd, durationMs: this.deps.now() - started, basis: null };
   }
 
-  // ── 디버깅·위험 점검 ──────────────────────────────────────
+  // ── 디버깅·위험 점검·회사 부서 ────────────────────────────
 
   /**
-   * 원인을 찾아 달라(debug)거나 바꾸기 전에 위험을 짚어 달라(risk)는 요청. 둘 다 지금 저장소를 읽고 보고만 하며 파일은 고치지 않는다.
-   * 고치는 일은 사용자가 이어서 시키면 작업 흐름으로 간다. label: 보고서와 다음 대화의 말머리에 쓰는 팀원 이름
+   * 한 팀원이 읽기만 하고 보고하는 일을 한 번 부른다(디버깅·위험 점검·기획과 회사 부서 팀원 모두).
+   * 운영 팀원만 명령을 실행하므로 보고 모양이 달라 그것만 따로 읽는다. 파일은 아무도 고치지 않는다.
    */
-  private async analyze(role: 'debugger' | 'riskchecker' | 'planner', label: string, input: string, conversation: string | null, started: number): Promise<TurnOutcome> {
-    const result = await this.member(
-      role,
-      [conversation !== null ? `<conversation>\n${conversation}\n</conversation>` : '', `<today>${this.deps.today()}</today>`, this.workspaceBlock(), `<request>\n${input}\n</request>`],
-      ANALYSIS_SCHEMA,
-      {},
-    );
-    if (result.blocked) return { kind: 'blocked', ...result.blocked };
-    const answer = AnalysisReportDto.read(result.output, label).toAnswer();
+  private async report(role: ReportRole, label: string, parts: readonly string[]): Promise<{ blocked: NonNullable<MemberResult['blocked']> } | { answer: string; files: readonly string[] }> {
+    if (role === 'operator') {
+      const result = await this.member(role, parts, OPS_SCHEMA, {});
+      return result.blocked ? { blocked: result.blocked } : { answer: OpsReportDto.read(result.output).toAnswer(), files: [] };
+    }
+    const result = await this.member(role, parts, ANALYSIS_SCHEMA, {});
+    if (result.blocked) return { blocked: result.blocked };
+    const read = AnalysisReportDto.read(result.output, label);
+    return { answer: read.answer, files: read.files };
+  }
+
+  /** 팀원에게 보내는 공통 입력. brief가 있으면 부서장이 이 팀원에게 준 지시다. */
+  private reportParts(input: string, conversation: string | null, brief: string | null = null): string[] {
+    return [
+      conversation !== null ? `<conversation>\n${conversation}\n</conversation>` : '',
+      `<today>${this.deps.today()}</today>`,
+      this.workspaceBlock(),
+      brief !== null && brief !== '' ? `<assignment>\n${brief}\n</assignment>` : '',
+      `<request>\n${input}\n</request>`,
+    ];
+  }
+
+  /** 결과를 기억과 앞 대화에 남기고 답으로 돌려준다. label: 다음 대화의 말머리 */
+  private async settle(label: string, input: string, answer: string, remembered: string, started: number, costBefore: number): Promise<TurnOutcome> {
     await this.deps.memory.save(WorkMemory.fromAnswer({ id: this.deps.newId(), at: this.at(), question: input, answer, citedFiles: [], basis: null }));
-    this.turns.push({ input, result: `${label}: ${answer.slice(0, KEPT_RESULT_CHARS)}` });
-    return { kind: 'answer', answer, checked: [], costUsd: result.usage.costUsd, durationMs: this.deps.now() - started, basis: null };
+    this.turns.push({ input, result: `${label}: ${remembered.slice(0, KEPT_RESULT_CHARS)}` });
+    return { kind: 'answer', answer, checked: [], costUsd: this.costUsd - costBefore, durationMs: this.deps.now() - started, basis: null };
+  }
+
+  /**
+   * 원인을 찾아 달라(debug)거나 바꾸기 전에 위험을 짚어 달라(risk), 아이디어를 달라(ideate)는 요청처럼 팀원 하나가 혼자 하는 일.
+   * 지금 저장소를 읽고 보고만 하며 파일은 고치지 않는다. 고치는 일은 사용자가 이어서 시키면 작업 흐름으로 간다.
+   */
+  private async analyze(role: ReportRole, label: string, input: string, conversation: string | null, started: number): Promise<TurnOutcome> {
+    const costBefore = this.costUsd;
+    const done = await this.report(role, label, this.reportParts(input, conversation));
+    if ('blocked' in done) return { kind: 'blocked', ...done.blocked };
+    const answer = AnalysisReportDto.read({ answer: done.answer, files: done.files }, label).toAnswer();
+    return this.settle(label, input, answer, answer, started, costBefore);
+  }
+
+  /**
+   * 마케팅·사업 모델·디자인·보안·릴리스처럼 회사 부서가 맡는 일. 한 팀원이 하면 될 일은 그 팀원만 부른다(호출 하나).
+   * 넓은 요청은 부서장이 팀원을 최대 셋까지 골라 나눠 주고(계획), 팀원들이 동시에 일한 뒤, 둘 이상이면 부서장이 하나로 모은다(종합).
+   * 한 명만 골랐으면 종합은 건너뛴다.
+   */
+  private async company(input: string, conversation: string | null, route: Route, started: number): Promise<TurnOutcome> {
+    const department = Department.of(route.department ?? 'planning');
+    const label = (role: ReportRole) => department.member(role)?.label ?? role;
+    if (route.member !== null) return this.analyze(route.member, label(route.member), input, conversation, started);
+
+    const costBefore = this.costUsd;
+    const known = [`<department>\n${department.persona}\n</department>`, conversation !== null ? `<conversation>\n${conversation}\n</conversation>` : '', `<request>\n${input}\n</request>`];
+    const members = `<members>\n${department.members.map((m) => `- ${m.role}: ${m.does}`).join('\n')}\n</members>`;
+    const planned = await this.member('chief', ['<job>plan</job>', members, ...known], COMPANY_PLAN_SCHEMA, {});
+    if (planned.blocked) return { kind: 'blocked', ...planned.blocked };
+    const { assignments } = CompanyPlanDto.read(planned.output, department);
+
+    const reports = await Promise.all(assignments.map((a) => this.report(a.role, label(a.role), this.reportParts(input, conversation, a.brief))));
+    const done: { role: ReportRole; answer: string; files: readonly string[] }[] = [];
+    for (const [i, r] of reports.entries()) {
+      if ('blocked' in r) return { kind: 'blocked', ...r.blocked };
+      done.push({ role: assignments[i]!.role, answer: r.answer, files: r.files });
+    }
+    if (done.length === 1) {
+      const only = done[0]!;
+      const answer = AnalysisReportDto.read({ answer: only.answer, files: only.files }, label(only.role)).toAnswer();
+      return this.settle(department.label, input, answer, answer, started, costBefore);
+    }
+
+    const body = done.map((d) => `<report member="${d.role}">\n${d.answer}\n</report>`).join('\n');
+    const merged = await this.member('chief', ['<job>merge</job>', ...known, `<reports>\n${body}\n</reports>`], ANALYSIS_SCHEMA, {});
+    if (merged.blocked) return { kind: 'blocked', ...merged.blocked };
+    const read = AnalysisReportDto.read(merged.output, department.label);
+    // 팀원이 읽은 파일은 부서장이 빠뜨려도 사라지지 않게 합친다.
+    const files = [...new Set([...read.files, ...done.flatMap((d) => d.files)])];
+    const answer = AnalysisReportDto.read({ answer: read.answer, files }, department.label).toAnswer();
+    return this.settle(department.label, input, answer, answer, started, costBefore);
+  }
+
+  /**
+   * 앱·웹을 기획해 오픈하고 운영하기까지의 런칭 계획. 부서장이 부서마다 한 번씩(팀원을 따로 부르지 않고) 순서대로 자기 부서의 몫을 쓰고,
+   * 뒤 부서는 앞 부서의 글을 받아 이어 쓴다. 호출은 부서 수(5)만큼이다. 개발은 계획이 정해진 뒤 설계 대화로 이어 간다.
+   */
+  private async launch(input: string, conversation: string | null, started: number): Promise<TurnOutcome> {
+    const costBefore = this.costUsd;
+    const sections: { label: string; answer: string }[] = [];
+    for (const id of LAUNCH_ORDER) {
+      const department = Department.of(id);
+      this.deps.progress.step(`런칭 계획: ${department.label}`);
+      const earlier = sections.map((s) => `[${s.label}]\n${s.answer}`).join('\n\n');
+      const result = await this.member(
+        'chief',
+        [
+          `<department>\n${department.persona}\n</department>`,
+          '<job>section</job>',
+          conversation !== null ? `<conversation>\n${conversation}\n</conversation>` : '',
+          `<today>${this.deps.today()}</today>`,
+          this.workspaceBlock(),
+          earlier !== '' ? `<earlier>\n${earlier}\n</earlier>` : '',
+          `<request>\n${input}\n</request>`,
+        ],
+        ANALYSIS_SCHEMA,
+        {},
+      );
+      if (result.blocked) return { kind: 'blocked', ...result.blocked };
+      sections.push({ label: department.label, answer: AnalysisReportDto.read(result.output, department.label).answer });
+    }
+    const answer = [...sections.map((s) => `━━ ${s.label} ━━\n${s.answer}`), '개발은 이 계획이 정해진 뒤에 시작해요. "이 계획으로 설계 시작해줘"라고 하시면 설계 대화로 이어지고, "런칭 계획 문서로 남겨줘"라고 하시면 파일로 써요.'].join('\n\n');
+    // 앞 대화에는 부서별 핵심만 남긴다(전문은 기억에 있다). 다음 말이 이 계획을 가리켜도 이어지게.
+    const remembered = sections.map((s) => `${s.label}: ${s.answer.replace(/\s+/g, ' ').slice(0, LAUNCH_KEPT_CHARS)}`).join(' / ');
+    return this.settle('런칭 계획', input, answer, remembered, started, costBefore);
   }
 
   // ── 문서 작업 ─────────────────────────────────────────────

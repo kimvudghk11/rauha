@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { DomainError } from '../../shared/domain-error.js';
 import type { MemberRole } from '../application/dto/role-settings.dto.js';
 
-const ROLES: readonly MemberRole[] = ['intake', 'tester', 'implementer', 'reviewer', 'router', 'answerer', 'surveyor', 'writer', 'designer', 'operator', 'debugger', 'riskchecker', 'planner'];
+const ROLES: readonly MemberRole[] = ['intake', 'tester', 'implementer', 'reviewer', 'router', 'answerer', 'surveyor', 'writer', 'designer', 'operator', 'debugger', 'riskchecker', 'planner', 'chief', 'bm', 'marketer', 'growth', 'uxdesigner', 'brand', 'securitychecker', 'releaser'];
 /** 업무 지시서를 받아 일하는 팀원. 공통 앞부분(_common.md)은 이들에게만 붙인다. 라우터·답변 팀원에게는 맞지 않는 지침이라 입력만 길어진다. */
 const WORK_ROLES: ReadonlySet<MemberRole> = new Set(['intake', 'tester', 'implementer', 'reviewer']);
 

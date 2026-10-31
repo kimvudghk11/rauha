@@ -80,6 +80,15 @@ describe('RoleSettingsDto', () => {
     expect(planner.tools).not.toContain('Edit');
   });
 
+  it('부서장은 가장 높은 모델을 쓰고, 회사 부서 팀원은 아무도 파일을 쓰지 못한다', () => {
+    const roles = RoleSettingsDto.defaults();
+    expect(roles.get('chief').tier).toBe('opus');
+    for (const role of ['chief', 'bm', 'marketer', 'growth', 'uxdesigner', 'brand', 'securitychecker', 'releaser', 'planner'] as const) {
+      expect(roles.get(role).tools).not.toContain('Write');
+      expect(roles.get(role).tools).not.toContain('Edit');
+    }
+  });
+
   it('형식이 틀린 환경 변수는 거부한다', () => {
     expect(() => RoleSettingsDto.defaults().withEnv({ RAUHA_ROLE_TESTER: 'gpt:fast' })).toThrow(DomainError);
   });

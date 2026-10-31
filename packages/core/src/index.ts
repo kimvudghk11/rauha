@@ -47,6 +47,7 @@ export {
   type ReadingStop,
 } from './orchestration/application/dto/explanation.dto.js';
 export { VitestReportDto } from './orchestration/application/dto/vitest-report.dto.js';
+export { Department, LAUNCH_ORDER, type DepartmentId, type DepartmentMember, type DepartmentMemberRole } from './orchestration/domain/department.js';
 export { ReadingGuideDto, type ReadingGuideProps, type RunStopReason, type SettledAssumption } from './orchestration/application/dto/reading-guide.dto.js';
 export {
   RoleSettingsDto,
