@@ -1,4 +1,5 @@
 import type { DesignApproval, DesignPlan, DesignQuestion } from '../../design/application/ports.js';
+import type { LearningBook } from '../domain/learning-book.js';
 import type { CompanyBook } from '../domain/company-book.js';
 import type { CheckedClaim } from '../domain/fact-check.js';
 import type { TestRun } from '../domain/test-run.js';
@@ -159,4 +160,10 @@ export interface ProgressPort {
 export interface CompanyBookPort {
   load(): Promise<CompanyBook>;
   save(book: CompanyBook): Promise<void>;
+}
+
+/** 학습 노트(작업에서 쓰인 패턴과 이유)를 읽고 쓴다. 읽을 수 없으면 빈 노트를 돌려준다. */
+export interface LearningPort {
+  load(): Promise<LearningBook>;
+  save(book: LearningBook): Promise<void>;
 }

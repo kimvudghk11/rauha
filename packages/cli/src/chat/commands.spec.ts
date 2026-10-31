@@ -43,7 +43,7 @@ describe('/guide', () => {
 
 describe('suggestCommands', () => {
   it('/만 치면 모든 명령을, 더 치면 앞이 맞는 명령만 설명과 함께 보여 준다', () => {
-    expect(suggestCommands('/').map((c) => c.name)).toEqual(['/clear', '/status', '/usage', '/guide', '/review', '/design', '/repo', '/retry', '/queue', '/copy', '/team', '/company', '/routine', '/update', '/help', '/exit']);
+    expect(suggestCommands('/').map((c) => c.name)).toEqual(['/clear', '/status', '/usage', '/guide', '/review', '/design', '/repo', '/retry', '/queue', '/copy', '/team', '/company', '/routine', '/learn', '/update', '/help', '/exit']);
     expect(suggestCommands('/us')).toEqual([{ name: '/usage', help: expect.stringContaining('구독 사용률') }]);
     expect(suggestCommands('/up')).toEqual([{ name: '/update', help: expect.stringContaining('최신') }]);
   });

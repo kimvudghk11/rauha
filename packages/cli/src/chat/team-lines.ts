@@ -11,9 +11,10 @@ const DEVELOPMENT: readonly MemberRole[] = ['intake', 'tester', 'implementer', '
 const COMMON: readonly { readonly role: MemberRole; readonly title?: string }[] = [{ role: 'router', title: '대표 (라우터)' }, { role: 'answerer' }, { role: 'surveyor' }, { role: 'writer' }, { role: 'designer' }];
 
 /** 팀원이 할 수 있는 일을 한 마디로. 명령 실행이 있으면 그것이 가장 큰 차이라 먼저 말한다. */
-function ability(tools: readonly string[]): string {
+function ability(role: MemberRole, tools: readonly string[]): string {
   const edits = tools.includes('Edit') || tools.includes('Write');
-  if (tools.includes('Bash')) return edits ? '파일 수정 · 명령 실행' : '명령 실행';
+  // 운영 팀원만 인프라를 바꾸는 명령을 실행한다(위험한 명령은 허락을 묻는다). 나머지 팀원의 명령은 프롬프트로 읽기용에 묶여 있다.
+  if (tools.includes('Bash')) return edits ? '파일 수정 · 명령 실행' : role === 'operator' ? '명령 실행' : '읽기 + 조회 명령';
   if (edits) return '파일 수정';
   return tools.length === 0 ? '도구 없음' : '읽기만';
 }
@@ -25,7 +26,7 @@ function ability(tools: readonly string[]): string {
 export function teamLines(roles: RoleSettingsDto): string[] {
   const row = (role: MemberRole, title?: string) => {
     const s = roles.get(role);
-    return { name: title ?? NAME[role], detail: `${s.tier} · ${s.effort}`, ability: ability(s.tools) };
+    return { name: title ?? NAME[role], detail: `${s.tier} · ${s.effort}`, ability: ability(role, s.tools) };
   };
   const groups: { readonly title: string; readonly rows: ReturnType<typeof row>[] }[] = [
     { title: '개발부', rows: DEVELOPMENT.map((r) => row(r)) },

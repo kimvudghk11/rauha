@@ -47,3 +47,16 @@ describe('teamLines — 부서별', () => {
     }
   });
 });
+
+describe('teamLines — 할 수 있는 일 표현', () => {
+  const lines = teamLines(RoleSettingsDto.defaults());
+
+  it('읽기 전용 명령만 쓰는 팀원은 명령 실행이 아니라 조회 명령이라고 적는다', () => {
+    for (const name of ['디버깅 팀원', '위험 점검 팀원', '보안 점검 팀원', '릴리스 팀원']) expect(lines.find((l) => l.includes(name)), name).toContain('읽기 + 조회 명령');
+  });
+
+  it('운영 팀원만 인프라를 바꾸는 명령 실행이라고 적는다', () => {
+    expect(lines.find((l) => l.includes('운영 팀원'))).toContain('명령 실행');
+    expect(lines.find((l) => l.includes('운영 팀원'))).not.toContain('조회');
+  });
+});

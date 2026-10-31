@@ -47,6 +47,8 @@ export {
   type ReadingStop,
 } from './orchestration/application/dto/explanation.dto.js';
 export { VitestReportDto } from './orchestration/application/dto/vitest-report.dto.js';
+export { LearningBook, type PatternNote } from './orchestration/domain/learning-book.js';
+export { FileLearningStore } from './orchestration/infrastructure/file-learning-store.js';
 export { CompanyBook, type CompanyEntry } from './orchestration/domain/company-book.js';
 export { FileCompanyBook } from './orchestration/infrastructure/file-company-book.js';
 export { Routine, RoutineBook, type Cadence } from './orchestration/domain/routine.js';

@@ -9,6 +9,7 @@ import {
   discoverRepos,
   FileChatSnapshots,
   FileCompanyBook,
+  FileLearningStore,
   FileRoutineStore,
   Routine,
   FileDesignStore,
@@ -34,6 +35,7 @@ import { chatProgress } from './chat-progress.js';
 import { ChatStore, type Printable } from './chat-store.js';
 import { runShell } from '../shell-run.js';
 import { companyLines } from './company-lines.js';
+import { learningLines } from './learning-lines.js';
 import { dueNotice, ROUTINE_USAGE, routineLines } from './routine-lines.js';
 import { teamLines } from './team-lines.js';
 import { HELP_TEXT, parseCommand, type ChatCommand } from './commands.js';
@@ -224,6 +226,7 @@ export async function runChat(options: ChatOptions): Promise<number> {
       newId: () => crypto.randomUUID(),
       today: () => new Date().toISOString().slice(0, 10),
       // 한도를 얼마나 썼는지(1분마다 읽는 값). 빠듯하면 부서장이 아끼고, 위험하면 큰 요청을 미룬다.
+      learning: new FileLearningStore(repoProfile.learningDir(home), repo.root),
       company: new FileCompanyBook(repoProfile.companyDir(home), repo.root),
       budget: () => SessionBudget.fromWindows([plan?.session ?? null, plan?.weekly ?? null]),
       nowText: () => `${new Date().toLocaleString('ko-KR', { dateStyle: 'full', timeStyle: 'short' })} (${Intl.DateTimeFormat().resolvedOptions().timeZone})`,
@@ -453,6 +456,12 @@ export async function runChat(options: ChatOptions): Promise<number> {
           } catch (error) {
             return store.print(`  ${(error as Error).message}`);
           }
+        }
+        case 'learn': {
+          const b = current();
+          if (b === null) return store.print(NO_CURRENT);
+          store.printLines(learningLines(await b.chat.learningNotes()));
+          return;
         }
         case 'company': {
           const b = current();

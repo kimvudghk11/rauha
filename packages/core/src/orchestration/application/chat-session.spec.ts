@@ -5,13 +5,14 @@ import { RepoRef } from '../../knowledge/domain/repo-ref.js';
 import type { MemoryPort } from '../../memory/application/memory.port.js';
 import type { MemoryEntry, MemoryNode, Recall } from '../../memory/domain/work-memory.js';
 import type { CheckedClaim } from '../domain/fact-check.js';
+import { LearningBook } from '../domain/learning-book.js';
 import { CompanyBook } from '../domain/company-book.js';
 import { SessionBudget } from '../domain/session-budget.js';
 import { ChatSession, type RunContextBlocks } from './chat-session.js';
 import { RoleSettingsDto, type MemberRole } from './dto/role-settings.dto.js';
 import type { RunOutcome } from './minimal-loop.service.js';
 import type { Assumption } from './dto/intake.dto.js';
-import type { CompanyBookPort, FactAnswer, FileChange, MemberCall, MemberResult, PastCandidate, TeamMemberPort, UserPort } from './ports.js';
+import type { LearningPort, CompanyBookPort, FactAnswer, FileChange, MemberCall, MemberResult, PastCandidate, TeamMemberPort, UserPort } from './ports.js';
 
 // ── 가짜들 ───────────────────────────────────────────────────
 
@@ -135,7 +136,7 @@ class FakeLoops {
 
 const route = (mode: 'work' | 'question' | 'task' | 'feature' | 'ops' | 'debug' | 'risk' | 'ideate' | 'company' | 'launch', refersToPast = false, pastQuery: string | null = null, extra: { department?: string; member?: string | null } = {}) => () => ({ mode, refersToPast, pastQuery, ...extra });
 
-type SessionParts = { team: FakeTeam; loops?: FakeLoops; memory?: FakeMemory; user?: UserPort; files?: Record<string, string>; steps?: string[]; changes?: FileChange[]; budget?: SessionBudget; company?: CompanyBookPort };
+type SessionParts = { team: FakeTeam; loops?: FakeLoops; memory?: FakeMemory; user?: UserPort; files?: Record<string, string>; steps?: string[]; changes?: FileChange[]; budget?: SessionBudget; company?: CompanyBookPort; learning?: LearningPort };
 
 function session(p: SessionParts) {
   return ChatSession.start(sessionDeps(p));
@@ -158,6 +159,7 @@ function sessionDeps(p: SessionParts) {
     nowText: () => '2026년 10월 25일 일요일 오후 11:40 (Asia/Seoul)',
     ...(p.budget !== undefined ? { budget: () => p.budget! } : {}),
     ...(p.company !== undefined ? { company: p.company } : {}),
+    ...(p.learning !== undefined ? { learning: p.learning } : {}),
   };
 }
 
@@ -1077,6 +1079,53 @@ describe('ChatSession — 같은 질문 다시', () => {
     await chat.handle('이 함수 뭐 해?');
     chat.clear();
     expect(await chat.handle('이 함수 뭐 해?')).toMatchObject({ answer: '새 답' });
+  });
+});
+
+describe('ChatSession — 학습 노트', () => {
+  const explained = (decisions: { what: string; why: string }[]) => outcome({ explanation: { decisions } as unknown as RunOutcome['explanation'] });
+  class FakeLearning {
+    book = LearningBook.empty();
+    constructor(private readonly failSave = false) {}
+    async load() {
+      return this.book;
+    }
+    async save(book: LearningBook) {
+      if (this.failSave) throw new Error('디스크 가득');
+      this.book = book;
+    }
+  }
+
+  it('작업에서 패턴을 쓴 결정이 있으면 학습 노트에 쌓는다 (추가 호출 없이)', async () => {
+    const learning = new FakeLearning();
+    const loops = new FakeLoops([explained([{ what: '할인 계산을 전략 패턴(Strategy)으로 뺐다', why: '쿠폰 종류마다 규칙이 달라서' }])]);
+    const team = new FakeTeam({ router: [route('work')] });
+    await session({ team, loops, learning }).handle('쿠폰 할인 넣어줘');
+    expect(learning.book.notes.map((n) => n.pattern)).toEqual(['전략(Strategy)']);
+    expect(team.calls.map((c) => c.role)).toEqual(['router']);
+  });
+
+  it('패턴 이야기가 없는 작업은 노트를 만들지 않는다', async () => {
+    const learning = new FakeLearning();
+    const loops = new FakeLoops([explained([{ what: 'null 검사를 추가했다', why: '빈 값이 들어와서' }])]);
+    await session({ team: new FakeTeam({ router: [route('work')] }), loops, learning }).handle('null 체크 넣어줘');
+    expect(learning.book.notes).toEqual([]);
+  });
+
+  it('설명이 없는 작업도 문제없이 끝난다', async () => {
+    const learning = new FakeLearning();
+    expect(await session({ team: new FakeTeam({ router: [route('work')] }), learning }).handle('오타 고쳐줘')).toMatchObject({ kind: 'work' });
+  });
+
+  it('노트를 저장하지 못해도 작업 결과는 돌려준다', async () => {
+    const loops = new FakeLoops([explained([{ what: '팩토리 패턴으로 만들었다', why: '생성이 복잡해서' }])]);
+    expect(await session({ team: new FakeTeam({ router: [route('work')] }), loops, learning: new FakeLearning(true) }).handle('만들어줘')).toMatchObject({ kind: 'work' });
+  });
+
+  it('/learn에서 볼 노트를 돌려준다', async () => {
+    const learning = new FakeLearning();
+    learning.book = LearningBook.empty().add([{ pattern: '팩토리(Factory)', what: 'A', why: 'B', at: '2026-11-01T00:00:00.000Z' }]);
+    expect((await session({ team: new FakeTeam({}), learning }).learningNotes()).notes).toHaveLength(1);
   });
 });
 

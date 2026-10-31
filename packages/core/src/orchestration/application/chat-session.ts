@@ -4,6 +4,7 @@ import type { KnowledgePort } from '../../knowledge/application/ports.js';
 import type { MemoryPort } from '../../memory/application/memory.port.js';
 import { continuable, recallBlock, WorkMemory, type MemoryEntry, type Recall } from '../../memory/domain/work-memory.js';
 import { citedPaths, FactCheck, normalizeUrl, type CheckedClaim } from '../domain/fact-check.js';
+import { LearningBook } from '../domain/learning-book.js';
 import { CompanyBook, type CompanyEntry } from '../domain/company-book.js';
 import { SessionBudget } from '../domain/session-budget.js';
 import { isSmallTalk, looksLikeQuestion } from '../domain/question-hint.js';
@@ -21,7 +22,7 @@ import { ANALYSIS_SCHEMA, ANSWER_SCHEMA, COMPANY_PLAN_SCHEMA, OPS_SCHEMA, REVIEW
 import { WriterReportDto } from './dto/writer-report.dto.js';
 import { OpsReportDto } from './dto/ops-report.dto.js';
 import type { RunContextBlocks, RunOutcome } from './minimal-loop.service.js';
-import type { AccountBlock, CompanyBookPort, MemberResult, PreparedCall, ProgressPort, TeamMemberPort, UserPort, WorkspacePort } from './ports.js';
+import type { AccountBlock, CompanyBookPort, LearningPort, MemberResult, PreparedCall, ProgressPort, TeamMemberPort, UserPort, WorkspacePort } from './ports.js';
 
 export type { RunContextBlocks };
 
@@ -84,6 +85,8 @@ export interface ChatSessionDeps {
   readonly budget?: () => SessionBudget;
   /** 회사 장부. 있으면 부서 팀원 입력에 이미 정한 것을 싣고, 부서 결과를 요약해 남긴다. */
   readonly company?: CompanyBookPort;
+  /** 학습 노트. 있으면 작업이 끝날 때 쓰인 패턴과 이유를 모아 둔다(새 호출 없이). */
+  readonly learning?: LearningPort;
 }
 
 /** 저장소가 이 수를 넘으면 문서 팀원 한 명이 다 읽지 않고, 저장소마다 나눠 읽은 요약을 모아 쓴다. */
@@ -268,6 +271,24 @@ export class ChatSession {
     this.answered.clear();
   }
 
+  /** 작업의 결정에서 쓰인 패턴을 학습 노트에 모은다. 새 호출은 없고, 저장에 실패해도 작업 결과는 그대로 보인다. */
+  private async learn(outcome: RunOutcome): Promise<void> {
+    const decisions = outcome.explanation?.decisions ?? [];
+    if (this.deps.learning === undefined || decisions.length === 0) return;
+    const notes = LearningBook.notesFrom(decisions.map((d) => ({ what: d.what, why: d.why })), this.at());
+    if (notes.length === 0) return;
+    try {
+      await this.deps.learning.save((await this.deps.learning.load()).add(notes));
+    } catch {
+      // 노트는 복습을 돕는 참고라서, 남기지 못해도 작업 결과는 그대로 보인다.
+    }
+  }
+
+  /** /learn: 모인 학습 노트 */
+  async learningNotes(): Promise<LearningBook> {
+    return (await this.deps.learning?.load()) ?? LearningBook.empty();
+  }
+
   /** /company: 회사가 이미 정한 것(부서별 가장 최근 결과의 요약) */
   async companyEntries(): Promise<readonly CompanyEntry[]> {
     return (await this.deps.company?.load())?.entries ?? [];
@@ -293,6 +314,7 @@ export class ChatSession {
     this.carried = new Map([...touched].filter((p) => outcome.snapshotAfter.has(p)).map((p) => [p, outcome.snapshotAfter.get(p)!]));
 
     await this.deps.memory.save(workMemoryFrom(outcome, { id: this.deps.newId(), at: this.at(), request: input, extendsWork: past?.work.id ?? null }));
+    await this.learn(outcome);
     this.answered.clear();
     this.lastTitle = outcome.title;
     this.turns.push({ input, result: `작업 "${outcome.title}" ${outcome.status === 'complete' ? '완료' : `멈춤(${outcome.stopReason})`}, 바뀐 파일 ${outcome.changedInRun.map((c) => c.path).join(', ') || '없음'}` });
