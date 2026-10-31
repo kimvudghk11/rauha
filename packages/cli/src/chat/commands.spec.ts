@@ -43,7 +43,7 @@ describe('/guide', () => {
 
 describe('suggestCommands', () => {
   it('/만 치면 모든 명령을, 더 치면 앞이 맞는 명령만 설명과 함께 보여 준다', () => {
-    expect(suggestCommands('/').map((c) => c.name)).toEqual(['/clear', '/status', '/usage', '/guide', '/review', '/design', '/repo', '/retry', '/queue', '/copy', '/team', '/company', '/update', '/help', '/exit']);
+    expect(suggestCommands('/').map((c) => c.name)).toEqual(['/clear', '/status', '/usage', '/guide', '/review', '/design', '/repo', '/retry', '/queue', '/copy', '/team', '/company', '/routine', '/update', '/help', '/exit']);
     expect(suggestCommands('/us')).toEqual([{ name: '/usage', help: expect.stringContaining('구독 사용률') }]);
     expect(suggestCommands('/up')).toEqual([{ name: '/update', help: expect.stringContaining('최신') }]);
   });
@@ -113,5 +113,29 @@ describe('/company', () => {
   it('/company는 회사가 이미 정한 것을 보여 주는 명령이다', () => {
     expect(parseCommand('/company')).toEqual({ kind: 'company' });
     expect(suggestCommands('/co').map((c) => c.name)).toContain('/company');
+  });
+});
+
+describe('/routine', () => {
+  it('/routine은 목록, run은 때가 된 것 실행', () => {
+    expect(parseCommand('/routine')).toEqual({ kind: 'routine', action: 'list' });
+    expect(parseCommand('/routine run')).toEqual({ kind: 'routine', action: 'run' });
+  });
+
+  it('add는 매일 또는 매주 요일과 요청을 읽는다', () => {
+    expect(parseCommand('/routine add 매일 릴리스 노트 초안 써줘')).toEqual({ kind: 'routine', action: 'add', cadence: { kind: 'daily' }, request: '릴리스 노트 초안 써줘' });
+    expect(parseCommand('/routine add 매주 월 지표 점검해줘')).toEqual({ kind: 'routine', action: 'add', cadence: { kind: 'weekly', weekday: 1 }, request: '지표 점검해줘' });
+    expect(parseCommand('/routine add 매주 일요일 회고 정리')).toEqual({ kind: 'routine', action: 'add', cadence: { kind: 'weekly', weekday: 0 }, request: '회고 정리' });
+  });
+
+  it('형식이 틀린 add는 사용법 안내 대상이다', () => {
+    expect(parseCommand('/routine add')).toEqual({ kind: 'routine', action: 'usage' });
+    expect(parseCommand('/routine add 매주 해줘')).toEqual({ kind: 'routine', action: 'usage' });
+    expect(parseCommand('/routine add 매일')).toEqual({ kind: 'routine', action: 'usage' });
+  });
+
+  it('remove는 번호를 읽는다', () => {
+    expect(parseCommand('/routine remove 2')).toEqual({ kind: 'routine', action: 'remove', number: 2 });
+    expect(parseCommand('/routine remove x')).toEqual({ kind: 'routine', action: 'usage' });
   });
 });

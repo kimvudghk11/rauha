@@ -1,7 +1,9 @@
-type CommandName = 'clear' | 'status' | 'usage' | 'guide' | 'review' | 'design' | 'repo' | 'update' | 'retry' | 'queue' | 'copy' | 'team' | 'company' | 'help' | 'exit';
+import type { Cadence } from '@rauha/core';
+
+type CommandName = 'clear' | 'status' | 'usage' | 'guide' | 'review' | 'design' | 'repo' | 'update' | 'retry' | 'queue' | 'copy' | 'team' | 'company' | 'routine' | 'help' | 'exit';
 
 export type ChatCommand =
-  | { readonly kind: Exclude<CommandName, 'review' | 'repo' | 'design' | 'queue'> }
+  | { readonly kind: Exclude<CommandName, 'review' | 'repo' | 'design' | 'queue' | 'routine'> }
   /** request: 설계부터 시작할 요청. 요청 없이 /design만 치면 null(안내) */
   | { readonly kind: 'design'; readonly request: string | null }
   /** target: 비교할 브랜치·커밋. null = 커밋하지 않은 변경 */
@@ -13,6 +15,10 @@ export type ChatCommand =
   | { readonly kind: 'repo'; readonly action: 'list' }
   | { readonly kind: 'repo'; readonly action: 'select'; readonly name: string }
   | { readonly kind: 'repo'; readonly action: 'add'; readonly path: string }
+  /** 정기 업무: 보기 · 때가 된 것 실행 · 등록 · 지우기. usage = 형식이 틀려 사용법 안내 */
+  | { readonly kind: 'routine'; readonly action: 'list' | 'run' | 'usage' }
+  | { readonly kind: 'routine'; readonly action: 'add'; readonly cadence: Cadence; readonly request: string }
+  | { readonly kind: 'routine'; readonly action: 'remove'; readonly number: number }
   | { readonly kind: 'unknown'; readonly name: string };
 
 export interface CommandHelp {
@@ -34,6 +40,7 @@ const COMMANDS: readonly { readonly kind: CommandName; readonly help: string }[]
   { kind: 'copy', help: '마지막 답(작업이었다면 읽기 안내서)을 클립보드에 복사해요' },
   { kind: 'team', help: '팀 구성: 팀원마다 모델·노력 수준·할 수 있는 일' },
   { kind: 'company', help: '회사가 이미 정한 것(기획·마케팅·디자인 등 부서별 가장 최근 결과의 요약)' },
+  { kind: 'routine', help: '정기 업무: /routine add 매일|매주 <요일> <요청> · 목록 · run(때가 된 것 실행) · remove <번호>. 자동으로 돌지 않아요.' },
   { kind: 'update', help: '최신 버전으로 갱신하고 rauha를 다시 띄워요 (지난 작업 기억은 남아요)' },
   { kind: 'help', help: '이 안내' },
   { kind: 'exit', help: '끝내기 (Ctrl+C 두 번도 됨)' },
@@ -56,7 +63,26 @@ export function parseCommand(text: string): ChatCommand | null {
     if (rest[0]!.toLowerCase() === 'add' && rest.length > 1) return { kind: 'repo', action: 'add', path: trimmed.replace(/^\/repo\s+add\s+/i, '') };
     return { kind: 'repo', action: 'select', name: rest.join(' ') };
   }
+  if (known.kind === 'routine') return parseRoutine(rest);
   return { kind: known.kind };
+}
+
+const WEEKDAY_CHARS = '일월화수목금토';
+
+function parseRoutine(rest: string[]): ChatCommand {
+  const usage: ChatCommand = { kind: 'routine', action: 'usage' };
+  const action = rest[0]?.toLowerCase();
+  if (action === undefined) return { kind: 'routine', action: 'list' };
+  if (action === 'run') return { kind: 'routine', action: 'run' };
+  if (action === 'remove') {
+    const number = Number(rest[1]);
+    return Number.isInteger(number) ? { kind: 'routine', action: 'remove', number } : usage;
+  }
+  if (action !== 'add') return usage;
+  if (rest[1] === '매일') return rest.length > 2 ? { kind: 'routine', action: 'add', cadence: { kind: 'daily' }, request: rest.slice(2).join(' ') } : usage;
+  if (rest[1] !== '매주') return usage;
+  const weekday = WEEKDAY_CHARS.indexOf(rest[2]?.[0] ?? '?');
+  return weekday >= 0 && rest.length > 3 ? { kind: 'routine', action: 'add', cadence: { kind: 'weekly', weekday }, request: rest.slice(3).join(' ') } : usage;
 }
 
 /** 입력창에 '/'로 시작하는 글을 치는 동안 보여 줄 명령 후보. 띄어쓰기가 들어가면 다 친 것으로 본다. */

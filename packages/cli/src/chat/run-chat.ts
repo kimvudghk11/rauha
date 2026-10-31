@@ -9,6 +9,8 @@ import {
   discoverRepos,
   FileChatSnapshots,
   FileCompanyBook,
+  FileRoutineStore,
+  Routine,
   FileDesignStore,
   FileWorkspaceStore,
   GitWorkspace,
@@ -32,6 +34,7 @@ import { chatProgress } from './chat-progress.js';
 import { ChatStore, type Printable } from './chat-store.js';
 import { runShell } from '../shell-run.js';
 import { companyLines } from './company-lines.js';
+import { dueNotice, ROUTINE_USAGE, routineLines } from './routine-lines.js';
 import { teamLines } from './team-lines.js';
 import { HELP_TEXT, parseCommand, type ChatCommand } from './commands.js';
 import { parkingStream } from './cursor-park.js';
@@ -273,6 +276,19 @@ export async function runChat(options: ChatOptions): Promise<number> {
     { stdout: screen.stream, exitOnCtrlC: false },
   );
 
+  // 정기 업무: 자동으로 돌지 않는다. 때가 된 것을 알리기만 하고, /routine run을 할 때 돈다.
+  const today = () => new Date().toLocaleDateString('sv-SE');
+  const routineStore = () => {
+    const root = ws.current()?.root ?? workDir;
+    return new FileRoutineStore(options.profileFor(root).routinesDir(home), root);
+  };
+  void routineStore()
+    .load()
+    .then((book) => {
+      const notice = dueNotice(book, today());
+      if (notice !== null) store.printLines(notice);
+    })
+    .catch(() => undefined);
   if (multi()) store.print(`  작업 공간 저장소 ${workspace.repos.length}개: ${workspace.repos.map((r) => r.name).join(', ')} · /repo로 고를 수 있어요`);
   if (options.resume) {
     const s = first?.chat.status();
@@ -412,6 +428,32 @@ export async function runChat(options: ChatOptions): Promise<number> {
         }
         case 'queue':
           return queueCommand(command.action);
+        case 'routine': {
+          const routines = routineStore();
+          const book = await routines.load();
+          if (command.action === 'usage') return store.printLines(['', ...ROUTINE_USAGE, '']);
+          if (command.action === 'list') return store.printLines(routineLines(book, today()));
+          if (command.action === 'run') {
+            const due = book.due(today());
+            if (due.length === 0) return store.print('  때가 된 정기 업무가 없어요.');
+            await routines.save(book.markRun(due.map((r) => r.id), today()));
+            store.print(`  정기 업무 ${due.length}개를 차례로 실행해요.`);
+            for (const r of due) store.enqueue(r.request);
+            return;
+          }
+          try {
+            if (command.action === 'add') {
+              await routines.save(book.add(Routine.create({ id: crypto.randomUUID(), request: command.request, cadence: command.cadence, today: today() })));
+              return store.print(`  정기 업무를 등록했어요: ${command.request}  (${command.cadence.kind === 'daily' ? '매일' : '매주'}, 때가 되면 알려 드려요)`);
+            }
+            if (command.action === 'remove') {
+              await routines.save(book.remove(command.number));
+              return store.print(`  ${command.number}번 정기 업무를 지웠어요.`);
+            }
+          } catch (error) {
+            return store.print(`  ${(error as Error).message}`);
+          }
+        }
         case 'company': {
           const b = current();
           if (b === null) return store.print(NO_CURRENT);

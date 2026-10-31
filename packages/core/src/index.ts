@@ -49,6 +49,8 @@ export {
 export { VitestReportDto } from './orchestration/application/dto/vitest-report.dto.js';
 export { CompanyBook, type CompanyEntry } from './orchestration/domain/company-book.js';
 export { FileCompanyBook } from './orchestration/infrastructure/file-company-book.js';
+export { Routine, RoutineBook, type Cadence } from './orchestration/domain/routine.js';
+export { FileRoutineStore } from './orchestration/infrastructure/file-routine-store.js';
 export { SessionBudget, type BudgetLevel, type BudgetWindow } from './orchestration/domain/session-budget.js';
 export { Department, LAUNCH_ORDER, type DepartmentId, type DepartmentMember, type DepartmentMemberRole } from './orchestration/domain/department.js';
 export { ReadingGuideDto, type ReadingGuideProps, type RunStopReason, type SettledAssumption } from './orchestration/application/dto/reading-guide.dto.js';
