@@ -1,7 +1,7 @@
 import { DomainError } from '../../../shared/domain-error.js';
 import type { ModelTier } from '../../domain/team.js';
 
-export type MemberRole = 'intake' | 'tester' | 'implementer' | 'reviewer' | 'router' | 'answerer' | 'surveyor' | 'writer' | 'designer' | 'operator';
+export type MemberRole = 'intake' | 'tester' | 'implementer' | 'reviewer' | 'router' | 'answerer' | 'surveyor' | 'writer' | 'designer' | 'operator' | 'debugger' | 'riskchecker';
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 export interface RoleSetting {
@@ -18,7 +18,7 @@ const READ_TOOLS = ['Read', 'Grep', 'Glob', 'WebSearch', 'WebFetch'];
 const WRITE_TOOLS = [...READ_TOOLS, 'Edit', 'Write', 'Bash'];
 const TIERS: readonly ModelTier[] = ['haiku', 'sonnet', 'opus'];
 const EFFORTS: readonly Effort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
-const ROLES: readonly MemberRole[] = ['intake', 'tester', 'implementer', 'reviewer', 'router', 'answerer', 'surveyor', 'writer', 'designer', 'operator'];
+const ROLES: readonly MemberRole[] = ['intake', 'tester', 'implementer', 'reviewer', 'router', 'answerer', 'surveyor', 'writer', 'designer', 'operator', 'debugger', 'riskchecker'];
 
 /** 상태 머신이 sonnet으로 올렸을 때 쓰는 설정. 표에 없는 조합은 역할 기본값에서 모델만 바꾼다. */
 const ESCALATED: Readonly<Partial<Record<MemberRole, Partial<Record<ModelTier, Partial<RoleSetting>>>>>> = {
@@ -56,6 +56,10 @@ export class RoleSettingsDto {
       designer: { tier: 'sonnet', effort: 'medium', maxTurns: 25, maxBudgetUsd: 1.5, tools: READ_TOOLS, readsProject: true },
       // 운영 요청(aws 같은 CLI로 조회·변경하고 결과를 알린다). 파일은 쓰지 않고 명령만 실행한다. 위험한 명령은 도구 검사가 사용자에게 묻는다.
       operator: { tier: 'sonnet', effort: 'medium', maxTurns: 30, maxBudgetUsd: 1.5, tools: ['Read', 'Grep', 'Glob', 'Bash', 'WebSearch', 'WebFetch'], readsProject: true },
+      // 증상을 받아 원인을 찾는다. 재현하려고 테스트를 돌릴 수 있지만 파일은 고치지 않고 보고만 한다(고치는 일은 사용자가 따로 시키면 작업 흐름으로 간다).
+      debugger: { tier: 'sonnet', effort: 'medium', maxTurns: 40, maxBudgetUsd: 1.5, tools: [...READ_TOOLS, 'Bash'], readsProject: true },
+      // 바꾸기 전에 영향받을 곳과 깨질 수 있는 곳을 짚는다. git 기록·diff를 읽을 수 있지만 파일은 고치지 않는다.
+      riskchecker: { tier: 'sonnet', effort: 'medium', maxTurns: 30, maxBudgetUsd: 1, tools: [...READ_TOOLS, 'Bash'], readsProject: true },
     });
   }
 

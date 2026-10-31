@@ -11,7 +11,8 @@ import type { ChatSnapshot } from './dto/chat-snapshot.dto.js';
 import { FilesBlockDto } from './dto/files-block.dto.js';
 import { ReviewReportDto } from './dto/review-report.dto.js';
 import { RouteDto, type Route } from './dto/route.dto.js';
-import { ANSWER_SCHEMA, OPS_SCHEMA, REVIEWER_REPORT_SCHEMA, ROUTE_SCHEMA, WRITER_SCHEMA } from './dto/schemas.js';
+import { AnalysisReportDto } from './dto/analysis-report.dto.js';
+import { ANALYSIS_SCHEMA, ANSWER_SCHEMA, OPS_SCHEMA, REVIEWER_REPORT_SCHEMA, ROUTE_SCHEMA, WRITER_SCHEMA } from './dto/schemas.js';
 import { WriterReportDto } from './dto/writer-report.dto.js';
 import { OpsReportDto } from './dto/ops-report.dto.js';
 import type { RunContextBlocks, RunOutcome } from './minimal-loop.service.js';
@@ -202,6 +203,8 @@ export class ChatSession {
     if (routed.blocked) return { kind: 'blocked', ...routed.blocked };
     if (route.mode === 'task') return this.task(input, conversation, also, started);
     if (route.mode === 'ops') return this.ops(input, conversation, started);
+    if (route.mode === 'debug') return this.analyze('debugger', '디버깅', input, conversation, started);
+    if (route.mode === 'risk') return this.analyze('riskchecker', '위험 점검', input, conversation, started);
     const changesCode = route.mode === 'work' || route.mode === 'feature';
     if (changesCode && also.length > 0) return { kind: 'notice', message: MANY_REPO_WORK };
     const past = route.refersToPast ? await this.pickPast(route.pastQuery ?? input, route.mode) : null;
@@ -316,6 +319,26 @@ export class ChatSession {
     const answer = OpsReportDto.read(result.output).toAnswer();
     await this.deps.memory.save(WorkMemory.fromAnswer({ id: this.deps.newId(), at: this.at(), question: input, answer, citedFiles: [], basis: null }));
     this.turns.push({ input, result: `운영: ${answer.slice(0, KEPT_RESULT_CHARS)}` });
+    return { kind: 'answer', answer, checked: [], costUsd: result.usage.costUsd, durationMs: this.deps.now() - started, basis: null };
+  }
+
+  // ── 디버깅·위험 점검 ──────────────────────────────────────
+
+  /**
+   * 원인을 찾아 달라(debug)거나 바꾸기 전에 위험을 짚어 달라(risk)는 요청. 둘 다 지금 저장소를 읽고 보고만 하며 파일은 고치지 않는다.
+   * 고치는 일은 사용자가 이어서 시키면 작업 흐름으로 간다. label: 보고서와 다음 대화의 말머리에 쓰는 팀원 이름
+   */
+  private async analyze(role: 'debugger' | 'riskchecker', label: string, input: string, conversation: string | null, started: number): Promise<TurnOutcome> {
+    const result = await this.member(
+      role,
+      [conversation !== null ? `<conversation>\n${conversation}\n</conversation>` : '', `<today>${this.deps.today()}</today>`, this.workspaceBlock(), `<request>\n${input}\n</request>`],
+      ANALYSIS_SCHEMA,
+      {},
+    );
+    if (result.blocked) return { kind: 'blocked', ...result.blocked };
+    const answer = AnalysisReportDto.read(result.output, label).toAnswer();
+    await this.deps.memory.save(WorkMemory.fromAnswer({ id: this.deps.newId(), at: this.at(), question: input, answer, citedFiles: [], basis: null }));
+    this.turns.push({ input, result: `${label}: ${answer.slice(0, KEPT_RESULT_CHARS)}` });
     return { kind: 'answer', answer, checked: [], costUsd: result.usage.costUsd, durationMs: this.deps.now() - started, basis: null };
   }
 

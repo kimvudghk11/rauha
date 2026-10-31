@@ -131,7 +131,7 @@ class FakeLoops {
   });
 }
 
-const route = (mode: 'work' | 'question' | 'task' | 'feature' | 'ops', refersToPast = false, pastQuery: string | null = null) => () => ({ mode, refersToPast, pastQuery });
+const route = (mode: 'work' | 'question' | 'task' | 'feature' | 'ops' | 'debug' | 'risk', refersToPast = false, pastQuery: string | null = null) => () => ({ mode, refersToPast, pastQuery });
 
 type SessionParts = { team: FakeTeam; loops?: FakeLoops; memory?: FakeMemory; user?: UserPort; files?: Record<string, string>; steps?: string[]; changes?: FileChange[] };
 
@@ -674,6 +674,43 @@ describe('ChatSession — 운영 요청', () => {
   it('사용 한도에 걸리면 막힘으로 알린다', async () => {
     const team = new FakeTeam({ router: [route('ops')] }, 'operator');
     expect(await session({ team }).handle('버킷 목록')).toMatchObject({ kind: 'blocked', reason: 'usage-limit' });
+  });
+});
+
+describe('ChatSession — 디버깅·위험 점검', () => {
+  const report = (answer: string, files: string[] = []) => () => ({ answer, files });
+
+  it('debug로 가려진 요청은 디버깅 팀원이 원인을 찾아 보고하고, 살펴본 파일을 붙인다 (작업 루프는 돌리지 않는다)', async () => {
+    const loops = new FakeLoops();
+    const team = new FakeTeam({ router: [route('debug')], debugger: [report('할인이 두 번 적용돼요.', ['src/money.ts'])] });
+    const turn = await session({ team, loops }).handle('결제 금액이 왜 두 번 깎여?');
+    expect(turn).toMatchObject({ kind: 'answer', answer: '할인이 두 번 적용돼요.\n\n■ 살펴본 파일\n- src/money.ts' });
+    expect(loops.runs).toEqual([]);
+    expect(team.calls.some((c) => c.role === 'debugger' && c.message.includes('결제 금액이 왜 두 번 깎여?'))).toBe(true);
+    expect(team.calls.filter((c) => c.role === 'answerer').every((c) => c.signal!.aborted)).toBe(true);
+  });
+
+  it('risk로 가려진 요청은 위험 점검 팀원이 보고한다', async () => {
+    const loops = new FakeLoops();
+    const team = new FakeTeam({ router: [route('risk')], riskchecker: [report('cart.ts도 영향을 받아요.', ['src/cart.ts'])] });
+    const turn = await session({ team, loops }).handle('Money 반올림 바꾸면 어디가 깨져?');
+    expect(turn).toMatchObject({ kind: 'answer', answer: expect.stringContaining('cart.ts도 영향을 받아요.') });
+    expect(loops.runs).toEqual([]);
+  });
+
+  it('디버깅 팀원도 앞 대화를 받고, 이 턴은 다음 대화에 이어진다', async () => {
+    const team = new FakeTeam({ router: [route('debug')], debugger: [report('첫 진단'), report('둘째 진단')] });
+    const chat = session({ team });
+    await chat.handle('테스트가 왜 깨져?');
+    await chat.handle('그 원인 고치면 다른 데도 영향 있어?');
+    const second = team.calls.filter((c) => c.role === 'debugger')[1]!.message;
+    expect(second).toContain('<conversation>');
+    expect(second).toContain('첫 진단');
+  });
+
+  it('사용 한도에 걸리면 막힘으로 알린다', async () => {
+    const team = new FakeTeam({ router: [route('risk')] }, 'riskchecker');
+    expect(await session({ team }).handle('이 변경 위험해?')).toMatchObject({ kind: 'blocked', reason: 'usage-limit' });
   });
 });
 

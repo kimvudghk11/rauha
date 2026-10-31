@@ -16,7 +16,7 @@ function folder(files: Record<string, string>): string {
   return dir;
 }
 
-const ALL = { '_common.md': 'C', 'intake.md': 'I', 'tester.md': 'T', 'implementer.md': 'M', 'reviewer.md': 'R', 'router.md': 'O', 'answerer.md': 'A', 'surveyor.md': 'S', 'writer.md': 'W', 'designer.md': 'D', 'operator.md': 'P' };
+const ALL = { '_common.md': 'C', 'intake.md': 'I', 'tester.md': 'T', 'implementer.md': 'M', 'reviewer.md': 'R', 'router.md': 'O', 'answerer.md': 'A', 'surveyor.md': 'S', 'writer.md': 'W', 'designer.md': 'D', 'operator.md': 'P', 'debugger.md': 'B', 'riskchecker.md': 'K' };
 
 describe('PromptLibrary', () => {
   it('공통 앞부분과 역할 프롬프트를 이어 붙인다', async () => {
