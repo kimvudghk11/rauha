@@ -106,3 +106,42 @@ describe('ToolRisk', () => {
     expect(ToolRisk.assess('Bash', { command: 'yarn test' }, ROOT).reason).toBeNull();
   });
 });
+
+describe('ToolRisk — 클라우드 명령', () => {
+  const bash = (command: string) => ToolRisk.assess('Bash', { command }, ROOT).decision;
+
+  it('AWS 조회 명령(describe·list·get·ls)은 묻지 않는다', () => {
+    for (const command of ['aws sts get-caller-identity', 'aws ec2 describe-instances --region ap-northeast-2', 'aws s3 ls', 'aws --profile dev s3api list-buckets', 'aws iam list-users --output json', 'aws dynamodb scan --table-name t']) {
+      expect(bash(command), command).toBe('allow');
+    }
+  });
+
+  it('AWS 변경 명령(create·delete·put·run·terminate·s3 cp/rm/rb …)은 묻는다', () => {
+    for (const command of ['aws ec2 run-instances --image-id x', 'aws ec2 terminate-instances --instance-ids i-1', 'aws s3 rb s3://b --force', 'aws s3 rm s3://b/k', 'aws s3 cp a s3://b/a', 'aws --profile prod --region ap-northeast-2 iam create-user --user-name x', 'aws lambda delete-function --function-name f']) {
+      expect(bash(command), command).toBe('ask');
+    }
+    expect(ToolRisk.assess('Bash', { command: 'aws s3 rb s3://b' }, ROOT).reason).toMatch(/AWS 변경/);
+  });
+
+  it('aws configure는 자격 증명을 다루므로 거절한다 (list만 허용)', () => {
+    expect(bash('aws configure')).toBe('deny');
+    expect(bash('aws configure set aws_secret_access_key x')).toBe('deny');
+    expect(bash('aws configure get aws_secret_access_key')).toBe('deny');
+    expect(bash('aws configure list')).toBe('allow');
+    expect(ToolRisk.assess('Bash', { command: 'aws configure' }, ROOT).reason).toMatch(/직접/);
+  });
+
+  it('다른 명령 안에 숨겨도 같은 규칙으로 본다', () => {
+    expect(bash('bash -c "aws s3 rb s3://b"')).toBe('ask');
+    expect(bash('echo hi && aws ec2 describe-vpcs | head')).toBe('allow');
+  });
+
+  it('terraform·kubectl·cdk는 인프라를 바꾸는 하위 명령만 묻는다', () => {
+    for (const command of ['terraform apply', 'terraform destroy -auto-approve', 'kubectl delete pod x', 'kubectl apply -f a.yaml', 'cdk deploy', 'cdk destroy']) {
+      expect(bash(command), command).toBe('ask');
+    }
+    for (const command of ['terraform plan', 'terraform validate', 'kubectl get pods', 'kubectl logs x', 'cdk synth', 'cdk diff']) {
+      expect(bash(command), command).toBe('allow');
+    }
+  });
+});

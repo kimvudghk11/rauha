@@ -62,6 +62,40 @@ function gitSubcommand(args: readonly string[]): string | undefined {
   return undefined;
 }
 
+/** 값을 하나 받는 aws 전역 옵션. 서비스·명령을 찾을 때 그 값까지 건너뛴다. */
+const AWS_VALUE_OPTIONS = new Set(['--profile', '--region', '--output', '--endpoint-url', '--query', '--cli-input-json', '--cli-input-yaml', '--color', '--ca-bundle', '--cli-read-timeout', '--cli-connect-timeout']);
+/** 이 말로 시작하는 aws 명령은 읽기만 한다(describe-instances, list-buckets, get-caller-identity …). */
+const AWS_READ_PREFIXES = ['describe-', 'list-', 'get-', 'head-', 'lookup-', 'batch-get-', 'search-'];
+const AWS_READ_EXACT = new Set(['ls', 'scan', 'query', 'help', 'wait']);
+const INFRA_WRITES: Readonly<Record<string, ReadonlySet<string>>> = {
+  terraform: new Set(['apply', 'destroy', 'import', 'taint', 'untaint', 'refresh', 'state', 'force-unlock']),
+  cdk: new Set(['deploy', 'destroy', 'bootstrap', 'import']),
+};
+const KUBECTL_READS = new Set(['get', 'describe', 'logs', 'top', 'explain', 'version', 'api-resources', 'api-versions', 'cluster-info', 'diff', 'events', 'config']);
+
+const firstWord = (args: readonly string[]): string => args.find((a) => !a.startsWith('-')) ?? '';
+
+/** aws <서비스> <명령>: 조회는 허용하고 변경은 묻는다. aws configure는 자격 증명을 다루므로(list만 빼고) 거절한다. */
+function assessAws(args: readonly string[]): ToolVerdict {
+  const words: string[] = [];
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i] as string;
+    if (AWS_VALUE_OPTIONS.has(arg)) {
+      i += 1;
+      continue;
+    }
+    if (!arg.startsWith('-')) words.push(arg);
+  }
+  const [service, operation] = words;
+  if (service === undefined) return ALLOW;
+  if (service === 'configure') {
+    return operation === 'list' ? ALLOW : deny('aws configure: 자격 증명은 rauha가 다루지 않아요. 터미널에서 직접 설정해 주세요');
+  }
+  if (operation === undefined) return ALLOW;
+  if (AWS_READ_EXACT.has(operation) || AWS_READ_PREFIXES.some((p) => operation.startsWith(p))) return ALLOW;
+  return ask(`AWS 변경 (aws ${service} ${operation})`);
+}
+
 function worst(verdicts: readonly ToolVerdict[]): ToolVerdict {
   return verdicts.reduce((acc, next) => (RANK[next.decision] > RANK[acc.decision] ? next : acc), ALLOW);
 }
@@ -91,6 +125,11 @@ function assessSegment(words: readonly string[]): ToolVerdict {
     if (sub === 'branch' && args.some((a) => /^-(d|D|-delete)$/.test(a))) return ask('git 쓰기 (브랜치 삭제)');
     return ALLOW;
   }
+
+  if (program === 'aws') return assessAws(args);
+  if (program === 'terraform' || program === 'tofu') return INFRA_WRITES.terraform!.has(firstWord(args)) ? ask(`인프라 변경 (${program} ${firstWord(args)})`) : ALLOW;
+  if (program === 'kubectl') return KUBECTL_READS.has(firstWord(args)) || firstWord(args) === '' ? ALLOW : ask(`쿠버네티스 변경 (kubectl ${firstWord(args)})`);
+  if (program === 'cdk') return INFRA_WRITES.cdk!.has(firstWord(args)) ? ask(`인프라 변경 (cdk ${firstWord(args)})`) : ALLOW;
 
   if (PACKAGE_MANAGERS.has(program)) {
     if (args.includes('publish')) return ask(`배포 (${program} publish)`);
