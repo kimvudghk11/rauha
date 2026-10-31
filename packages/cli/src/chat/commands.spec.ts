@@ -43,7 +43,7 @@ describe('/guide', () => {
 
 describe('suggestCommands', () => {
   it('/만 치면 모든 명령을, 더 치면 앞이 맞는 명령만 설명과 함께 보여 준다', () => {
-    expect(suggestCommands('/').map((c) => c.name)).toEqual(['/clear', '/status', '/usage', '/guide', '/review', '/design', '/repo', '/retry', '/queue', '/copy', '/update', '/help', '/exit']);
+    expect(suggestCommands('/').map((c) => c.name)).toEqual(['/clear', '/status', '/usage', '/guide', '/review', '/design', '/repo', '/retry', '/queue', '/copy', '/team', '/update', '/help', '/exit']);
     expect(suggestCommands('/us')).toEqual([{ name: '/usage', help: expect.stringContaining('구독 사용률') }]);
     expect(suggestCommands('/up')).toEqual([{ name: '/update', help: expect.stringContaining('최신') }]);
   });
@@ -88,5 +88,23 @@ describe('/queue', () => {
 describe('/copy', () => {
   it('/copy는 마지막 답을 복사하는 명령이다', () => {
     expect(parseCommand('/copy')).toEqual({ kind: 'copy' });
+  });
+});
+
+describe('/team', () => {
+  it('/team은 팀 구성을 보여 주는 명령이다', () => {
+    expect(parseCommand('/team')).toEqual({ kind: 'team' });
+    expect(suggestCommands('/te').map((c) => c.name)).toContain('/team');
+  });
+});
+
+describe('! 직접 실행', () => {
+  it('!로 시작하면 모델을 거치지 않고 바로 실행할 명령이다', () => {
+    expect(parseCommand('!aws s3 ls')).toEqual({ kind: 'shell', command: 'aws s3 ls' });
+    expect(parseCommand('  ! git status  ')).toEqual({ kind: 'shell', command: 'git status' });
+  });
+
+  it('! 뒤에 명령이 없으면 안내 대상이다', () => {
+    expect(parseCommand('!')).toEqual({ kind: 'shell', command: null });
   });
 });

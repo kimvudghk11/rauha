@@ -67,6 +67,12 @@ describe('RoleSettingsDto', () => {
     expect(answerer.maxTurns).toBeGreaterThanOrEqual(25);
   });
 
+  it('모든 역할의 설정을 역할 이름과 함께 나열한다 (환경 변수로 고정한 모델이 반영된다)', () => {
+    const entries = RoleSettingsDto.defaults().withEnv({ RAUHA_ROLE_TESTER: 'opus:high' }).entries();
+    expect(entries.map((e) => e.role)).toEqual(expect.arrayContaining(['intake', 'tester', 'implementer', 'reviewer', 'operator']));
+    expect(entries.find((e) => e.role === 'tester')).toMatchObject({ tier: 'opus', effort: 'high' });
+  });
+
   it('형식이 틀린 환경 변수는 거부한다', () => {
     expect(() => RoleSettingsDto.defaults().withEnv({ RAUHA_ROLE_TESTER: 'gpt:fast' })).toThrow(DomainError);
   });

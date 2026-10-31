@@ -1,4 +1,4 @@
-type CommandName = 'clear' | 'status' | 'usage' | 'guide' | 'review' | 'design' | 'repo' | 'update' | 'retry' | 'queue' | 'copy' | 'help' | 'exit';
+type CommandName = 'clear' | 'status' | 'usage' | 'guide' | 'review' | 'design' | 'repo' | 'update' | 'retry' | 'queue' | 'copy' | 'team' | 'help' | 'exit';
 
 export type ChatCommand =
   | { readonly kind: Exclude<CommandName, 'review' | 'repo' | 'design' | 'queue'> }
@@ -8,6 +8,8 @@ export type ChatCommand =
   | { readonly kind: 'review'; readonly target: string | null }
   /** 일하는 중에 쌓아 둔 입력 보기·비우기 */
   | { readonly kind: 'queue'; readonly action: 'show' | 'clear' }
+  /** 모델을 거치지 않고 바로 실행할 명령(!로 시작). 명령이 없으면 null(안내) */
+  | { readonly kind: 'shell'; readonly command: string | null }
   | { readonly kind: 'repo'; readonly action: 'list' }
   | { readonly kind: 'repo'; readonly action: 'select'; readonly name: string }
   | { readonly kind: 'repo'; readonly action: 'add'; readonly path: string }
@@ -30,6 +32,7 @@ const COMMANDS: readonly { readonly kind: CommandName; readonly help: string }[]
   { kind: 'retry', help: '마지막 요청을 한 번 더 보내요 (멈췄거나 마음에 안 들 때)' },
   { kind: 'queue', help: '일하는 중에 쌓아 둔 입력 보기 · /queue clear로 비우기' },
   { kind: 'copy', help: '마지막 답(작업이었다면 읽기 안내서)을 클립보드에 복사해요' },
+  { kind: 'team', help: '팀 구성: 팀원마다 모델·노력 수준·할 수 있는 일' },
   { kind: 'update', help: '최신 버전으로 갱신하고 rauha를 다시 띄워요 (지난 작업 기억은 남아요)' },
   { kind: 'help', help: '이 안내' },
   { kind: 'exit', help: '끝내기 (Ctrl+C 두 번도 됨)' },
@@ -38,6 +41,7 @@ const COMMANDS: readonly { readonly kind: CommandName; readonly help: string }[]
 /** `/`로 시작하는 입력을 명령으로 읽는다. 명령이 아니면 null(요청으로 보낸다). */
 export function parseCommand(text: string): ChatCommand | null {
   const trimmed = text.trim();
+  if (trimmed.startsWith('!')) return { kind: 'shell', command: trimmed.slice(1).trim() || null };
   if (!trimmed.startsWith('/')) return null;
   const [name, ...rest] = trimmed.split(/\s+/) as [string, ...string[]];
   const known = COMMANDS.find((c) => `/${c.kind}` === name.toLowerCase());
@@ -60,4 +64,5 @@ export function suggestCommands(text: string): CommandHelp[] {
   return COMMANDS.filter((c) => `/${c.kind}`.startsWith(text.toLowerCase())).map((c) => ({ name: `/${c.kind}`, help: c.help }));
 }
 
-export const HELP_TEXT = ['명령', ...COMMANDS.map((c) => `  ${`/${c.kind}`.padEnd(9)} ${c.help}`), '그 밖의 글은 요청이나 질문으로 보내요.', '줄바꿈은 Alt+Enter, Ctrl+J 또는 줄 끝 \\ 뒤 Enter · @를 치면 파일 후보 · 일하는 중 Esc로 멈춤'].join('\n');
+export const HELP_TEXT = ['명령', ...COMMANDS.map((c) => `  ${`/${c.kind}`.padEnd(9)} ${c.help}`), '  !<명령>   모델을 거치지 않고 바로 실행해요 (예: !aws s3 ls, !git status)',
+  '그 밖의 글은 요청이나 질문으로 보내요.', '줄바꿈은 Alt+Enter, Ctrl+J 또는 줄 끝 \\ 뒤 Enter · @를 치면 파일 후보 · 일하는 중 Esc로 멈춤'].join('\n');

@@ -36,3 +36,7 @@ Do not submit inferred values. Everything in your code and in your report must b
 <report_language>
 Write every human-readable string in your report in the same language as the work order (the request is usually Korean). Keep file paths, identifiers and code in their original form.
 </report_language>
+
+<file_mentions>
+When the user's message contains @path words (for example @src/money.ts), those are files in the repository the user is pointing at. Read each of them before you answer or act; do not guess what they contain, and do not ask the user to paste them.
+</file_mentions>

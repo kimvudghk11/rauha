@@ -29,6 +29,8 @@ import { createKnowledge, createLoop, createTeam, definedEnv, loadPrompts, openM
 import { ChatApp } from './chat-app.js';
 import { chatProgress } from './chat-progress.js';
 import { ChatStore, type Printable } from './chat-store.js';
+import { runShell } from '../shell-run.js';
+import { teamLines } from './team-lines.js';
 import { HELP_TEXT, parseCommand, type ChatCommand } from './commands.js';
 import { parkingStream } from './cursor-park.js';
 import { describeTurn } from './describe-turn.js';
@@ -281,6 +283,7 @@ export async function runChat(options: ChatOptions): Promise<number> {
   }
 
   // 일하는 중에 받은 입력은 대기열에 세우고, 지금 일이 끝나면 넣은 순서대로 하나씩 처리한다.
+  const SHELL_TIMEOUT_MS = 120_000;
   let running = false;
   function submit(text: string): void {
     void inputHistory.append(text);
@@ -404,6 +407,23 @@ export async function runChat(options: ChatOptions): Promise<number> {
         }
         case 'queue':
           return queueCommand(command.action);
+        case 'team':
+          store.printLines(teamLines(roleSettings()));
+          return;
+        case 'shell': {
+          if (command.command === null) return store.print('  !<명령>으로 바로 실행해요. 예: !aws s3 ls');
+          store.printLines(userTurn(text));
+          store.setBusy(true);
+          try {
+            const result = await runShell(command.command, ws.current()?.root ?? workDir, SHELL_TIMEOUT_MS);
+            const body = result.output.trimEnd();
+            const status = result.timedOut ? `  ${SHELL_TIMEOUT_MS / 1000}초가 지나 멈췄어요.` : result.exitCode === 0 ? null : `  종료 코드 ${result.exitCode ?? '-'}`;
+            store.printLines([...(body === '' ? [] : body.split(/\r?\n/).map((l) => `  ${l}`)), ...(status === null ? [] : [status])]);
+          } finally {
+            store.setBusy(false);
+          }
+          return;
+        }
         case 'copy': {
           const text = lastAnswer ?? lastGuide;
           if (text === null) return store.print('  복사할 답이 아직 없어요.');

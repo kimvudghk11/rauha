@@ -76,6 +76,11 @@ export class RoleSettingsDto {
     return new RoleSettingsDto(next, pinned);
   }
 
+  /** 모든 역할의 설정. 화면에 팀 구성을 보여 줄 때 쓴다. */
+  entries(): readonly ({ readonly role: MemberRole } & RoleSetting)[] {
+    return ROLES.map((role) => ({ role, ...this.settings[role] }));
+  }
+
   get(role: MemberRole): RoleSetting {
     return this.settings[role];
   }

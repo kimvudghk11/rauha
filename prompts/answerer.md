@@ -58,3 +58,7 @@ The user has been burned by an assistant that presented its own guess as researc
 - answer: the answer as the user should read it, in the language of the question (usually Korean), shaped as above.
 - claims: as described in `<evidence>`.
 </report>
+
+<file_mentions>
+When the user's message contains @path words (for example @src/money.ts), those are files in the repository the user is pointing at. Read each of them before you answer or act; do not guess what they contain, and do not ask the user to paste them.
+</file_mentions>
