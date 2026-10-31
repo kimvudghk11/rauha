@@ -1,6 +1,7 @@
 import { DomainError } from '../../../shared/domain-error.js';
 import { asRecord, readBoolean, readInt, readString, readStringArray } from '../../../shared/validation.js';
 import type { ScenarioSummary } from '../../domain/work-order.js';
+import { Specialty, type SpecialtyName } from '../../domain/specialty.js';
 import { OpenWorkOrderDto } from './open-work-order.dto.js';
 
 export type AcceptanceKind = 'happy' | 'error';
@@ -68,6 +69,8 @@ export class IntakeDto {
     readonly assumptions: readonly Assumption[],
     /** 팀장이 접수하며 읽은 파일 중 팀원도 먼저 봐야 할 것. rauha가 내용을 붙여 넘긴다. */
     readonly readFirst: readonly string[],
+    /** 이 업무가 걸친 전문 분야(프론트엔드·백엔드·DB·설계·인프라). 팀원 메시지에 그 분야의 지침이 붙는다. */
+    readonly specialties: readonly SpecialtyName[],
   ) {}
 
   static from(input: unknown): IntakeDto {
@@ -99,6 +102,7 @@ export class IntakeDto {
       readStringArray(obj, 'forbidden', 'Intake'),
       readAssumptions(obj),
       obj['readFirst'] === undefined ? [] : readStringArray(obj, 'readFirst', 'Intake').slice(0, MAX_READ_FIRST),
+      Specialty.readAll(obj['specialties']),
     );
   }
 
@@ -150,6 +154,7 @@ export class IntakeDto {
       ...(this.assumptions.length > 0
         ? ['', '정해 둔 해석 (이대로 따른다)', ...this.assumptions.map((a) => `- ${a.question} → ${a.chosen}`)]
         : []),
+      ...(this.specialties.length > 0 ? ['', Specialty.block(this.specialties)] : []),
     ].join('\n');
   }
 }

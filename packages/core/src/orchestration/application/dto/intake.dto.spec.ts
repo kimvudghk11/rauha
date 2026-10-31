@@ -88,4 +88,19 @@ describe('IntakeDto — 해석이 갈리는 요청', () => {
     expect(brief).toContain('정해 둔 해석');
     expect(brief).toContain('원 미만은 무엇을 버리나 → 할인 후 금액에서 원 미만을 버린다');
   });
+
+  it('팀장이 고른 전문 분야를 읽고, 업무 지시서에 그 분야의 지침을 붙인다', () => {
+    const dto = IntakeDto.from({ ...valid, specialties: ['backend', 'database'] });
+    expect(dto.specialties).toEqual(['backend', 'database']);
+    const brief = dto.toBrief('S');
+    expect(brief).toContain('<specialty>');
+    expect(brief).toContain('[백엔드]');
+    expect(brief).toContain('[데이터베이스]');
+  });
+
+  it('전문 분야가 없거나 모르는 이름뿐이면 지침을 붙이지 않는다', () => {
+    expect(IntakeDto.from(valid).specialties).toEqual([]);
+    expect(IntakeDto.from(valid).toBrief('S')).not.toContain('<specialty>');
+    expect(IntakeDto.from({ ...valid, specialties: ['요리'] }).toBrief('S')).not.toContain('<specialty>');
+  });
 });

@@ -7,12 +7,18 @@ const strList = { type: 'array', items: str } as const;
 export const INTAKE_SCHEMA: Record<string, unknown> = {
   type: 'object',
   additionalProperties: false,
-  required: ['title', 'fileCount', 'crossModule', 'sensitive', 'scope', 'acceptance', 'doneWhen', 'forbidden', 'assumptions', 'readFirst'],
+  required: ['title', 'fileCount', 'crossModule', 'sensitive', 'scope', 'acceptance', 'doneWhen', 'forbidden', 'assumptions', 'readFirst', 'specialties'],
   properties: {
     readFirst: {
       ...strList,
       maxItems: 5,
       description: '접수하며 읽은 파일 중 테스트·구현 팀원이 먼저 봐야 할 것(바뀔 코드, 바로 옆 테스트). rauha가 내용을 붙여 넘긴다. 작업 폴더 기준 정확한 경로',
+    },
+    specialties: {
+      type: 'array',
+      maxItems: 3,
+      items: { enum: ['frontend', 'backend', 'database', 'architecture', 'infra'] },
+      description: '이 업무가 걸친 전문 분야. 화면 = frontend, 서버 로직·API = backend, 스키마·쿼리·마이그레이션 = database, 모듈 경계·구조 변경 = architecture, 배포·클라우드 설정 = infra. 해당 없으면 빈 배열',
     },
     title: { ...str, description: '업무 한 줄 목표' },
     fileCount: { type: 'integer', minimum: 1, description: '바뀔 것으로 보이는 파일 수(테스트 포함)' },
