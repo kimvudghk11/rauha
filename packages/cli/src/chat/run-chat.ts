@@ -19,7 +19,7 @@ import {
   type DesignUserPort,
   type RepoSession,
   type WorkspaceRepo,
-  readPlanUsage, type PermissionAsker, type PlanUsage, type Profile, type UserPort } from '@rauha/core';
+  readPlanUsage, SessionBudget, type PermissionAsker, type PlanUsage, type Profile, type UserPort } from '@rauha/core';
 import { FACT_ANSWERED, FACT_OPTIONS, PERMISSION_ANSWERED, PERMISSION_OPTIONS, toFactAnswer, toPermissionAnswer } from '../ask.js';
 import { readLoginStatus } from '../login-status.js';
 import { mascotView } from '../mascot.js';
@@ -218,6 +218,8 @@ export async function runChat(options: ChatOptions): Promise<number> {
       now: Date.now,
       newId: () => crypto.randomUUID(),
       today: () => new Date().toISOString().slice(0, 10),
+      // 한도를 얼마나 썼는지(1분마다 읽는 값). 빠듯하면 부서장이 아끼고, 위험하면 큰 요청을 미룬다.
+      budget: () => SessionBudget.fromWindows([plan?.session ?? null, plan?.weekly ?? null]),
       nowText: () => `${new Date().toLocaleString('ko-KR', { dateStyle: 'full', timeStyle: 'short' })} (${Intl.DateTimeFormat().resolvedOptions().timeZone})`,
     };
     const saved = resumed.get(repo.root) ?? null;

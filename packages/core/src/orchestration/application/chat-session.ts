@@ -4,6 +4,7 @@ import type { KnowledgePort } from '../../knowledge/application/ports.js';
 import type { MemoryPort } from '../../memory/application/memory.port.js';
 import { continuable, recallBlock, WorkMemory, type MemoryEntry, type Recall } from '../../memory/domain/work-memory.js';
 import { citedPaths, FactCheck, normalizeUrl, type CheckedClaim } from '../domain/fact-check.js';
+import { SessionBudget } from '../domain/session-budget.js';
 import { isSmallTalk, looksLikeQuestion } from '../domain/question-hint.js';
 import { Department, LAUNCH_ORDER, type DepartmentMemberRole } from '../domain/department.js';
 import type { ModelTier } from '../domain/team.js';
@@ -78,6 +79,8 @@ export interface ChatSessionDeps {
   readonly folder?: { readonly root: string; readonly repos: readonly { readonly name: string; readonly root: string }[] } | undefined;
   /** 설계 대화. 없거나 사용자와 주고받을 화면이 없으면 기능 요청도 바로 작업으로 진행한다. */
   readonly designer?: DesignPort | undefined;
+  /** 구독 한도를 얼마나 썼는지. 빠듯하면 부서장이 sonnet으로, 위험하면 큰 요청을 미룬다. 없으면 넉넉하다고 본다. */
+  readonly budget?: () => SessionBudget;
 }
 
 /** 저장소가 이 수를 넘으면 문서 팀원 한 명이 다 읽지 않고, 저장소마다 나눠 읽은 요약을 모아 쓴다. */
@@ -127,6 +130,14 @@ interface AlsoKnown {
 
 const MANY_REPO_WORK = '여러 저장소를 한 번에 고치는 일은 아직 하지 않아요. 저장소마다 나눠서 요청해 주세요.';
 
+/** 한도가 위험해 미뤄 둔 큰 요청. 사용자가 "그래도 진행"이라고 하면 이것을 그대로 한다. */
+interface HeldRequest {
+  readonly input: string;
+  readonly route: Route;
+}
+
+const OVERRIDE = /^\s*(그래도|그냥)\s*(진행|해\s?줘|해|할게|실행)/;
+
 interface Turn {
   readonly input: string;
   readonly result: string;
@@ -160,6 +171,9 @@ export class ChatSession {
   private costUsd = 0;
   private readonly calls: Record<ModelTier, number> = { haiku: 0, sonnet: 0, opus: 0 };
   private lastTitle: string | null = null;
+  private held: HeldRequest | null = null;
+  private overrideBudget = false;
+  private savingNoted = false;
 
   private constructor(private readonly deps: ChatSessionDeps) {}
 
@@ -192,6 +206,10 @@ export class ChatSession {
   async handle(input: string, also: readonly AlsoRepo[] = [], force?: 'design'): Promise<TurnOutcome> {
     const started = this.deps.now();
     const conversation = this.conversation();
+    this.savingNoted = false;
+    const heldRequest = this.held;
+    this.held = null;
+    if (heldRequest !== null && OVERRIDE.test(input)) return this.rerun(heldRequest, conversation, started);
     // /design: 라우터를 거치지 않고 바로 설계부터 한다.
     if (force === 'design') {
       if (also.length > 0) return { kind: 'notice', message: MANY_REPO_WORK };
@@ -215,8 +233,8 @@ export class ChatSession {
     if (route.mode === 'task') return this.task(input, conversation, also, started);
     if (route.mode === 'ops') return this.ops(input, conversation, started);
     if (route.mode === 'debug') return this.analyze('debugger', '디버깅', input, conversation, started);
-    if (route.mode === 'company') return this.company(input, conversation, route, started);
-    if (route.mode === 'launch') return this.launch(input, conversation, started);
+    if (route.mode === 'company') return (route.member === null ? this.hold(input, route) : null) ?? this.company(input, conversation, route, started);
+    if (route.mode === 'launch') return this.hold(input, route) ?? this.launch(input, conversation, started);
     if (route.mode === 'ideate') return this.analyze('planner', '기획', input, conversation, started);
     if (route.mode === 'risk') return this.analyze('riskchecker', '위험 점검', input, conversation, started);
     const changesCode = route.mode === 'work' || route.mode === 'feature';
@@ -383,6 +401,42 @@ export class ChatSession {
     return this.settle(label, input, answer, answer, started, costBefore);
   }
 
+  private budget(): SessionBudget {
+    return this.deps.budget?.() ?? SessionBudget.ample();
+  }
+
+  /** 한도가 위험하면 호출이 많은 일을 미루고 안내한다(호출 없이). 미룬 요청은 "그래도 진행"으로 되살린다. */
+  private hold(input: string, route: Route): TurnOutcome | null {
+    const budget = this.budget();
+    if (!budget.holdsHeavyWork) return null;
+    this.held = { input, route };
+    const reset = budget.resetsAt !== null ? ` 한도는 ${new Date(budget.resetsAt).toLocaleTimeString('ko-KR', { hour: 'numeric', minute: '2-digit' })}쯤 풀려요.` : '';
+    return {
+      kind: 'notice',
+      message: `세션 한도를 ${Math.round(budget.percent)}% 썼어요. 이 요청은 호출이 많이 들어서 미뤄 뒀어요.${reset} 풀린 뒤에 다시 말씀해 주시거나, 지금 꼭 하려면 "그래도 진행"이라고 말씀해 주세요. (질문과 작은 요청은 지금도 할 수 있어요)`,
+    };
+  }
+
+  /** 미뤄 둔 요청을 한도 검사 없이 한다. */
+  private async rerun(held: HeldRequest, conversation: string | null, started: number): Promise<TurnOutcome> {
+    this.overrideBudget = true;
+    try {
+      return held.route.mode === 'launch' ? await this.launch(held.input, conversation, started) : await this.company(held.input, conversation, held.route, started);
+    } finally {
+      this.overrideBudget = false;
+    }
+  }
+
+  /** 부서장의 종합·런칭 섹션 호출 설정. 한도가 빠듯하면 상위 모델 대신 sonnet을 쓰고, 한 번 알린다. */
+  private chiefOptions(): MemberOptions {
+    if (!this.budget().saving) return {};
+    if (!this.savingNoted) {
+      this.savingNoted = true;
+      this.deps.progress.step(`세션 한도를 ${Math.round(this.budget().percent)}% 썼어서 부서장도 sonnet으로 돌려요`);
+    }
+    return { tier: 'sonnet' };
+  }
+
   /**
    * 마케팅·사업 모델·디자인·보안·릴리스처럼 회사 부서가 맡는 일. 한 팀원이 하면 될 일은 그 팀원만 부른다(호출 하나).
    * 넓은 요청은 부서장이 팀원을 최대 셋까지 골라 나눠 주고(계획), 팀원들이 동시에 일한 뒤, 둘 이상이면 부서장이 하나로 모은다(종합).
@@ -414,7 +468,7 @@ export class ChatSession {
     }
 
     const body = done.map((d) => `<report member="${d.role}">\n${d.answer}\n</report>`).join('\n');
-    const merged = await this.member('chief', ['<job>merge</job>', ...known, `<reports>\n${body}\n</reports>`], ANALYSIS_SCHEMA, {});
+    const merged = await this.member('chief', ['<job>merge</job>', ...known, `<reports>\n${body}\n</reports>`], ANALYSIS_SCHEMA, this.chiefOptions());
     if (merged.blocked) return { kind: 'blocked', ...merged.blocked };
     const read = AnalysisReportDto.read(merged.output, department.label);
     // 팀원이 읽은 파일은 부서장이 빠뜨려도 사라지지 않게 합친다.
@@ -446,7 +500,7 @@ export class ChatSession {
           `<request>\n${input}\n</request>`,
         ],
         ANALYSIS_SCHEMA,
-        {},
+        this.chiefOptions(),
       );
       if (result.blocked) return { kind: 'blocked', ...result.blocked };
       sections.push({ label: department.label, answer: AnalysisReportDto.read(result.output, department.label).answer });

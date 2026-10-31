@@ -5,6 +5,7 @@ import { RepoRef } from '../../knowledge/domain/repo-ref.js';
 import type { MemoryPort } from '../../memory/application/memory.port.js';
 import type { MemoryEntry, MemoryNode, Recall } from '../../memory/domain/work-memory.js';
 import type { CheckedClaim } from '../domain/fact-check.js';
+import { SessionBudget } from '../domain/session-budget.js';
 import { ChatSession, type RunContextBlocks } from './chat-session.js';
 import { RoleSettingsDto, type MemberRole } from './dto/role-settings.dto.js';
 import type { RunOutcome } from './minimal-loop.service.js';
@@ -133,7 +134,7 @@ class FakeLoops {
 
 const route = (mode: 'work' | 'question' | 'task' | 'feature' | 'ops' | 'debug' | 'risk' | 'ideate' | 'company' | 'launch', refersToPast = false, pastQuery: string | null = null, extra: { department?: string; member?: string | null } = {}) => () => ({ mode, refersToPast, pastQuery, ...extra });
 
-type SessionParts = { team: FakeTeam; loops?: FakeLoops; memory?: FakeMemory; user?: UserPort; files?: Record<string, string>; steps?: string[]; changes?: FileChange[] };
+type SessionParts = { team: FakeTeam; loops?: FakeLoops; memory?: FakeMemory; user?: UserPort; files?: Record<string, string>; steps?: string[]; changes?: FileChange[]; budget?: SessionBudget };
 
 function session(p: SessionParts) {
   return ChatSession.start(sessionDeps(p));
@@ -154,6 +155,7 @@ function sessionDeps(p: SessionParts) {
     newId: () => `id${(id += 1)}`,
     today: () => '2026-10-25',
     nowText: () => '2026년 10월 25일 일요일 오후 11:40 (Asia/Seoul)',
+    ...(p.budget !== undefined ? { budget: () => p.budget! } : {}),
   };
 }
 
@@ -893,6 +895,81 @@ describe('ChatSession — 회사 부서', () => {
     await chat.handle('런칭 계획');
     await chat.handle('개발부터 시작하자');
     expect(callsOf(team, 'answerer').pop()!.message).toContain('핵심 계획');
+  });
+});
+
+describe('ChatSession — 한도 연동', () => {
+  const memberReport = (answer: string) => () => ({ answer, files: [] });
+  const chief = (assignments: { member: string; brief: string }[]) => (call: { userMessage: string }) =>
+    call.userMessage.includes('<job>plan</job>') ? { note: '나눔', assignments } : { answer: '종합', files: [] };
+  const used = (percent: number, resetsAt: string | null = null) => SessionBudget.fromWindows([{ percent, resetsAt }]);
+
+  it('한도가 빠듯하면 부서장도 sonnet으로 돌리고, 한 번 알린다', async () => {
+    const team = new FakeTeam({
+      router: [route('company', false, null, { department: 'design', member: null })],
+      chief: [chief([{ member: 'uxdesigner', brief: 'a' }, { member: 'brand', brief: 'b' }])],
+      uxdesigner: [memberReport('흐름')],
+      brand: [memberReport('이름')],
+    });
+    const steps: string[] = [];
+    await session({ team, steps, budget: used(75) }).handle('디자인 전반');
+    expect(team.calls.filter((c) => c.role === 'chief').map((c) => c.tier)).toEqual(['sonnet', 'sonnet']);
+    expect(steps.filter((s) => s.includes('한도')).length).toBe(1);
+  });
+
+  it('한도가 넉넉하면 아무것도 바꾸지 않는다', async () => {
+    const team = new FakeTeam({
+      router: [route('company', false, null, { department: 'design', member: null })],
+      chief: [chief([{ member: 'uxdesigner', brief: 'a' }, { member: 'brand', brief: 'b' }])],
+      uxdesigner: [memberReport('흐름')],
+      brand: [memberReport('이름')],
+    });
+    const steps: string[] = [];
+    await session({ team, steps, budget: used(20) }).handle('디자인 전반');
+    expect(team.calls.filter((c) => c.role === 'chief').map((c) => c.tier)).toEqual(['sonnet', 'opus']);
+    expect(steps.some((s) => s.includes('한도'))).toBe(false);
+  });
+
+  it('한도가 위험하면 런칭 계획은 미루고, 어떻게 하면 되는지 알려 준다 (호출 없이)', async () => {
+    const team = new FakeTeam({ router: [route('launch')] });
+    const turn = await session({ team, budget: used(93, '2026-11-01T14:30:00.000Z') }).handle('런칭 계획 짜줘');
+    expect(turn).toMatchObject({ kind: 'notice', message: expect.stringContaining('93%') });
+    expect(turn.kind === 'notice' && turn.message).toContain('그래도 진행');
+    expect(team.calls.filter((c) => c.role === 'chief')).toEqual([]);
+  });
+
+  it('위험할 때도 넓은 부서 요청은 미루지만, 팀원 하나로 되는 일과 질문은 한다', async () => {
+    const wide = new FakeTeam({ router: [route('company', false, null, { department: 'marketing', member: null })] });
+    expect(await session({ team: wide, budget: used(95) }).handle('마케팅 전반')).toMatchObject({ kind: 'notice' });
+    const one = new FakeTeam({ router: [route('company', false, null, { department: 'marketing', member: 'marketer' })], marketer: [memberReport('문구')] });
+    expect(await session({ team: one, budget: used(95) }).handle('스토어 문구')).toMatchObject({ kind: 'answer', answer: '문구' });
+    const ask = new FakeTeam({ router: [route('question')], answerer: [() => ({ answer: '네.', claims: [] })] });
+    expect(await session({ team: ask, budget: used(95) }).handle('이거 뭐야?')).toMatchObject({ kind: 'answer' });
+  });
+
+  it('미룬 뒤 "그래도 진행"이라고 하면 그 요청을 그대로 한다', async () => {
+    const team = new FakeTeam({ router: [route('launch')], chief: [() => ({ answer: '섹션', files: [] })] });
+    const chat = session({ team, budget: used(95) });
+    await chat.handle('런칭 계획 짜줘');
+    const turn = await chat.handle('그래도 진행');
+    expect(turn).toMatchObject({ kind: 'answer', answer: expect.stringContaining('섹션') });
+    expect(team.calls.filter((c) => c.role === 'chief')).toHaveLength(5);
+    expect(team.calls.filter((c) => c.role === 'router')).toHaveLength(1);
+  });
+
+  it('미룬 요청이 없을 때의 "그래도 진행"은 평범한 입력으로 라우터에 간다', async () => {
+    const team = new FakeTeam({ router: [route('question')], answerer: [() => ({ answer: '네.', claims: [] })] });
+    await session({ team, budget: used(95) }).handle('그래도 진행');
+    expect(team.calls.filter((c) => c.role === 'router')).toHaveLength(1);
+  });
+
+  it('다른 말을 하면 미뤄 둔 요청은 잊는다', async () => {
+    const team = new FakeTeam({ router: [route('launch'), route('question')], answerer: [() => ({ answer: '네.', claims: [] })] });
+    const chat = session({ team, budget: used(95) });
+    await chat.handle('런칭 계획 짜줘');
+    await chat.handle('이거 뭐야?');
+    await chat.handle('그래도 진행');
+    expect(team.calls.filter((c) => c.role === 'chief')).toEqual([]);
   });
 });
 
