@@ -508,13 +508,26 @@ describe('ChatSession — 빠른 답', () => {
     expect(await pending).toMatchObject({ kind: 'answer', answer: '네.' });
   });
 
-  it('작업 요청이면 미리 시작한 답변을 멈추고 답을 기억에 남기지 않는다', async () => {
+  it('시키는 말이면 답변 팀원을 미리 부르지 않고, 답을 기억에 남기지도 않는다 (호출을 버리지 않는다)', async () => {
     const memory = new FakeMemory();
     const team = new FakeTeam({ router: [route('work')], answerer: [() => ({ answer: '버릴 답', claims: [] })] });
     const turn = await session({ team, memory }).handle('Money에 할인 넣어줘');
     expect(turn.kind).toBe('work');
-    expect(team.calls.find((c) => c.role === 'answerer')!.signal!.aborted).toBe(true);
+    expect(team.calls.some((c) => c.role === 'answerer')).toBe(false);
     expect([...memory.nodes.values()].some((n) => n.kind === 'question')).toBe(false);
+  });
+
+  it('질문처럼 보이는데 라우터가 작업이라 하면 미리 시작한 답변을 멈춘다', async () => {
+    const team = new FakeTeam({ router: [route('work')], answerer: [() => ({ answer: '버릴 답', claims: [] })] });
+    await session({ team }).handle('이 함수 왜 이래?');
+    expect(team.calls.find((c) => c.role === 'answerer')!.signal!.aborted).toBe(true);
+  });
+
+  it('질문처럼 안 보였어도 라우터가 질문이라 하면 그때 답한다', async () => {
+    const team = new FakeTeam({ router: [route('question')], answerer: [() => ({ answer: '그렇습니다.', claims: [] })] });
+    const turn = await session({ team }).handle('결제 모듈에 할인 쿠폰 적용 순서를 장바구니 단위로 바꾸는 방향으로 정리하고 싶어요');
+    expect(turn).toMatchObject({ kind: 'answer', answer: '그렇습니다.' });
+    expect(team.calls.map((c) => c.role)).toEqual(['router', 'answerer']);
   });
 
   it('지식을 늦게 읽는 사이 작업으로 판정돼 이미 멈춘 답변은 뒤늦게 시작하지 않는다 (작업 중 표시가 남지 않게)', async () => {
@@ -781,6 +794,18 @@ describe('ChatSession — 회사 부서', () => {
     const turn = await session({ team }).handle('수익 구조 어떻게 하지');
     expect(callsOf(team, 'chief')).toHaveLength(1);
     expect(turn).toMatchObject({ kind: 'answer', answer: '구독이 맞아요.' });
+  });
+
+  it('부서장은 계획에는 sonnet, 종합에는 가장 높은 모델을 쓴다 (짧은 계획에 비싼 모델을 쓰지 않는다)', async () => {
+    const team = new FakeTeam({
+      router: [route('company', false, null, { department: 'design', member: null })],
+      chief: [chief([{ member: 'uxdesigner', brief: 'a' }, { member: 'brand', brief: 'b' }])],
+      uxdesigner: [memberReport('흐름')],
+      brand: [memberReport('이름')],
+    });
+    await session({ team }).handle('디자인 전반');
+    const [plan, merge] = callsOf(team, 'chief');
+    expect([plan!.tier, merge!.tier]).toEqual(['sonnet', 'opus']);
   });
 
   it('부서장의 종합 입력에는 팀원들의 보고가 담긴다', async () => {

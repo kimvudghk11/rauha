@@ -4,6 +4,7 @@ import type { KnowledgePort } from '../../knowledge/application/ports.js';
 import type { MemoryPort } from '../../memory/application/memory.port.js';
 import { continuable, recallBlock, WorkMemory, type MemoryEntry, type Recall } from '../../memory/domain/work-memory.js';
 import { citedPaths, FactCheck, normalizeUrl, type CheckedClaim } from '../domain/fact-check.js';
+import { looksLikeQuestion } from '../domain/question-hint.js';
 import { Department, LAUNCH_ORDER, type DepartmentMemberRole } from '../domain/department.js';
 import type { ModelTier } from '../domain/team.js';
 import { AnswerDto } from './dto/answer.dto.js';
@@ -200,9 +201,10 @@ export class ChatSession {
     // 저장소 지식은 라우터와 함께 읽는다. 답변 팀원만 기다린다(라우터는 지식이 필요 없다).
     const known = this.knowledgeOf();
     const others = Promise.all(also.map(async (r): Promise<AlsoKnown> => ({ name: r.name, root: r.root, known: also.length <= ALSO_KNOWLEDGE_MAX ? await this.knowledgeOf(r.knowledge) : null })));
-    const asked = Promise.all([known, others]).then(([k, o]) => this.askAnswerer(input, null, k, conversation, early.signal, o));
+    // 질문처럼 보일 때만 미리 시작한다. 시키는 말에 미리 시작하면 판정이 나는 순간 버려질 호출이 하나 생긴다.
+    const asked = looksLikeQuestion(input) ? Promise.all([known, others]).then(([k, o]) => this.askAnswerer(input, null, k, conversation, early.signal, o)) : null;
     // 라우터를 기다리는 동안 실패해도 처리 안 된 거절로 프로세스가 죽지 않게. 쓰기로 하면 answer()가 await에서 다시 받는다.
-    asked.catch(() => undefined);
+    asked?.catch(() => undefined);
     const routed = await this.member('router', [conversation !== null ? `<conversation>\n${conversation}\n</conversation>` : '', `<message>\n${input}\n</message>`], ROUTE_SCHEMA, {});
     const route = RouteDto.read(routed.output);
     if (routed.blocked || route.mode !== 'question' || route.refersToPast) early.abort();
@@ -220,7 +222,7 @@ export class ChatSession {
     // 기능 요청은 설계 대화부터. 사용자와 주고받을 화면이 없으면(-p) 작업으로 바로 진행한다.
     if (route.mode === 'feature' && past === null && this.canDesign()) return this.feature(input, conversation, started);
     if (changesCode) return this.work(input, conversation, past);
-    return this.answer(input, route.refersToPast ? this.askAnswerer(input, past, await known, conversation, undefined, await others) : asked, started);
+    return this.answer(input, route.refersToPast || asked === null ? this.askAnswerer(input, past, await known, conversation, undefined, await others) : asked, started);
   }
 
   clear(): void {
@@ -391,7 +393,8 @@ export class ChatSession {
     const costBefore = this.costUsd;
     const known = [`<department>\n${department.persona}\n</department>`, conversation !== null ? `<conversation>\n${conversation}\n</conversation>` : '', `<request>\n${input}\n</request>`];
     const members = `<members>\n${department.members.map((m) => `- ${m.role}: ${m.does}`).join('\n')}\n</members>`;
-    const planned = await this.member('chief', ['<job>plan</job>', members, ...known], COMPANY_PLAN_SCHEMA, {});
+    // 계획은 짧은 분배라 sonnet이면 충분하다. 부서장의 상위 모델은 팀원 보고를 모으는 종합과 런칭 섹션에 쓴다.
+    const planned = await this.member('chief', ['<job>plan</job>', members, ...known], COMPANY_PLAN_SCHEMA, { tier: 'sonnet' });
     if (planned.blocked) return { kind: 'blocked', ...planned.blocked };
     const { assignments } = CompanyPlanDto.read(planned.output, department);
 
