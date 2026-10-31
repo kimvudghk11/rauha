@@ -49,6 +49,8 @@ export function describeTurn(turn: TurnOutcome, view: MascotView | null): Printa
       const sources = [...new Set(verified.flatMap((c) => c.verified.flatMap((e) => (e.kind === 'web' ? [shortUrl(e.url)] : []))))];
       return [
         '',
+        // 답이 어디서 시작하는지 보이게 머리줄을 단다(질문과 답의 경계).
+        ...(view !== null ? [view.step('rauha', 'answerer'), ''] : []),
         ...turn.answer.split('\n').map((line) => (line === '' ? '' : `  ${titled(line, view)}`)),
         '',
         ...(sources.length > 0 ? ['  출처', ...sources.map((s) => `  - ${s}`), ''] : []),

@@ -364,3 +364,30 @@ describe('일하는 중 작은 Delfi 키우기', () => {
     }
   });
 });
+
+describe('사용자 입력 말풍선', () => {
+  const view = mascotView(24, 'v0.0.0', '[personal]')!;
+  const lines = (text: string, columns = 60) => view.userTurn(text, columns).split('\n').map(visible);
+
+  it('흐린 가로줄 아래에 입력을 세로 막대와 함께 보여 준다 (지난 답과 새 질문의 경계)', () => {
+    const [rule, ...body] = lines('Money에 할인 넣어줘');
+    expect(rule).toMatch(/^▁+$/);
+    expect(body).toEqual(['▍ Money에 할인 넣어줘']);
+  });
+
+  it('여러 줄 입력은 줄마다 막대를 붙인다', () => {
+    expect(lines('첫째\n둘째').slice(1)).toEqual(['▍ 첫째', '▍ 둘째']);
+  });
+
+  it('긴 입력이 창 너비에서 접혀도 이어지는 줄에 막대가 붙고 너비를 넘지 않는다', () => {
+    const out = lines('가나다라 마바사아 자차카타 파하 '.repeat(4), 30);
+    expect(out.length).toBeGreaterThan(3);
+    for (const line of out) expect(displayWidth(line)).toBeLessThanOrEqual(29);
+    for (const line of out.slice(1)) expect(line.startsWith('▍ ')).toBe(true);
+  });
+
+  it('가로줄은 창 너비를 따라가되 너무 길어지지 않는다', () => {
+    expect(displayWidth(lines('a', 200)[0]!)).toBe(76);
+    expect(displayWidth(lines('a', 40)[0]!)).toBe(39);
+  });
+});

@@ -28,7 +28,7 @@ import { createNotifier, LONG_WORK_MS, NOTIFY_AFTER_MS, notifyIfLong, notifyWhil
 import { createKnowledge, createLoop, createTeam, definedEnv, loadPrompts, openMemory, projectRoot, roleSettings } from '../run.js';
 import { ChatApp } from './chat-app.js';
 import { chatProgress } from './chat-progress.js';
-import { ChatStore } from './chat-store.js';
+import { ChatStore, type Printable } from './chat-store.js';
 import { HELP_TEXT, parseCommand, type ChatCommand } from './commands.js';
 import { parkingStream } from './cursor-park.js';
 import { describeTurn } from './describe-turn.js';
@@ -90,6 +90,9 @@ export async function runChat(options: ChatOptions): Promise<number> {
   // 보낸 입력은 파일에 남겨 다음에 열어도 위 화살표로 부를 수 있다.
   const inputHistory = new InputHistoryFile(join(home, '.rauha', 'input-history.txt'));
   store.restoreHistory(await inputHistory.load());
+
+  /** 사용자가 보낸 입력을 대화에 남기는 줄들. 화면이 있으면 지난 답과 나누는 가로줄과 막대를 쓴다. */
+  const userTurn = (text: string): Printable[] => (view === null ? ['', `> ${text}`] : ['', (columns: number) => view.userTurn(text, columns)]);
 
   const progress = chatProgress(store, view, Date.now);
   const finishWorking = progress.finish;
@@ -379,7 +382,7 @@ export async function runChat(options: ChatOptions): Promise<number> {
         case 'review': {
           const b = current();
           if (b === null) return store.print(NO_CURRENT);
-          store.print(`\n> ${text}`);
+          store.printLines(userTurn(text));
           b.team.resume();
           store.setBusy(true);
           try {
@@ -427,7 +430,7 @@ export async function runChat(options: ChatOptions): Promise<number> {
 
   /** 입력 하나를 작업 공간에 보내고 결과를 화면에 낸다. shown: 화면에 "> " 뒤로 보일 글, force: /design처럼 라우터를 건너뛸 때 */
   async function runTurn(shown: string, request: string, force?: 'design'): Promise<void> {
-    store.print(`\n> ${shown}`);
+    store.printLines(userTurn(shown));
     for (const b of bundles.values()) b.team.resume();
     store.setBusy(true);
     const startedAt = Date.now();

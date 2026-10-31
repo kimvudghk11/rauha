@@ -306,6 +306,8 @@ export interface MascotView {
   gauge(percent: number, cells: number): string;
   /** 선택 목록에서 고른 줄 색칠 */
   highlight(text: string): string;
+  /** 사용자가 보낸 입력: 지난 답과 나누는 흐린 가로줄 + 하늘색 세로 막대가 붙은 굵은 글 */
+  userTurn(text: string, columns: number): string;
 }
 
 /** 256색 이상 터미널에서만 Delfi를 그린다. 그보다 못하면 null(글자만 쓰는 기존 출력). */
@@ -407,5 +409,12 @@ export function mascotView(depth: number, version: string, badge: string): Masco
       return `${fg(GAUGE_COLOR[gaugeLevel(percent)], filled)}${fg(GAUGE_TRACK_COLOR, track)}`;
     },
     highlight: (text) => `\x1b[1m${fg(COLORS['B']!, text)}`,
+    userTurn: (text, columns) => {
+      const width = Math.min(columns - 1, MAX_PERMISSION_WIDTH);
+      const gutter = fg(COLORS['B']!, '▍');
+      // 이어지는 줄에도 막대를 붙이려고 여기서 접는다(막대와 띄어쓰기 두 칸을 뺀 너비).
+      const body = text.split('\n').flatMap((line) => fitLines(line, Math.max(1, width - 2)));
+      return [dim('▁'.repeat(width)), ...body.map((line) => `${gutter} \x1b[1m${line}${RESET}`)].join('\n');
+    },
   };
 }
