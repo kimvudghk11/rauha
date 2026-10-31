@@ -73,6 +73,13 @@ describe('RoleSettingsDto', () => {
     expect(entries.find((e) => e.role === 'tester')).toMatchObject({ tier: 'opus', effort: 'high' });
   });
 
+  it('기획 팀원은 시장을 찾아볼 수 있지만 파일은 쓰지 못한다', () => {
+    const planner = RoleSettingsDto.defaults().get('planner');
+    expect(planner.tools).toEqual(expect.arrayContaining(['WebSearch', 'WebFetch']));
+    expect(planner.tools).not.toContain('Write');
+    expect(planner.tools).not.toContain('Edit');
+  });
+
   it('형식이 틀린 환경 변수는 거부한다', () => {
     expect(() => RoleSettingsDto.defaults().withEnv({ RAUHA_ROLE_TESTER: 'gpt:fast' })).toThrow(DomainError);
   });

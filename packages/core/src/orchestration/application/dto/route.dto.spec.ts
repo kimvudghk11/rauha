@@ -20,5 +20,6 @@ describe('RouteDto — 디버깅·위험 점검', () => {
   it('debug와 risk도 입력 종류로 읽는다', () => {
     expect(RouteDto.read({ mode: 'debug', refersToPast: false, pastQuery: null }).mode).toBe('debug');
     expect(RouteDto.read({ mode: 'risk', refersToPast: false, pastQuery: null }).mode).toBe('risk');
+    expect(RouteDto.read({ mode: 'ideate', refersToPast: false, pastQuery: null }).mode).toBe('ideate');
   });
 });

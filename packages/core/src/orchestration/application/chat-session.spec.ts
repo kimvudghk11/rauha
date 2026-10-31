@@ -131,7 +131,7 @@ class FakeLoops {
   });
 }
 
-const route = (mode: 'work' | 'question' | 'task' | 'feature' | 'ops' | 'debug' | 'risk', refersToPast = false, pastQuery: string | null = null) => () => ({ mode, refersToPast, pastQuery });
+const route = (mode: 'work' | 'question' | 'task' | 'feature' | 'ops' | 'debug' | 'risk' | 'ideate', refersToPast = false, pastQuery: string | null = null) => () => ({ mode, refersToPast, pastQuery });
 
 type SessionParts = { team: FakeTeam; loops?: FakeLoops; memory?: FakeMemory; user?: UserPort; files?: Record<string, string>; steps?: string[]; changes?: FileChange[] };
 
@@ -711,6 +711,32 @@ describe('ChatSession — 디버깅·위험 점검', () => {
   it('사용 한도에 걸리면 막힘으로 알린다', async () => {
     const team = new FakeTeam({ router: [route('risk')] }, 'riskchecker');
     expect(await session({ team }).handle('이 변경 위험해?')).toMatchObject({ kind: 'blocked', reason: 'usage-limit' });
+  });
+});
+
+describe('ChatSession — 기획', () => {
+  const report = (answer: string) => () => ({ answer, files: [] });
+
+  it('ideate로 가려진 요청은 기획 팀원이 아이디어를 내고, 작업 루프는 돌리지 않는다', async () => {
+    const loops = new FakeLoops();
+    const team = new FakeTeam({ router: [route('ideate')], planner: [report('■ 아이디어 1 - 동네 모임 앱')] });
+    const turn = await session({ team, loops }).handle('앱이랑 웹 둘 다 있는 사업 아이디어 좀 내줘');
+    expect(turn).toMatchObject({ kind: 'answer', answer: expect.stringContaining('동네 모임 앱') });
+    expect(loops.runs).toEqual([]);
+    expect(team.calls.some((c) => c.role === 'planner' && c.message.includes('사업 아이디어'))).toBe(true);
+  });
+
+  it('기획 팀원도 앞 대화를 받는다 (아이디어를 고르며 이어 말할 수 있다)', async () => {
+    const team = new FakeTeam({ router: [route('ideate')], planner: [report('첫 아이디어들'), report('더 구체화')] });
+    const chat = session({ team });
+    await chat.handle('아이디어 내줘');
+    await chat.handle('두 번째 거 더 구체적으로');
+    expect(team.calls.filter((c) => c.role === 'planner')[1]!.message).toContain('첫 아이디어들');
+  });
+
+  it('사용 한도에 걸리면 막힘으로 알린다', async () => {
+    const team = new FakeTeam({ router: [route('ideate')] }, 'planner');
+    expect(await session({ team }).handle('아이디어 내줘')).toMatchObject({ kind: 'blocked', reason: 'usage-limit' });
   });
 });
 

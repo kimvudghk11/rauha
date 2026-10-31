@@ -173,7 +173,7 @@ export const ROUTE_SCHEMA: Record<string, unknown> = {
   additionalProperties: false,
   required: ['mode', 'refersToPast', 'pastQuery'],
   properties: {
-    mode: { enum: ['work', 'question', 'task', 'feature', 'ops', 'debug', 'risk'], description: 'debug: 에러·실패·이상 동작의 원인을 찾아 달라는 요청(고치라는 말이 없음), risk: 바꾸기 전에 영향 범위·깨질 곳·위험을 점검해 달라는 요청, ops: aws·terraform·kubectl 같은 명령으로 클라우드·인프라를 조회하거나 바꾸는 요청(코드 수정 아님), work: 범위가 분명한 작은 코드 수정, feature: 새 기능이나 동작 변경(해석이 갈리거나 여러 파일에 걸침), question: 코드를 바꾸지 않는 질문, task: 코드가 아닌 결과물(문서·보고서·정리 파일)을 만드는 요청' },
+    mode: { enum: ['work', 'question', 'task', 'feature', 'ops', 'debug', 'risk', 'ideate'], description: 'ideate: 사업·제품 아이디어를 내거나 무엇을 만들지 구상해 달라는 요청(아직 만들라는 말이 아님), debug: 에러·실패·이상 동작의 원인을 찾아 달라는 요청(고치라는 말이 없음), risk: 바꾸기 전에 영향 범위·깨질 곳·위험을 점검해 달라는 요청, ops: aws·terraform·kubectl 같은 명령으로 클라우드·인프라를 조회하거나 바꾸는 요청(코드 수정 아님), work: 범위가 분명한 작은 코드 수정, feature: 새 기능이나 동작 변경(해석이 갈리거나 여러 파일에 걸침), question: 코드를 바꾸지 않는 질문, task: 코드가 아닌 결과물(문서·보고서·정리 파일)을 만드는 요청' },
     refersToPast: { type: 'boolean', description: '이름 없이 지난 작업을 가리키는지("아까 그 기능", "방금 거")' },
     pastQuery: { ...nullableStr, description: '기억에서 찾을 검색어(코드 이름·기능 단어). 없으면 null' },
   },

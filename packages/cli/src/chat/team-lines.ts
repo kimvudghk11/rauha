@@ -1,7 +1,7 @@
 import type { MemberRole, RoleSettingsDto } from '@rauha/core';
 import { displayWidth } from '../text-width.js';
 
-const NAME: Readonly<Record<MemberRole, string>> = { intake: '팀장', tester: '테스트 팀원', implementer: '구현 팀원', reviewer: '리뷰어', router: '라우터', answerer: '답변 팀원', surveyor: '저장소 파악', writer: '문서 팀원', designer: '설계 팀원', operator: '운영 팀원', debugger: '디버깅 팀원', riskchecker: '위험 점검 팀원' };
+const NAME: Readonly<Record<MemberRole, string>> = { intake: '팀장', tester: '테스트 팀원', implementer: '구현 팀원', reviewer: '리뷰어', router: '라우터', answerer: '답변 팀원', surveyor: '저장소 파악', writer: '문서 팀원', designer: '설계 팀원', operator: '운영 팀원', debugger: '디버깅 팀원', riskchecker: '위험 점검 팀원', planner: '기획 팀원' };
 
 /** 팀원이 할 수 있는 일을 한 마디로. 명령 실행이 있으면 그것이 가장 큰 차이라 먼저 말한다. */
 function ability(tools: readonly string[]): string {
