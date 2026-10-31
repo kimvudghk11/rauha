@@ -5,12 +5,13 @@ import { RepoRef } from '../../knowledge/domain/repo-ref.js';
 import type { MemoryPort } from '../../memory/application/memory.port.js';
 import type { MemoryEntry, MemoryNode, Recall } from '../../memory/domain/work-memory.js';
 import type { CheckedClaim } from '../domain/fact-check.js';
+import { CompanyBook } from '../domain/company-book.js';
 import { SessionBudget } from '../domain/session-budget.js';
 import { ChatSession, type RunContextBlocks } from './chat-session.js';
 import { RoleSettingsDto, type MemberRole } from './dto/role-settings.dto.js';
 import type { RunOutcome } from './minimal-loop.service.js';
 import type { Assumption } from './dto/intake.dto.js';
-import type { FactAnswer, FileChange, MemberCall, MemberResult, PastCandidate, TeamMemberPort, UserPort } from './ports.js';
+import type { CompanyBookPort, FactAnswer, FileChange, MemberCall, MemberResult, PastCandidate, TeamMemberPort, UserPort } from './ports.js';
 
 // ── 가짜들 ───────────────────────────────────────────────────
 
@@ -134,7 +135,7 @@ class FakeLoops {
 
 const route = (mode: 'work' | 'question' | 'task' | 'feature' | 'ops' | 'debug' | 'risk' | 'ideate' | 'company' | 'launch', refersToPast = false, pastQuery: string | null = null, extra: { department?: string; member?: string | null } = {}) => () => ({ mode, refersToPast, pastQuery, ...extra });
 
-type SessionParts = { team: FakeTeam; loops?: FakeLoops; memory?: FakeMemory; user?: UserPort; files?: Record<string, string>; steps?: string[]; changes?: FileChange[]; budget?: SessionBudget };
+type SessionParts = { team: FakeTeam; loops?: FakeLoops; memory?: FakeMemory; user?: UserPort; files?: Record<string, string>; steps?: string[]; changes?: FileChange[]; budget?: SessionBudget; company?: CompanyBookPort };
 
 function session(p: SessionParts) {
   return ChatSession.start(sessionDeps(p));
@@ -156,6 +157,7 @@ function sessionDeps(p: SessionParts) {
     today: () => '2026-10-25',
     nowText: () => '2026년 10월 25일 일요일 오후 11:40 (Asia/Seoul)',
     ...(p.budget !== undefined ? { budget: () => p.budget! } : {}),
+    ...(p.company !== undefined ? { company: p.company } : {}),
   };
 }
 
@@ -970,6 +972,111 @@ describe('ChatSession — 한도 연동', () => {
     await chat.handle('이거 뭐야?');
     await chat.handle('그래도 진행');
     expect(team.calls.filter((c) => c.role === 'chief')).toEqual([]);
+  });
+});
+
+describe('ChatSession — 회사 장부', () => {
+  const memberReport = (answer: string) => () => ({ answer, files: [] });
+  const chiefText = (text: string) => () => ({ answer: text, files: [] });
+  class FakeBook {
+    saved: CompanyBook[] = [];
+    constructor(public book: CompanyBook = CompanyBook.empty(), private readonly failSave = false) {}
+    async load() {
+      return this.book;
+    }
+    async save(book: CompanyBook) {
+      if (this.failSave) throw new Error('디스크 가득');
+      this.book = book;
+      this.saved.push(book);
+    }
+  }
+  const planned = CompanyBook.empty().with({ department: 'planning', summary: '구독 모델로 간다', at: '2026-11-01T00:00:00.000Z' });
+
+  it('부서 팀원은 회사가 이미 정한 것을 입력으로 받는다', async () => {
+    const team = new FakeTeam({ router: [route('company', false, null, { department: 'marketing', member: 'marketer' })], marketer: [memberReport('문구')] });
+    await session({ team, company: new FakeBook(planned) }).handle('스토어 문구');
+    expect(team.calls.find((c) => c.role === 'marketer')!.message).toContain('구독 모델로 간다');
+  });
+
+  it('부서 결과는 장부에 요약으로 남는다 (읽은 파일 목록은 빼고)', async () => {
+    const book = new FakeBook();
+    const team = new FakeTeam({ router: [route('company', false, null, { department: 'marketing', member: 'marketer' })], marketer: [() => ({ answer: '■ 포지셔닝\n- 동네 모임', files: ['a.ts'] })] });
+    await session({ team, company: book }).handle('포지셔닝');
+    expect(book.book.entries).toEqual([{ department: 'marketing', summary: '■ 포지셔닝\n- 동네 모임', at: expect.any(String) }]);
+  });
+
+  it('기획 팀원의 아이디어도 기획부 결과로 남지만, 디버깅 결과는 남기지 않는다', async () => {
+    const book = new FakeBook();
+    const team = new FakeTeam({ router: [route('ideate'), route('debug')], planner: [memberReport('아이디어 A')], debugger: [memberReport('원인은 X')] });
+    const chat = session({ team, company: book });
+    await chat.handle('아이디어');
+    await chat.handle('테스트가 왜 깨져?');
+    expect(book.book.entries.map((e) => e.department)).toEqual(['planning']);
+  });
+
+  it('읽지 못한 보고는 장부에 남기지 않는다', async () => {
+    const book = new FakeBook();
+    const team = new FakeTeam({ router: [route('company', false, null, { department: 'design', member: 'brand' })], brand: [() => null] });
+    await session({ team, company: book }).handle('이름');
+    expect(book.saved).toEqual([]);
+  });
+
+  it('장부를 저장하지 못해도 답은 돌려준다', async () => {
+    const team = new FakeTeam({ router: [route('company', false, null, { department: 'design', member: 'brand' })], brand: [memberReport('이름 후보')] });
+    expect(await session({ team, company: new FakeBook(CompanyBook.empty(), true) }).handle('이름')).toMatchObject({ kind: 'answer', answer: '이름 후보' });
+  });
+
+  it('런칭 계획은 부서마다 장부에 남기고, 뒤 부서에는 앞 부서 글의 요약만 넘긴다 (입력을 줄인다)', async () => {
+    const book = new FakeBook();
+    const team = new FakeTeam({ router: [route('launch')], chief: [chiefText('가'.repeat(2000))] });
+    await session({ team, company: book }).handle('런칭 계획');
+    expect(book.book.entries.map((e) => e.department).sort()).toEqual(['design', 'marketing', 'operations', 'planning', 'quality']);
+    const second = team.calls.filter((c) => c.role === 'chief')[1]!.message;
+    expect(second).not.toContain('가'.repeat(1000));
+    expect(second).toContain('가'.repeat(100));
+  });
+
+  it('장부 내용은 /company에서 볼 수 있다', async () => {
+    const chat = session({ team: new FakeTeam({}), company: new FakeBook(planned) });
+    expect(await chat.companyEntries()).toEqual(planned.entries);
+  });
+});
+
+describe('ChatSession — 같은 질문 다시', () => {
+  const answerer = () => [() => ({ answer: '첫 답', claims: [] }), () => ({ answer: '새 답', claims: [] })];
+
+  it('방금 한 질문을 그대로 다시 하면 새로 부르지 않고 앞 답을 보여 준다 (호출 0)', async () => {
+    const team = new FakeTeam({ router: [route('question')], answerer: answerer() });
+    const chat = session({ team });
+    await chat.handle('이 함수 뭐 해?');
+    const calls = team.calls.length;
+    const again = await chat.handle('이  함수 뭐 해?');
+    expect(again).toMatchObject({ kind: 'answer', answer: expect.stringContaining('첫 답') });
+    expect(again.kind === 'answer' && again.answer).toContain('방금');
+    expect(team.calls.length).toBe(calls);
+  });
+
+  it('다른 질문은 새로 묻는다', async () => {
+    const team = new FakeTeam({ router: [route('question')], answerer: answerer() });
+    const chat = session({ team });
+    await chat.handle('이 함수 뭐 해?');
+    expect(await chat.handle('저 함수는 뭐 해?')).toMatchObject({ answer: '새 답' });
+  });
+
+  it('그 사이 코드를 바꾸는 작업을 했으면 다시 묻는다 (옛 답이 틀릴 수 있다)', async () => {
+    const team = new FakeTeam({ router: [route('question'), route('work'), route('question')], answerer: answerer() });
+    const chat = session({ team });
+    await chat.handle('이 함수 뭐 해?');
+    await chat.handle('Money에 할인 넣어줘');
+    expect(await chat.handle('이 함수 뭐 해?')).toMatchObject({ answer: '새 답' });
+  });
+
+  it('/clear 뒤에는 다시 묻는다', async () => {
+    const team = new FakeTeam({ router: [route('question')], answerer: answerer() });
+    const chat = session({ team });
+    await chat.handle('이 함수 뭐 해?');
+    chat.clear();
+    expect(await chat.handle('이 함수 뭐 해?')).toMatchObject({ answer: '새 답' });
   });
 });
 

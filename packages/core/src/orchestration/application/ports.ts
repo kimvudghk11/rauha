@@ -1,4 +1,5 @@
 import type { DesignApproval, DesignPlan, DesignQuestion } from '../../design/application/ports.js';
+import type { CompanyBook } from '../domain/company-book.js';
 import type { CheckedClaim } from '../domain/fact-check.js';
 import type { TestRun } from '../domain/test-run.js';
 import type { CheckResult } from '../domain/verification.js';
@@ -152,4 +153,10 @@ export interface PastCandidate {
 export interface ProgressPort {
   /** role: 그 팀원이 일을 시작했다는 알림일 때만 넣는다. 화면은 다음 알림까지 그 팀원이 일하는 중으로 보여 준다. */
   step(message: string, role?: MemberRole): void;
+}
+
+/** 회사 장부(부서마다 가장 최근 결과의 요약)를 읽고 쓴다. 읽을 수 없으면 빈 장부를 돌려준다. */
+export interface CompanyBookPort {
+  load(): Promise<CompanyBook>;
+  save(book: CompanyBook): Promise<void>;
 }

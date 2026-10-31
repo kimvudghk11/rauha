@@ -57,6 +57,21 @@ export class Profile {
     return `${toPosixPath(home)}/.rauha/profiles/${this.name}/designs`;
   }
 
+  /** 회사 장부 폴더. 부서별로 정한 것이 회사/개인 프로필끼리 섞이지 않게 프로필 폴더 아래에 둔다. */
+  companyDir(home: string): string {
+    return `${toPosixPath(home)}/.rauha/profiles/${this.name}/company`;
+  }
+
+  /** 정기 업무 폴더. */
+  routinesDir(home: string): string {
+    return `${toPosixPath(home)}/.rauha/profiles/${this.name}/routines`;
+  }
+
+  /** 학습 노트(쓰인 디자인 패턴 모음) 폴더. */
+  learningDir(home: string): string {
+    return `${toPosixPath(home)}/.rauha/profiles/${this.name}/learning`;
+  }
+
   canSync(): boolean {
     return this.sync !== 'none';
   }

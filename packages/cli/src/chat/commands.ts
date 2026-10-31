@@ -1,4 +1,4 @@
-type CommandName = 'clear' | 'status' | 'usage' | 'guide' | 'review' | 'design' | 'repo' | 'update' | 'retry' | 'queue' | 'copy' | 'team' | 'help' | 'exit';
+type CommandName = 'clear' | 'status' | 'usage' | 'guide' | 'review' | 'design' | 'repo' | 'update' | 'retry' | 'queue' | 'copy' | 'team' | 'company' | 'help' | 'exit';
 
 export type ChatCommand =
   | { readonly kind: Exclude<CommandName, 'review' | 'repo' | 'design' | 'queue'> }
@@ -33,6 +33,7 @@ const COMMANDS: readonly { readonly kind: CommandName; readonly help: string }[]
   { kind: 'queue', help: '일하는 중에 쌓아 둔 입력 보기 · /queue clear로 비우기' },
   { kind: 'copy', help: '마지막 답(작업이었다면 읽기 안내서)을 클립보드에 복사해요' },
   { kind: 'team', help: '팀 구성: 팀원마다 모델·노력 수준·할 수 있는 일' },
+  { kind: 'company', help: '회사가 이미 정한 것(기획·마케팅·디자인 등 부서별 가장 최근 결과의 요약)' },
   { kind: 'update', help: '최신 버전으로 갱신하고 rauha를 다시 띄워요 (지난 작업 기억은 남아요)' },
   { kind: 'help', help: '이 안내' },
   { kind: 'exit', help: '끝내기 (Ctrl+C 두 번도 됨)' },

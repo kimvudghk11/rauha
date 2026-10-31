@@ -4,9 +4,10 @@ import type { KnowledgePort } from '../../knowledge/application/ports.js';
 import type { MemoryPort } from '../../memory/application/memory.port.js';
 import { continuable, recallBlock, WorkMemory, type MemoryEntry, type Recall } from '../../memory/domain/work-memory.js';
 import { citedPaths, FactCheck, normalizeUrl, type CheckedClaim } from '../domain/fact-check.js';
+import { CompanyBook, type CompanyEntry } from '../domain/company-book.js';
 import { SessionBudget } from '../domain/session-budget.js';
 import { isSmallTalk, looksLikeQuestion } from '../domain/question-hint.js';
-import { Department, LAUNCH_ORDER, type DepartmentMemberRole } from '../domain/department.js';
+import { Department, LAUNCH_ORDER, type DepartmentId, type DepartmentMemberRole } from '../domain/department.js';
 import type { ModelTier } from '../domain/team.js';
 import { AnswerDto } from './dto/answer.dto.js';
 import type { MemberRole, RoleSettingsDto } from './dto/role-settings.dto.js';
@@ -20,7 +21,7 @@ import { ANALYSIS_SCHEMA, ANSWER_SCHEMA, COMPANY_PLAN_SCHEMA, OPS_SCHEMA, REVIEW
 import { WriterReportDto } from './dto/writer-report.dto.js';
 import { OpsReportDto } from './dto/ops-report.dto.js';
 import type { RunContextBlocks, RunOutcome } from './minimal-loop.service.js';
-import type { AccountBlock, MemberResult, PreparedCall, ProgressPort, TeamMemberPort, UserPort, WorkspacePort } from './ports.js';
+import type { AccountBlock, CompanyBookPort, MemberResult, PreparedCall, ProgressPort, TeamMemberPort, UserPort, WorkspacePort } from './ports.js';
 
 export type { RunContextBlocks };
 
@@ -81,6 +82,8 @@ export interface ChatSessionDeps {
   readonly designer?: DesignPort | undefined;
   /** 구독 한도를 얼마나 썼는지. 빠듯하면 부서장이 sonnet으로, 위험하면 큰 요청을 미룬다. 없으면 넉넉하다고 본다. */
   readonly budget?: () => SessionBudget;
+  /** 회사 장부. 있으면 부서 팀원 입력에 이미 정한 것을 싣고, 부서 결과를 요약해 남긴다. */
+  readonly company?: CompanyBookPort;
 }
 
 /** 저장소가 이 수를 넘으면 문서 팀원 한 명이 다 읽지 않고, 저장소마다 나눠 읽은 요약을 모아 쓴다. */
@@ -136,6 +139,12 @@ interface HeldRequest {
   readonly route: Route;
 }
 
+/** 런칭 계획에서 뒤 부서에 넘기는 앞 부서 글의 글자 수 */
+const HANDOFF_CHARS = 700;
+/** 같은 질문을 다시 했을 때 앞 답을 다시 보여 주는 시간 */
+const REPEAT_WINDOW_MS = 30 * 60_000;
+const UNREADABLE = '보고를 읽지 못했어요';
+
 const OVERRIDE = /^\s*(그래도|그냥)\s*(진행|해\s?줘|해|할게|실행)/;
 
 interface Turn {
@@ -174,6 +183,10 @@ export class ChatSession {
   private held: HeldRequest | null = null;
   private overrideBudget = false;
   private savingNoted = false;
+  /** 이번 입력의 부서 팀원에게 싣는 회사 장부 글 */
+  private bookText = '';
+  /** 방금 한 질문과 그 답. 코드를 바꾸는 일이 있거나 /clear 하면 비운다. */
+  private answered = new Map<string, { answer: string; at: number }>();
 
   private constructor(private readonly deps: ChatSessionDeps) {}
 
@@ -210,6 +223,8 @@ export class ChatSession {
     const heldRequest = this.held;
     this.held = null;
     if (heldRequest !== null && OVERRIDE.test(input)) return this.rerun(heldRequest, conversation, started);
+    const again = this.repeated(input);
+    if (again !== null) return { kind: 'answer', answer: again, checked: [], costUsd: 0, durationMs: 0, basis: null };
     // /design: 라우터를 거치지 않고 바로 설계부터 한다.
     if (force === 'design') {
       if (also.length > 0) return { kind: 'notice', message: MANY_REPO_WORK };
@@ -235,7 +250,7 @@ export class ChatSession {
     if (route.mode === 'debug') return this.analyze('debugger', '디버깅', input, conversation, started);
     if (route.mode === 'company') return (route.member === null ? this.hold(input, route) : null) ?? this.company(input, conversation, route, started);
     if (route.mode === 'launch') return this.hold(input, route) ?? this.launch(input, conversation, started);
-    if (route.mode === 'ideate') return this.analyze('planner', '기획', input, conversation, started);
+    if (route.mode === 'ideate') return this.analyze('planner', '기획', input, conversation, started, 'planning');
     if (route.mode === 'risk') return this.analyze('riskchecker', '위험 점검', input, conversation, started);
     const changesCode = route.mode === 'work' || route.mode === 'feature';
     if (changesCode && also.length > 0) return { kind: 'notice', message: MANY_REPO_WORK };
@@ -243,11 +258,19 @@ export class ChatSession {
     // 기능 요청은 설계 대화부터. 사용자와 주고받을 화면이 없으면(-p) 작업으로 바로 진행한다.
     if (route.mode === 'feature' && past === null && this.canDesign()) return this.feature(input, conversation, started);
     if (changesCode) return this.work(input, conversation, past);
-    return this.answer(input, route.refersToPast || asked === null ? this.askAnswerer(input, past, await known(), conversation, undefined, await others()) : asked, started);
+    const answered = await this.answer(input, route.refersToPast || asked === null ? this.askAnswerer(input, past, await known(), conversation, undefined, await others()) : asked, started);
+    if (answered.kind === 'answer' && !route.refersToPast) this.answered.set(this.askKey(input), { answer: answered.answer, at: this.deps.now() });
+    return answered;
   }
 
   clear(): void {
     this.turns = [];
+    this.answered.clear();
+  }
+
+  /** /company: 회사가 이미 정한 것(부서별 가장 최근 결과의 요약) */
+  async companyEntries(): Promise<readonly CompanyEntry[]> {
+    return (await this.deps.company?.load())?.entries ?? [];
   }
 
   status(): { turns: number; carriedFiles: number; lastTitle: string | null } {
@@ -270,6 +293,7 @@ export class ChatSession {
     this.carried = new Map([...touched].filter((p) => outcome.snapshotAfter.has(p)).map((p) => [p, outcome.snapshotAfter.get(p)!]));
 
     await this.deps.memory.save(workMemoryFrom(outcome, { id: this.deps.newId(), at: this.at(), request: input, extendsWork: past?.work.id ?? null }));
+    this.answered.clear();
     this.lastTitle = outcome.title;
     this.turns.push({ input, result: `작업 "${outcome.title}" ${outcome.status === 'complete' ? '완료' : `멈춤(${outcome.stopReason})`}, 바뀐 파일 ${outcome.changedInRun.map((c) => c.path).join(', ') || '없음'}` });
     return { kind: 'work', outcome };
@@ -377,6 +401,7 @@ export class ChatSession {
       conversation !== null ? `<conversation>\n${conversation}\n</conversation>` : '',
       `<today>${this.deps.today()}</today>`,
       this.workspaceBlock(),
+      this.bookText,
       brief !== null && brief !== '' ? `<assignment>\n${brief}\n</assignment>` : '',
       `<request>\n${input}\n</request>`,
     ];
@@ -393,12 +418,47 @@ export class ChatSession {
    * 원인을 찾아 달라(debug)거나 바꾸기 전에 위험을 짚어 달라(risk), 아이디어를 달라(ideate)는 요청처럼 팀원 하나가 혼자 하는 일.
    * 지금 저장소를 읽고 보고만 하며 파일은 고치지 않는다. 고치는 일은 사용자가 이어서 시키면 작업 흐름으로 간다.
    */
-  private async analyze(role: ReportRole, label: string, input: string, conversation: string | null, started: number): Promise<TurnOutcome> {
+  private async analyze(role: ReportRole, label: string, input: string, conversation: string | null, started: number, department: DepartmentId | null = null): Promise<TurnOutcome> {
     const costBefore = this.costUsd;
+    await this.loadBook();
     const done = await this.report(role, label, this.reportParts(input, conversation));
     if ('blocked' in done) return { kind: 'blocked', ...done.blocked };
     const answer = AnalysisReportDto.read({ answer: done.answer, files: done.files }, label).toAnswer();
+    if (department !== null) await this.record(department, answer);
     return this.settle(label, input, answer, answer, started, costBefore);
+  }
+
+  private askKey(input: string): string {
+    return input.trim().replace(/\s+/g, ' ').toLowerCase();
+  }
+
+  /** 방금 한 질문을 그대로 다시 하면 앞 답(호출 없이). 코드를 바꾼 뒤이거나 오래됐으면 null. */
+  private repeated(input: string): string | null {
+    const hit = this.answered.get(this.askKey(input));
+    if (hit === undefined || this.deps.now() - hit.at > REPEAT_WINDOW_MS) return null;
+    return `(방금 같은 질문에 한 답이에요. 새로 알아보려면 조금 다르게 물어봐 주세요.)
+
+${hit.answer}`;
+  }
+
+  /** 부서 팀원 입력에 싣을 회사 장부 글을 읽어 둔다. 읽지 못하면 없는 것으로 한다. */
+  private async loadBook(): Promise<void> {
+    try {
+      this.bookText = (await this.deps.company?.load())?.block() ?? '';
+    } catch {
+      this.bookText = '';
+    }
+  }
+
+  /** 부서의 결과를 요약해 장부에 남긴다. 읽지 못한 보고는 남기지 않고, 저장에 실패해도 대화는 막지 않는다. */
+  private async record(department: DepartmentId, answer: string): Promise<void> {
+    if (this.deps.company === undefined || answer.includes(UNREADABLE)) return;
+    try {
+      const book = (await this.deps.company.load()).with({ department, summary: CompanyBook.summaryOf(answer, HANDOFF_CHARS), at: this.at() });
+      await this.deps.company.save(book);
+    } catch {
+      // 장부는 다음 일을 돕는 참고라서, 남기지 못해도 이번 답은 그대로 보인다.
+    }
   }
 
   private budget(): SessionBudget {
@@ -445,10 +505,11 @@ export class ChatSession {
   private async company(input: string, conversation: string | null, route: Route, started: number): Promise<TurnOutcome> {
     const department = Department.of(route.department ?? 'planning');
     const label = (role: ReportRole) => department.member(role)?.label ?? role;
-    if (route.member !== null) return this.analyze(route.member, label(route.member), input, conversation, started);
+    if (route.member !== null) return this.analyze(route.member, label(route.member), input, conversation, started, department.id);
 
     const costBefore = this.costUsd;
-    const known = [`<department>\n${department.persona}\n</department>`, conversation !== null ? `<conversation>\n${conversation}\n</conversation>` : '', `<request>\n${input}\n</request>`];
+    await this.loadBook();
+    const known = [`<department>\n${department.persona}\n</department>`, this.bookText, conversation !== null ? `<conversation>\n${conversation}\n</conversation>` : '', `<request>\n${input}\n</request>`];
     const members = `<members>\n${department.members.map((m) => `- ${m.role}: ${m.does}`).join('\n')}\n</members>`;
     // 계획은 짧은 분배라 sonnet이면 충분하다. 부서장의 상위 모델은 팀원 보고를 모으는 종합과 런칭 섹션에 쓴다.
     const planned = await this.member('chief', ['<job>plan</job>', members, ...known], COMPANY_PLAN_SCHEMA, { tier: 'sonnet' });
@@ -464,6 +525,7 @@ export class ChatSession {
     if (done.length === 1) {
       const only = done[0]!;
       const answer = AnalysisReportDto.read({ answer: only.answer, files: only.files }, label(only.role)).toAnswer();
+      await this.record(department.id, answer);
       return this.settle(department.label, input, answer, answer, started, costBefore);
     }
 
@@ -474,6 +536,7 @@ export class ChatSession {
     // 팀원이 읽은 파일은 부서장이 빠뜨려도 사라지지 않게 합친다.
     const files = [...new Set([...read.files, ...done.flatMap((d) => d.files)])];
     const answer = AnalysisReportDto.read({ answer: read.answer, files }, department.label).toAnswer();
+    await this.record(department.id, answer);
     return this.settle(department.label, input, answer, answer, started, costBefore);
   }
 
@@ -483,11 +546,13 @@ export class ChatSession {
    */
   private async launch(input: string, conversation: string | null, started: number): Promise<TurnOutcome> {
     const costBefore = this.costUsd;
+    await this.loadBook();
     const sections: { label: string; answer: string }[] = [];
     for (const id of LAUNCH_ORDER) {
       const department = Department.of(id);
       this.deps.progress.step(`런칭 계획: ${department.label}`);
-      const earlier = sections.map((s) => `[${s.label}]\n${s.answer}`).join('\n\n');
+      // 뒤 부서에는 앞 부서 글 전문이 아니라 요약만 넘긴다(전문은 호출마다 입력을 불린다).
+      const earlier = sections.map((s) => `[${s.label}]\n${CompanyBook.summaryOf(s.answer, HANDOFF_CHARS)}`).join('\n\n');
       const result = await this.member(
         'chief',
         [
@@ -496,6 +561,7 @@ export class ChatSession {
           conversation !== null ? `<conversation>\n${conversation}\n</conversation>` : '',
           `<today>${this.deps.today()}</today>`,
           this.workspaceBlock(),
+          this.bookText,
           earlier !== '' ? `<earlier>\n${earlier}\n</earlier>` : '',
           `<request>\n${input}\n</request>`,
         ],
@@ -503,7 +569,9 @@ export class ChatSession {
         this.chiefOptions(),
       );
       if (result.blocked) return { kind: 'blocked', ...result.blocked };
-      sections.push({ label: department.label, answer: AnalysisReportDto.read(result.output, department.label).answer });
+      const section = AnalysisReportDto.read(result.output, department.label).answer;
+      sections.push({ label: department.label, answer: section });
+      await this.record(id, section);
     }
     const answer = [...sections.map((s) => `━━ ${s.label} ━━\n${s.answer}`), '개발은 이 계획이 정해진 뒤에 시작해요. "이 계획으로 설계 시작해줘"라고 하시면 설계 대화로 이어지고, "런칭 계획 문서로 남겨줘"라고 하시면 파일로 써요.'].join('\n\n');
     // 앞 대화에는 부서별 핵심만 남긴다(전문은 기억에 있다). 다음 말이 이 계획을 가리켜도 이어지게.
