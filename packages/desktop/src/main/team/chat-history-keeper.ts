@@ -16,6 +16,8 @@ export function entryOfView(view: JobView): HistoryEntry {
     cast: view.cast,
     queuedAt: view.queuedAt,
     endedAt: view.endedAt,
+    thread: view.thread,
+    inTask: view.inTask,
   };
 }
 

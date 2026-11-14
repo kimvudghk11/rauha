@@ -141,6 +141,16 @@ export interface JobView {
   /** 팀원이 찾아본 도구 한 줄("Grep 3 · Read 5"). 쓰지 않았으면 null이라 화면에 안 보인다. */
   readonly toolsLine: string | null;
   readonly notes: readonly NoteView[];
+  /** 이어진 작업이면 처음 태스크 id(그 태스크 대화에 쌓인다), 아니면 null */
+  readonly thread: string | null;
+  /** 태스크 안에서 이어 물었으면 true: Main 에 새 카드로 띄우지 않고 그 태스크 대화 아래로 */
+  readonly inTask: boolean;
+}
+
+/** 이어진 작업 → 처음 태스크(main 이 기억한다) */
+export interface ThreadLink {
+  readonly root: string;
+  readonly inTask: boolean;
 }
 
 export interface BoardView {
@@ -191,7 +201,7 @@ export interface RauhaApi {
   /** 끝난 작업의 질문을 깊게 다시 묻는 새 작업을 만든다 */
   goDeeper(id: string): Promise<JobView | null>;
   /** 작업 id 에 이어서 묻는다(같은 레포, 앞 요청·결과를 맥락으로). 받지 못하면 null */
-  followUp(parentId: string, text: string): Promise<JobView | null>;
+  followUp(parentId: string, text: string, inTask?: boolean): Promise<JobView | null>;
   onBoard(listener: (board: BoardView) => void): void;
   boardNow(): Promise<BoardView>;
   onApprovals(listener: (list: readonly ApprovalView[]) => void): void;
@@ -397,7 +407,7 @@ export function castOf(job: Job): readonly MemberRole[] {
   return seen.length === 0 ? ['intake'] : seen.slice(-CAST_MAX);
 }
 
-export function jobView(job: Job): JobView {
+export function jobView(job: Job, link: ThreadLink | null = null): JobView {
   const role = job.activeRole;
   return {
     id: job.id,
@@ -416,9 +426,11 @@ export function jobView(job: Job): JobView {
     knowledgeMissing: job.resultMeta.knowledgeMissing,
     toolsLine: job.resultMeta.toolsLine ?? null,
     notes: job.notes.map((n) => ({ role: n.role, roleName: n.role === null ? null : ROLE_INFO[n.role].name, message: n.message, at: n.at })),
+    thread: link?.root ?? null,
+    inTask: link?.inTask ?? false,
   };
 }
 
-export function boardView(board: JobBoard): BoardView {
-  return { jobs: board.jobs.map(jobView), ...board.counts(), limit: board.limit };
+export function boardView(board: JobBoard, links: ReadonlyMap<string, ThreadLink> = new Map()): BoardView {
+  return { jobs: board.jobs.map((j) => jobView(j, links.get(j.id) ?? null)), ...board.counts(), limit: board.limit };
 }

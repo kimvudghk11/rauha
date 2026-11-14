@@ -21,5 +21,7 @@ export function restoredView(entry: RestoredEntry): JobView {
     knowledgeMissing: false,
     toolsLine: entry.toolsLine,
     notes: [],
+    thread: entry.thread,
+    inTask: entry.inTask,
   };
 }

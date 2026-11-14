@@ -49,7 +49,7 @@ export interface ChatActions {
   /** Kiro · ChatGPT(Codex)에게 한 번 묻기(읽기 전용). 없으면 AI 고르기 메뉴를 숨긴다 */
   readonly askOther?: (id: AiProviderId, text: string) => Promise<AiResult<{ readonly text: string; readonly seconds: number }>>;
   /** 작업에 이어서 묻기(답장·후속 질문). 없으면 단추를 숨긴다 */
-  readonly followUp?: (parentId: string, text: string) => Promise<JobView | null>;
+  readonly followUp?: (parentId: string, text: string, inTask?: boolean) => Promise<JobView | null>;
   /** 채팅 맨 위 AI 고르기 줄(로그인 상태·단추). 없으면 줄을 그리지 않는다 */
   readonly ai?: AiBarDeps;
   readonly stop: (id: string) => void;
@@ -218,6 +218,17 @@ export function buildChat(actions: ChatActions) {
   const cleared = new Set<string>();
   const roomEls = new Map<string, RoomEl>();
 
+  // ── 태스크 대화 묶음(thread): 처음 태스크 + 이어서 물은 것들 ──
+  const rootIdOf = (id: string): string => jobs.get(id)?.thread ?? id;
+  /** 그 태스크의 대화 차례(처음 태스크부터 시간 순) */
+  function threadJobs(rootId: string): JobView[] {
+    const first = jobs.get(rootId);
+    const rest = [...jobs.values()].filter((j) => j.thread === rootId).sort((a, b) => a.queuedAt.localeCompare(b.queuedAt));
+    return first === undefined ? rest : [first, ...rest];
+  }
+  /** 태스크 안에서 이어 물은 마지막 차례(없으면 처음 태스크). Main 카드·팀 방은 이것의 상태를 보인다 */
+  const latestInTask = (rootId: string): JobView | undefined => [...threadJobs(rootId)].reverse().find((j) => j.id === rootId || j.inTask);
+
   // ── 답장(이어서 묻기) ──
   /** 후속 작업 → 앞 작업 id(화면이 만든 이어짐. 작업 상세에서 줄줄이 보인다) */
   const followOf = new Map<string, string>();
@@ -238,13 +249,21 @@ export function buildChat(actions: ChatActions) {
     replyBar.replaceChildren(el('span', 'dim', '↩ Replying to'), el('b', 'grow', short(job.request, 80)), x);
     input.focus();
   }
-  /** 이어서 묻기를 보내고 말풍선을 단다. 받지 못하면 false */
-  async function sendFollowUp(parent: JobView, text: string): Promise<boolean> {
+  /**
+   * 이어서 묻기를 보낸다. 받지 못하면 false.
+   * inTask(태스크 안에서): Main 에 새 말풍선 없이 그 태스크 대화 아래로 쌓인다. 아니면(Main 답장) Main 에 인용 달린 말풍선.
+   */
+  async function sendFollowUp(parent: JobView, text: string, inTask = false): Promise<boolean> {
     if (actions.followUp === undefined) return false;
-    const job = await actions.followUp(parent.id, text);
+    const job = await actions.followUp(parent.id, text, inTask);
     if (job === null) return false;
     followOf.set(job.id, parent.id);
     jobs.set(job.id, job);
+    if (inTask) {
+      updateCard(jobs.get(rootIdOf(job.id)) ?? job);
+      renderRooms();
+      return true;
+    }
     addJob(job);
     // 작업판 소식이 먼저 와서 말풍선이 이미 그려졌을 수 있다: 거기에도 인용을 붙인다
     quoteOn(job.id);
@@ -444,7 +463,8 @@ export function buildChat(actions: ChatActions) {
   }
 
   function addJob(job: JobView): void {
-    if (cards.has(job.id) || cleared.has(job.id)) return;
+    // 태스크 안에서 이어 물은 것은 Main 에 띄우지 않는다(그 태스크 대화에 있다)
+    if (job.inTask || cards.has(job.id) || cleared.has(job.id)) return;
     empty.remove();
     const me = el('div', 'm me');
     me.appendChild(el('div', 'tx', job.request));
@@ -462,7 +482,8 @@ export function buildChat(actions: ChatActions) {
     const go = el('button', 'link go', 'View progress →');
     go.addEventListener('click', () => open(job.id));
     const stop = el('button', 'btn sm danger', 'Stop');
-    stop.addEventListener('click', () => actions.stop(job.id));
+    // 태스크 안에서 이어 물은 차례가 돌고 있으면 그것을 멈춘다
+    stop.addEventListener('click', () => actions.stop((latestInTask(job.id) ?? job).id));
     hand.append(dot, line, state, go);
     if (actions.saveTodo !== undefined) {
       const keep = el('button', 'link keep', 'Save to Todo');
@@ -496,16 +517,25 @@ export function buildChat(actions: ChatActions) {
   }
 
   function updateCard(job: JobView): void {
+    // 태스크 안 차례가 바뀌면 그 태스크의 Main 카드를 고친다
+    if (job.inTask && job.thread !== null) {
+      const first = jobs.get(job.thread);
+      if (first !== undefined) updateCard(first);
+      return;
+    }
     const card = cards.get(job.id);
     if (card === undefined) return;
-    card.dot.className = `dot ${job.status}`;
-    card.state.textContent = `· ${STATUS_LABEL[job.status]}${job.stopReason !== null ? ` (${stopReasonText(job.stopReason)})` : ''}`;
-    card.stop.hidden = job.status === 'done' || job.status === 'stopped';
+    // 처음 태스크 카드는 태스크 안에서 이어 물은 마지막 차례의 상태를 보인다
+    const now = job.thread === null ? (latestInTask(job.id) ?? job) : job;
+    const turns = job.thread === null ? threadJobs(job.id).filter((j) => j.id === job.id || j.inTask).length : 1;
+    card.dot.className = `dot ${now.status}`;
+    card.state.textContent = `· ${STATUS_LABEL[now.status]}${now.stopReason !== null ? ` (${stopReasonText(now.stopReason)})` : ''}${turns > 1 ? ` · ${turns} turns in this task` : ''}`;
+    card.stop.hidden = now.status === 'done' || now.status === 'stopped';
   }
 
-  /** 끝난 일의 결과는 메인(팀장)이 한 번 말해 준다 */
+  /** 끝난 일의 결과는 메인(팀장)이 한 번 말해 준다. 태스크 안에서 이어 물은 것의 결과는 그 태스크 대화에만 */
   function report(job: JobView): void {
-    if (reported.has(job.id) || (job.status !== 'done' && job.status !== 'stopped')) return;
+    if (job.inTask || reported.has(job.id) || (job.status !== 'done' && job.status !== 'stopped')) return;
     reported.add(job.id);
     const m = el('div', 'm');
     const av = el('div', 'av');
@@ -598,26 +628,31 @@ export function buildChat(actions: ChatActions) {
   }
 
   /** 끝난 방은 잠시 보였다가 사라진다. 열어 둔 방은 남긴다. */
-  const roomVisible = (job: JobView): boolean => {
+  const roomVisible = (job: JobView, key: string): boolean => {
     if (job.status === 'queued') return false;
-    if (job.id === openId) return true;
+    if (key === openId) return true;
     if (job.endedAt === null) return true;
     return Date.now() - Date.parse(job.endedAt) < ROOM_LINGER_MS;
   };
 
   function renderRooms(): void {
-    const visible = [...jobs.values()].filter(roomVisible);
+    // 팀 방은 태스크마다 하나: 이어서 물은 차례가 돌면 같은 방에서 같은 팀이 다시 움직인다
+    const shown = [...jobs.values()]
+      .filter((j) => j.thread === null)
+      .map((first) => ({ key: first.id, job: threadJobs(first.id).at(-1) ?? first }))
+      .filter((v) => roomVisible(v.job, v.key));
+    const visible = shown.map((v) => v.job);
     for (const [id, r] of [...roomEls]) {
-      if (!visible.some((j) => j.id === id)) {
+      if (!shown.some((v) => v.key === id)) {
         r.root.remove();
         roomEls.delete(id);
       }
     }
-    for (const job of visible) {
-      let r = roomEls.get(job.id);
+    for (const { key, job } of shown) {
+      let r = roomEls.get(key);
       if (r === undefined) {
         r = buildRoom(job);
-        roomEls.set(job.id, r);
+        roomEls.set(key, r);
         rooms.appendChild(r.root);
       }
       r.update(job, approvals);
@@ -644,7 +679,9 @@ export function buildChat(actions: ChatActions) {
 
   // ── 팀 상세 ──
   function open(id: string): void {
-    openId = id;
+    // 이어진 차례를 열어도 그 태스크 대화 전체를 연다
+    if (openId !== rootIdOf(id)) detailStick = true;
+    openId = rootIdOf(id);
     root.closest('.app')?.setAttribute('data-detail', '1');
     renderDetail();
     renderRooms();
@@ -797,93 +834,129 @@ export function buildChat(actions: ChatActions) {
     return card;
   }
 
-  /** 작업 상세 아래: 이 팀과 이어 온 대화(후속 작업들)와 이어서 묻기 칸 */
-  function followBox(job: JobView): HTMLElement {
-    const box = el('div', 'follow');
-    // 이 작업에서 이어진 작업들을 차례로(후속의 후속까지)
-    const chain: JobView[] = [];
-    let cur = job.id;
-    for (;;) {
-      const next = [...followOf.entries()].find(([, p]) => p === cur)?.[0];
-      const j = next === undefined ? undefined : jobs.get(next);
-      if (j === undefined) break;
-      chain.push(j);
-      cur = j.id;
-    }
-    if (chain.length > 0) {
-      box.append(el('div', 'sub', 'Continued'));
-      for (const j of chain) {
-        const row = el('div', 'follow-turn');
-        const q = el('div', 'follow-q', j.request);
-        const a = el('div', 'follow-a', j.result ?? `${STATUS_LABEL[j.status]}…`);
-        const view = el('button', 'link', 'Open');
-        view.addEventListener('click', () => open(j.id));
-        row.append(q, a, view);
-        box.append(row);
-      }
-    }
-    const last = chain[chain.length - 1] ?? job;
+  /** 태스크 화면 맨 아래 입력칸: 이 태스크의 같은 팀에 이어서 시킨다(Main 에 새 카드 없이 이 대화 아래로 쌓인다) */
+  function followBox(rootId: string, last: JobView): HTMLElement {
+    const box = el('div', 'follow dfoot');
     const ask = el('textarea', 'follow-input');
     ask.rows = 2;
-    // 상세는 진행될 때마다 다시 그려진다: 쓰던 글과 커서 자리를 작업마다 기억한다
-    ask.value = followDrafts.get(last.id) ?? '';
-    ask.addEventListener('input', () => followDrafts.set(last.id, ask.value));
-    if (followFocus === last.id)
+    // 상세는 진행될 때마다 다시 그려진다: 쓰던 글과 커서 자리를 태스크마다 기억한다
+    ask.value = followDrafts.get(rootId) ?? '';
+    ask.addEventListener('input', () => followDrafts.set(rootId, ask.value));
+    if (followFocus === rootId)
       queueMicrotask(() => {
         ask.focus();
         ask.setSelectionRange(ask.value.length, ask.value.length);
       });
-    ask.addEventListener('focus', () => (followFocus = last.id));
+    ask.addEventListener('focus', () => (followFocus = rootId));
     ask.addEventListener('blur', () => {
       if (ask.isConnected) followFocus = null;
     });
-    ask.placeholder = `Ask this team to continue… (builds on "${short(last.request, 40)}")`;
+    // 차례가 도는 동안 다음 차례를 보내면 같은 레포에서 둘이 겹친다 → 끝난 뒤(또는 멈춘 뒤) 보낸다. 글은 미리 써 둘 수 있다
+    const busy = last.status !== 'done' && last.status !== 'stopped';
+    ask.placeholder = 'Ask this team to continue…';
     const go = el('button', 'btn primary', 'Continue with this team');
+    go.disabled = busy;
     go.addEventListener('click', async () => {
       const text = ask.value.trim();
-      if (text === '') return;
+      if (text === '' || go.disabled) return;
       go.disabled = true;
-      const ok = await sendFollowUp(last, text);
-      go.disabled = false;
+      const ok = await sendFollowUp(last, text, true);
       if (ok) {
         ask.value = '';
-        followDrafts.delete(last.id);
-        followFocus = null;
+        followDrafts.delete(rootId);
+        followFocus = rootId;
+        detailStick = true;
         renderDetail();
-      } else flash('Could not continue that task. Pick and allow a work folder first, or try again.');
+      } else {
+        go.disabled = false;
+        flash('Could not continue that task. Pick and allow a work folder first, or try again.');
+      }
     });
     ask.addEventListener('keydown', (e) => {
       if (isEnterKey(e) && (e.ctrlKey || e.metaKey)) go.click();
     });
     const row = el('div', 'btns');
-    row.append(el('span', 'hint grow', 'Ctrl+Enter to send. The team gets the earlier request and its result.'), go);
+    row.append(el('span', 'hint grow', busy ? 'The team is still on the last turn. You can type now and send when it finishes (or Stop it).' : 'Ctrl+Enter to send. Same team, same conversation. Another member joins only if this part needs one.'), go);
     box.append(ask, row);
     return box;
   }
 
+  /** 태스크 대화의 한 차례: 내 말 → 팀 대화 → (도는 중이면 작업 중 표시) → 팀장의 결과. Main 처럼 위에서 아래로 */
+  function turnBlock(t: JobView, body: HTMLElement): void {
+    const me = el('div', 'm me');
+    me.appendChild(el('div', 'tx', t.request));
+    body.appendChild(me);
+    for (const a of approvals.filter((x) => x.jobId === t.id)) body.appendChild(approvalCard(a));
+    // 팀 대화: 실제 진행 글을 팀원 얼굴·이름·말풍선으로(성격은 말투로만, shared/team-voice.ts)
+    // 직책("구현 팀원") 대신 지금 컨셉의 캐릭터 이름으로 부른다(넘겨받는 말에도)
+    const titleOf = new Map(t.notes.filter((n) => n.role !== null).map((n) => [n.role as string, n.roleName ?? '']));
+    const talk = teamChat(t.notes.map((n) => (n.role !== null && isRole(n.role) ? { ...n, roleName: nameOf(n.role) } : n))).map((l) => ({ ...l, who: `${l.who}${titleOf.get(l.role) ? ` · ${titleOf.get(l.role)}` : ''}` }));
+    const over = t.status === 'done' || t.status === 'stopped';
+    if (talk.length > 0 || !over) {
+      const box = el('div', 'team-chat');
+      for (const line of talk) {
+        const row = el('div', 'tc-line');
+        const face = el('canvas', 'sp tc-face');
+        paintOnce(face, (isRole(line.role) ? line.role : 'intake') as CharacterRole, 2);
+        const say = el('div', 'tc-say');
+        say.append(el('div', 'tc-who', line.who), el('div', 'tc-bubble', line.text));
+        row.append(face, say);
+        box.appendChild(row);
+      }
+      if (!over) {
+        const typing = el('div', 'tc-line tc-typing');
+        const what = t.status === 'queued' ? 'Waiting in the queue' : t.status === 'waiting' ? 'Waiting for your permission or choice' : `${t.roleName ?? 'Team'} is working`;
+        typing.append(el('span', 'dim', what), el('span', 'tc-dots', '…'));
+        box.appendChild(typing);
+      }
+      body.appendChild(box);
+    }
+    if (!over) return;
+    const m = el('div', 'm');
+    const av = el('div', 'av');
+    const face = el('canvas', 'sp');
+    paintOnce(face, 'intake', 2, t.status === 'done' ? 'done' : 'stuck');
+    av.appendChild(face);
+    const say = el('div');
+    const tx = el('div', 'tx', t.result ?? (t.status === 'done' ? 'Done.' : `Stopped: ${stopReasonText(t.stopReason)}`));
+    if (t.status === 'stopped' && needsLogin(`${t.result ?? ''} ${t.stopReason ?? ''}`)) tx.appendChild(loginCard());
+    tx.appendChild(changesPanel(t.id, 'detail'));
+    say.append(el('div', 'who', leadName()), tx);
+    m.append(av, say);
+    body.appendChild(m);
+  }
+
+  /** 태스크 대화 스크롤: 맨 아래에 있었으면 새 말이 와도 맨 아래(Main 과 같다), 위로 올려 읽는 중이면 그 자리 */
+  let detailStick = true;
+  let detailTop = 0;
+
   function renderDetail(): void {
     detail.replaceChildren();
-    const job = openId === null ? undefined : jobs.get(openId);
-    if (job === undefined) return;
-    const mine = approvals.filter((a) => a.jobId === job.id);
+    const first = openId === null ? undefined : jobs.get(openId);
+    if (first === undefined) return;
+    const turns = threadJobs(first.id);
+    const last = turns.at(-1) ?? first;
 
     const main = el('div', 'pane');
     const ph = el('div', 'ph');
-    const cast = castCanvases(job.cast.filter(isRole), 2);
+    const castAll: CharacterRole[] = [];
+    for (const t of turns) for (const r of t.cast) if (isRole(r) && !castAll.includes(r)) castAll.push(r);
+    const cast = castCanvases(castAll.length > 1 ? castAll.filter((r) => r !== 'intake').slice(-4) : castAll, 2);
     const back = el('button', 'btn', '← Main');
     back.addEventListener('click', close);
     const stop = el('button', 'btn danger', 'Stop');
-    stop.hidden = job.status === 'done' || job.status === 'stopped';
-    stop.addEventListener('click', () => actions.stop(job.id));
+    stop.hidden = last.status === 'done' || last.status === 'stopped';
+    stop.addEventListener('click', () => actions.stop(last.id));
     const actionsBox = el('span', 'right');
     actionsBox.append(back, stop);
-    ph.append(el('span', `dot ${job.status}`), cast, el('b', undefined, short(job.request, 40)), actionsBox);
+    ph.append(el('span', `dot ${last.status}`), cast, el('b', undefined, short(first.request, 40)), actionsBox);
 
     const tabs = el('div', 'tabs dtabs');
-    for (const [id, label] of [['summary', 'Summary'], ['log', 'Raw log']] as const) {
+    for (const [id, label] of [['summary', 'Conversation'], ['log', 'Raw log']] as const) {
       const b = el('button', detailTab === id ? 'tab sm on' : 'tab sm', label);
       b.addEventListener('click', () => {
         detailTab = id;
+        detailStick = true;
         renderDetail();
       });
       tabs.appendChild(b);
@@ -892,54 +965,33 @@ export function buildChat(actions: ChatActions) {
     const body = el('div', 'dbody');
     if (detailTab === 'log') {
       body.classList.add('term');
-      for (const n of job.notes) {
-        const line = el('div');
-        if (n.roleName !== null) line.appendChild(el('span', 'c', `${n.roleName} `));
-        line.append(n.message);
-        body.appendChild(line);
+      for (const t of turns) {
+        if (turns.length > 1) body.appendChild(el('div', 'dim', `── ${short(t.request, 60)} ──`));
+        for (const n of t.notes) {
+          const line = el('div');
+          if (n.roleName !== null) line.appendChild(el('span', 'c', `${n.roleName} `));
+          line.append(n.message);
+          body.appendChild(line);
+        }
       }
-      if (job.notes.length === 0) body.appendChild(el('div', 'dim', 'No log yet.'));
+      if (turns.every((t) => t.notes.length === 0)) body.appendChild(el('div', 'dim', 'No log yet.'));
     } else {
-      for (const a of mine) body.appendChild(approvalCard(a));
-      const now = el('div', 'sumline');
-      now.textContent = job.status === 'done' ? 'Done.' : job.status === 'stopped' ? `Stopped${job.stopReason !== null ? ` · ${job.stopReason}` : ''}` : job.status === 'waiting' ? 'Waiting for a permission or a choice.' : job.status === 'queued' ? 'Waiting in the queue.' : `${job.roleName ?? 'Team'}: ${job.lastLine ?? 'starting'}`;
-      body.appendChild(now);
-      if (job.result !== null) body.appendChild(el('div', 'result', job.result));
-      if (job.status === 'done' || job.status === 'stopped') body.appendChild(changesPanel(job.id, 'detail'));
-      if (job.status === 'stopped' && needsLogin(`${job.result ?? ''} ${job.stopReason ?? ''}`)) body.appendChild(loginCard());
-      // 팀 대화: 실제 진행 글을 팀원 얼굴·이름·말풍선으로(성격은 말투로만, shared/team-voice.ts)
-      // 직책("구현 팀원") 대신 지금 컨셉의 캐릭터 이름으로 부른다(넘겨받는 말에도)
-      const titleOf = new Map(job.notes.filter((n) => n.role !== null).map((n) => [n.role as string, n.roleName ?? '']));
-      const talk = teamChat(job.notes.map((n) => (n.role !== null && isRole(n.role) ? { ...n, roleName: nameOf(n.role) } : n))).map((l) => ({ ...l, who: `${l.who}${titleOf.get(l.role) ? ` · ${titleOf.get(l.role)}` : ''}` }));
-      if (talk.length > 0) {
-        body.appendChild(el('div', 'sub', job.status === 'done' || job.status === 'stopped' ? 'How the team talked it through' : 'Team chat'));
-        const box = el('div', 'team-chat');
-        for (const line of talk) {
-          const row = el('div', 'tc-line');
-          const face = el('canvas', 'sp tc-face');
-          paintOnce(face, (isRole(line.role) ? line.role : 'intake') as CharacterRole, 2);
-          const say = el('div', 'tc-say');
-          say.append(el('div', 'tc-who', line.who), el('div', 'tc-bubble', line.text));
-          row.append(face, say);
-          box.appendChild(row);
-        }
-        if (job.status !== 'done' && job.status !== 'stopped') {
-          const typing = el('div', 'tc-line tc-typing');
-          typing.append(el('span', 'dim', `${job.roleName ?? 'Team'} is working`), el('span', 'tc-dots', '…'));
-          box.appendChild(typing);
-        }
-        body.appendChild(box);
-      }
-      if (actions.followUp !== undefined) body.appendChild(followBox(job));
+      body.classList.add('dchat');
+      for (const t of turns) turnBlock(t, body);
     }
+    body.addEventListener('scroll', () => {
+      detailTop = body.scrollTop;
+      detailStick = body.scrollHeight - body.scrollTop - body.clientHeight < 40;
+    });
     main.append(ph, tabs, body);
+    if (detailTab === 'summary' && actions.followUp !== undefined) main.appendChild(followBox(first.id, last));
 
     const side = el('div', 'dside');
     const tl = el('div', 'pane');
     tl.appendChild(el('div', 'ph', 'Steps'));
     const list = el('div', 'tl');
-    if (job.steps.length === 0) list.appendChild(el('div', 'x', 'No steps yet.'));
-    for (const s of job.steps) {
+    if (last.steps.length === 0) list.appendChild(el('div', 'x', 'No steps yet.'));
+    for (const s of last.steps) {
       const row = el('div', `s ${s.state === 'done' ? 'd' : 'n'}`);
       row.append(el('span', 'k'), el('div', 't', s.label));
       list.appendChild(row);
@@ -947,6 +999,7 @@ export function buildChat(actions: ChatActions) {
     tl.appendChild(list);
     side.appendChild(tl);
     detail.append(main, side);
+    body.scrollTop = detailStick ? body.scrollHeight : detailTop;
   }
 
   // ── 레이아웃 토글(A 나란히 · B 위아래) ──

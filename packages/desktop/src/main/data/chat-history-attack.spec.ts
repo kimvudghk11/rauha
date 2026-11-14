@@ -62,7 +62,7 @@ describe('채팅 기록 파일 변조', () => {
     const items = (await load()).items;
     expect(items.length).toBe(1);
     expect(({} as Record<string, unknown>)['polluted']).toBeUndefined();
-    expect(Object.keys(items[0]!).sort()).toEqual(['cast', 'endedAt', 'id', 'queuedAt', 'request', 'result', 'status', 'stopReason', 'toolsLine']);
+    expect(Object.keys(items[0]!).sort()).toEqual(['cast', 'endedAt', 'id', 'inTask', 'queuedAt', 'request', 'result', 'status', 'stopReason', 'thread', 'toolsLine']);
   });
 
   it('역할 목록에 객체 기본 이름(constructor·__proto__·toString)을 끼워 넣어도 역할로 인정하지 않는다', () => {
@@ -80,7 +80,7 @@ describe('채팅 기록 파일 변조', () => {
 });
 
 describe('채팅 기록 저장', () => {
-  const view = (over: Partial<JobView> = {}): JobView => ({ id: 'j1', request: 'r', status: 'done', stopReason: null, queuedAt: '2026-11-11T00:00:00.000Z', endedAt: null, role: null, roleName: null, cast: ['intake'], steps: [], lastLine: null, result: 'r', canGoDeeper: false, knowledgeMissing: false, toolsLine: null, notes: [], ...over });
+  const view = (over: Partial<JobView> = {}): JobView => ({ id: 'j1', request: 'r', status: 'done', stopReason: null, queuedAt: '2026-11-11T00:00:00.000Z', endedAt: null, role: null, roleName: null, cast: ['intake'], steps: [], lastLine: null, result: 'r', canGoDeeper: false, knowledgeMissing: false, toolsLine: null, notes: [], thread: null, inTask: false, ...over });
 
   it('토큰·키가 든 요청·결과는 파일에 평문으로 저장되지 않는다', async () => {
     const keeper = new ChatHistoryKeeper(new ChatHistoryStore(file));

@@ -11,6 +11,8 @@ const entry = (id: string, over: Partial<HistoryEntry> = {}): HistoryEntry => ({
   cast: ['intake', 'implementer'],
   queuedAt: '2026-11-10T01:00:00.000Z',
   endedAt: '2026-11-10T01:01:00.000Z',
+  thread: null,
+  inTask: false,
   ...over,
 });
 

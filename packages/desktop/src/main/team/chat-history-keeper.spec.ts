@@ -33,6 +33,8 @@ const view = (id: string, over: Partial<JobView> = {}): JobView => ({
   knowledgeMissing: false,
   toolsLine: null,
   notes: [],
+  thread: null,
+  inTask: false,
   ...over,
 });
 

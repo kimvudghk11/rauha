@@ -24,6 +24,8 @@ const view = (over: Partial<JobView> = {}): JobView => ({
     { role: 'debugger', roleName: '디버거', message: '또 확인', at: '2026-11-08T01:04:00.000Z' },
     { role: 'implementer', roleName: '구현 팀원', message: '수정', at: '2026-11-08T01:05:00.000Z' },
   ],
+  thread: null,
+  inTask: false,
   ...over,
 });
 

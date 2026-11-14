@@ -38,7 +38,10 @@ export class ChatHistoryDto {
     const status = STATUSES.find((s) => s === o['status']);
     if (id === null || id === '' || request === null || queuedAt === null || status === undefined) return null;
     const cast = Array.isArray(o['cast']) ? (o['cast'] as unknown[]).filter((r): r is string => typeof r === 'string' && Object.hasOwn(ROLE_INFO, r)).slice(-HISTORY_LIMITS.cast) : [];
-    return { id, request, status, stopReason: text(o['stopReason']), result: text(o['result']), toolsLine: text(o['toolsLine']), cast, queuedAt, endedAt: text(o['endedAt'], 100) };
+    // thread·inTask 는 나중에 생긴 칸: 예전 파일에는 없다(없으면 이어진 작업이 아님)
+    const thread = text(o['thread'], 200);
+    const linked = thread !== null && thread !== '';
+    return { id, request, status, stopReason: text(o['stopReason']), result: text(o['result']), toolsLine: text(o['toolsLine']), cast, queuedAt, endedAt: text(o['endedAt'], 100), thread: linked ? thread : null, inTask: linked && o['inTask'] === true };
   }
 
   toEntity(): ChatHistory {

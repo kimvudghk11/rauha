@@ -12,6 +12,16 @@ describe('ChatHistoryDto', () => {
     expect(ChatHistoryDto.fromEntity(ChatHistory.empty()).jobs).toEqual([]);
   });
 
+  it('예전 파일(thread 칸 없음)은 이어진 작업이 아닌 것으로 읽는다', () => {
+    expect(ChatHistoryDto.from({ jobs: [ok] }).toEntity().items[0]).toMatchObject({ thread: null, inTask: false });
+  });
+  it('태스크 안에서 이어 물은 작업은 묶음(thread)과 inTask 를 그대로 다시 읽는다', () => {
+    const history = ChatHistoryDto.from({ jobs: [ok, { ...ok, id: 'b', thread: 'a', inTask: true }, { ...ok, id: 'c', thread: '', inTask: true }] }).toEntity();
+    const again = ChatHistoryDto.from(ChatHistoryDto.fromEntity(history)).toEntity().items;
+    expect(again[1]).toMatchObject({ id: 'b', thread: 'a', inTask: true });
+    // 빈 thread 는 묶음 없음, 그러면 inTask 도 false
+    expect(again[2]).toMatchObject({ id: 'c', thread: null, inTask: false });
+  });
   it('모르는 역할 이름은 버린다', () => {
     expect(ChatHistoryDto.from({ jobs: [ok] }).toEntity().items[0]?.cast).toEqual(['intake']);
   });

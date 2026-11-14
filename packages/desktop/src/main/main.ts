@@ -16,9 +16,10 @@ import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, Notification, saf
 import { DefaultRuleSet, DefaultRulesDto, DomainError, askInterviewer, discoverRepos, draftBlog, draftCommit, draftResume, draftRule, evaluateCandidate, INTERVIEWERS, STAGES, FileRuleStore, loadSecretPolicy, PromptLibrary, readPlanUsage, RuleBook, RuleBookDto, type PlanUsage } from '@rauha/core';
 import { JobRunner } from '@rauha/core/jobs';
 import { replaceRule, ruleSizeError, type RuleView } from '../shared/rules-form.js';
-import { boardView, jobView, IPC, type ApprovalChoice, type DiagnosticsResult, type RepoRow, type SettingsPatch } from '../shared/ipc.js';
+import { boardView, jobView, IPC, type ThreadLink, type ApprovalChoice, type DiagnosticsResult, type RepoRow, type SettingsPatch } from '../shared/ipc.js';
 import { canWork, DEFAULT_SETTINGS, forgetRecentFolder, updateSettings, type Settings } from '../shared/settings.js';
-import { followUpPrompt, followUpText } from '../shared/follow-up.js';
+import { followUpPrompt, followUpText, threadOfTurns, threadTeam } from '../shared/follow-up.js';
+import { ROLE_INFO, type MemberRole } from '@rauha/core/jobs';
 import { SettingsStore } from './settings-store.js';
 import { CommandStore } from './command-store.js';
 import { applyTeamOp, TeamSettingsStore, teamView } from './team-settings-store.js';
@@ -372,10 +373,16 @@ async function startRunner(): Promise<JobRunner> {
   const runner: JobRunner = JobRunner.start({
     work,
     limit: settings.concurrency,
-    newId: () => randomUUID(),
+    // 이어서 묻기는 id 가 생기는 순간 묶음을 붙인다: submit 이 바로 판 소식을 보내므로 그 전에 있어야 Main 에 카드가 잘못 뜨지 않는다
+    newId: () => {
+      const id = randomUUID();
+      if (nextThread !== null) threads.set(id, nextThread);
+      nextThread = null;
+      return id;
+    },
     now: () => new Date().toISOString(),
     onChange: (board) => {
-      const view = boardView(board);
+      const view = boardView(board, threads);
       window?.webContents.send(IPC.board, view);
       void chatHistoryReady.then(() => chatHistory.observe(view.jobs));
       for (const job of board.jobs) {
@@ -453,6 +460,13 @@ const submitReady = (): boolean => runnerRef !== null && (process.env['RAUHA_WOR
 const followContext = new Map<string, string>();
 const followRoot = new Map<string, string>();
 const jobRepoRoots = new Map<string, string>();
+/** 이어진 작업 → 처음 태스크. 대화 기록에도 남아 앱을 다시 켜도 태스크 대화가 그대로 묶인다 */
+const threads = new Map<string, ThreadLink>();
+/** 바로 다음에 만들 작업에 붙일 묶음(followUp 이 submit 직전에 정한다) */
+let nextThread: ThreadLink | null = null;
+void chatHistoryReady.then(() => {
+  for (const v of chatHistory.restored()) if (v.thread !== null) threads.set(v.id, { root: v.thread, inTask: v.inTask });
+});
 
 function submitJob(text: string): { id: string } | null {
   return submitReady() ? runnerRef!.submit(text) : null;
@@ -681,7 +695,7 @@ async function smoke(runner: JobRunner, path: string): Promise<void> {
   }
   const image = await window!.webContents.capturePage();
   writeFileSync(path, image.toPNG());
-  console.log(JSON.stringify(boardView(runner.board).jobs.map((j) => [j.status, j.role, j.lastLine, j.stopReason, j.result?.slice(0, 200)])));
+  console.log(JSON.stringify(boardView(runner.board, threads).jobs.map((j) => [j.status, j.role, j.lastLine, j.stopReason, j.result?.slice(0, 200)])));
   app.quit();
 }
 
@@ -1137,7 +1151,7 @@ void app.whenReady().then(async () => {
     }
     // 일이 시작되어 이미지를 읽기 전에(첫 await 전에) 같은 틱에 등록한다
     if (staged !== null) jobImages.set(job.id, staged);
-    return boardView(runner.board).jobs.find((j) => j.id === job.id) ?? null;
+    return boardView(runner.board, threads).jobs.find((j) => j.id === job.id) ?? null;
   });
   ipcMain.handle(IPC.deeper, (_e, id: unknown) => {
     const done = typeof id === 'string' ? runner.board.find(id) : null;
@@ -1146,27 +1160,34 @@ void app.whenReady().then(async () => {
     if (next === null) return null;
     const root = jobRoots.get(done.id);
     if (root !== undefined) jobRoots.set(next.id, root);
-    return boardView(runner.board).jobs.find((j) => j.id === next.id) ?? null;
+    return boardView(runner.board, threads).jobs.find((j) => j.id === next.id) ?? null;
   });
-  // 이어서 묻기: 같은 레포에서, 앞 요청·결과를 맥락으로 붙인 새 작업. 화면에는 사용자가 쓴 말만 요청으로 보인다
-  ipcMain.handle(IPC.followUp, (_e, parentId: unknown, raw: unknown) => {
-    const parent = typeof parentId === 'string' ? runner.board.find(parentId) : null;
+  // 이어서 묻기: 같은 레포에서, 그 태스크의 앞 대화 전체·일했던 팀원을 맥락으로 붙인 새 작업. 화면에는 사용자가 쓴 말만 요청으로 보인다.
+  // inTask(태스크 안에서 보냄)면 Main 에 새 카드 없이 그 태스크 대화로 쌓인다. 앞 작업은 작업판에 없으면(앱을 다시 켬) 대화 기록에서 찾는다
+  ipcMain.handle(IPC.followUp, (_e, parentId: unknown, raw: unknown, inTask: unknown) => {
     const text = followUpText(raw);
-    if (parent === null || text === null || !submitReady()) return null;
+    if (typeof parentId !== 'string' || text === null || !submitReady()) return null;
+    const live = boardView(runner.board, threads).jobs;
+    const known = [...live, ...chatHistory.restored().filter((r) => !live.some((j) => j.id === r.id))].map((j) => ({ id: j.id, request: j.request, result: j.result, cast: j.cast, thread: j.thread, queuedAt: j.queuedAt }));
+    const turns = threadOfTurns(known, parentId);
+    if (turns.length === 0) return null;
+    const rootId = turns[0]!.id;
+    nextThread = { root: rootId, inTask: inTask === true };
     const next = runner.submit(text);
+    nextThread = null;
     if (next === null) return null;
-    // 앞 작업의 요청은 화면에 보인 말(후속 작업도 사용자가 쓴 말만 요청으로 남는다)
-    followContext.set(next.id, followUpPrompt({ request: parent.request, result: parent.result }, text));
-    const root = jobRepoRoots.get(parent.id);
+    const team = threadTeam(turns).map((r) => (Object.hasOwn(ROLE_INFO, r) ? ROLE_INFO[r as MemberRole].name : r));
+    followContext.set(next.id, followUpPrompt(turns, team, text));
+    const root = jobRepoRoots.get(parentId) ?? jobRepoRoots.get(rootId);
     if (root !== undefined) followRoot.set(next.id, root);
-    return boardView(runner.board).jobs.find((j) => j.id === next.id) ?? null;
+    return boardView(runner.board, threads).jobs.find((j) => j.id === next.id) ?? null;
   });
   ipcMain.on(IPC.stop, (_e, id: unknown) => {
     if (typeof id !== 'string') return;
     runner.stop(id);
     approvals.closeJob(id);
   });
-  ipcMain.handle(IPC.boardNow, () => boardView(runner.board));
+  ipcMain.handle(IPC.boardNow, () => boardView(runner.board, threads));
   ipcMain.handle(IPC.approvalReview, async (_e, id: unknown) => {
     const pending = approvals.pending().find((p) => p.id === id);
     const root = pending === undefined ? undefined : jobRoots.get(pending.jobId);

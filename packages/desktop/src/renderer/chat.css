@@ -232,3 +232,7 @@
 .follow-a { padding: var(--s2) var(--s3); white-space: pre-wrap; font-size: var(--fs-sm); max-height: 12em; overflow: auto; }
 .follow-turn .link { align-self: flex-end; margin: 0 var(--s3) var(--s2); }
 .follow-input { width: 100%; resize: vertical; }
+/* 태스크 화면: Main 처럼 위→아래 대화, 입력칸은 맨 아래 고정 */
+.dbody.dchat { gap: var(--s3); }
+.follow.dfoot { flex: none; margin-top: 0; padding: var(--s2) var(--s3) var(--s3); }
+.follow.dfoot .follow-input { max-height: 30vh; }

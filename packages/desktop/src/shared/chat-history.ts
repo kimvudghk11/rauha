@@ -12,6 +12,10 @@ export interface HistoryEntry {
   readonly cast: readonly string[];
   readonly queuedAt: string;
   readonly endedAt: string | null;
+  /** 이어진 작업이면 처음 태스크 id */
+  readonly thread: string | null;
+  /** 태스크 안에서 이어 물었는지(Main 에 카드로 안 띄움) */
+  readonly inTask: boolean;
 }
 
 /** 앱을 다시 켰을 때 화면에 올릴 일: 끝난 것은 그대로, 돌던 것은 중단됨 */
@@ -91,6 +95,8 @@ export class ChatHistory {
       cast: over ? job.cast.slice(-HISTORY_LIMITS.cast) : [],
       queuedAt: job.queuedAt,
       endedAt: over ? job.endedAt : null,
+      thread: job.thread,
+      inTask: job.thread !== null && job.inTask,
     };
   }
 }
