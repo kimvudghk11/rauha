@@ -9,6 +9,11 @@
 - DB 나무 남은 일: 연결 여러 개를 동시에 펼치기(지금은 지금 연결 하나만), 스키마 단계(PostgreSQL search_path 밖), 테이블 더블클릭 = 새 SQL 탭(DBeaver 식 편집기 탭)은 없음.
 - Postman 대비 남은 것: 폴더 단위 인증·변수, fetch/axios/Python 코드 스니펫, 응답 검색·JSON 접기, 요청별 시간 제한·리다이렉트 끄기, WebSocket.
 
+## v0.2.17 (2026-11-15) — Me 칸 UI·DB 인식
+
+- 채용 검토실 Me 칸이 깨지던 것: 칸에는 요약과 Edit my profile 만, 입력은 넓은 My profile 창(두 열, DB 칩 줄바꿈, 다른 DB 추가, 레포별 git 스택).
+- DB 인식: docker-compose 이미지, Prisma provider, 예시 .env 주소 종류(진짜 .env 는 안 읽음), npm·Python 드라이버.
+
 ## v0.2.16 (2026-11-15) — GitHub 계정 여러 개로 clone 없이 내 작업 읽기
 
 - Git › My work › GitHub accounts: gh CLI 로 개인·회사 계정을 각각 로그인(+ Add GitHub account → 터미널), 계정마다 Personal·Company 에 묶기.
