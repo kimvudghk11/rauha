@@ -5,11 +5,13 @@ import { CLAUDE_HISTORY_IPC } from '../shared/claude-history-ipc.js';
 import { ClaudeHistoryService } from './history/claude-history-service.js';
 import { EXTERNAL_AI_IPC } from '../shared/external-ai-ipc.js';
 import { ExternalAiService } from './ai/external-ai-service.js';
+import { MY_WORK_IPC } from '../shared/my-work-ipc.js';
+import { scanMyWork } from './git/my-work-service.js';
 import { accessSync, constants as fsConstants, existsSync, readdirSync, statSync } from 'node:fs';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, Notification, safeStorage, screen, shell, type IpcMainInvokeEvent } from 'electron';
-import { DefaultRuleSet, DefaultRulesDto, DomainError, discoverRepos, draftBlog, draftCommit, draftRule, FileRuleStore, loadSecretPolicy, PromptLibrary, readPlanUsage, RuleBook, RuleBookDto, type PlanUsage } from '@rauha/core';
+import { DefaultRuleSet, DefaultRulesDto, DomainError, discoverRepos, draftBlog, draftCommit, draftResume, draftRule, FileRuleStore, loadSecretPolicy, PromptLibrary, readPlanUsage, RuleBook, RuleBookDto, type PlanUsage } from '@rauha/core';
 import { JobRunner } from '@rauha/core/jobs';
 import { replaceRule, ruleSizeError, type RuleView } from '../shared/rules-form.js';
 import { boardView, jobView, IPC, type ApprovalChoice, type DiagnosticsResult, type RepoRow, type SettingsPatch } from '../shared/ipc.js';
@@ -945,6 +947,26 @@ void app.whenReady().then(async () => {
   ipcMain.handle(EXTERNAL_AI_IPC.login, (_e, id: unknown, switchAccount: unknown) => externalAi.login(id, switchAccount === true));
   ipcMain.handle(EXTERNAL_AI_IPC.logout, (_e, id: unknown) => externalAi.logout(id));
   ipcMain.handle(EXTERNAL_AI_IPC.install, (_e, id: unknown) => externalAi.install(id));
+  // 이력서용 내 작업: 작업 폴더 레포들의 커밋 읽기(읽기만) · 커밋 제목과 숫자만으로 이력서 초안
+  ipcMain.handle(MY_WORK_IPC.scan, async (_e, since: unknown) => {
+    try {
+      const repos = (await scanWorkFolder(currentWorkDir())).filter((e) => e.kind === 'repo').map((e) => e.root);
+      const commits = await scanMyWork(repos, typeof since === 'number' && Number.isFinite(since) && since > 0 ? since : 0);
+      return { ok: true, data: { commits, repos: repos.length } };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  });
+  ipcMain.handle(MY_WORK_IPC.resume, async (_e, note: unknown) => {
+    if (typeof note !== 'string' || note.trim() === '') return { ok: false, error: 'Pick your accounts first. There is nothing to summarize yet.' };
+    if (FAKE) return { ok: true, data: '## (test) Resume draft\n- Built features from the commits above.' };
+    try {
+      const profile = (await profileResolver(home, settings.account))(currentWorkDir());
+      return { ok: true, data: await draftResume(note, { ...(process.env as Record<string, string>), ...profile.agentEnv(home) }, claudeExecutable(), undefined, settings.models.haiku) };
+    } catch (e) {
+      return { ok: false, error: e instanceof DomainError ? e.message : 'Could not write the resume draft. Check sign-in or the usage limit.' };
+    }
+  });
   connectorService = registerConnectorIpc(ipcMain, {
     file: join(dataDir, 'connectors.json'),
     env: accountEnv,

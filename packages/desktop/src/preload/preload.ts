@@ -11,6 +11,7 @@ import { DOCKER_IPC, type DockerLogEvent } from '../shared/docker-api.js';
 import { DATA_IPC } from '../shared/data-api.js';
 import { CLAUDE_HISTORY_IPC } from '../shared/claude-history-ipc.js';
 import { EXTERNAL_AI_IPC } from '../shared/external-ai-ipc.js';
+import { MY_WORK_IPC } from '../shared/my-work-ipc.js';
 import { BLOG_IPC } from '../shared/blog-dto.js';
 import { CODE_IPC } from '../shared/code-api.js';
 import { NAV_IPC } from '../shared/ts-nav.js';
@@ -88,6 +89,10 @@ const api: RauhaApi = {
   claudeHistory: {
     list: () => ipcRenderer.invoke(CLAUDE_HISTORY_IPC.list),
     open: (id) => ipcRenderer.invoke(CLAUDE_HISTORY_IPC.open, id),
+  },
+  myWork: {
+    scan: (since) => ipcRenderer.invoke(MY_WORK_IPC.scan, since),
+    resume: (note) => ipcRenderer.invoke(MY_WORK_IPC.resume, note),
   },
   externalAi: {
     status: () => ipcRenderer.invoke(EXTERNAL_AI_IPC.status),

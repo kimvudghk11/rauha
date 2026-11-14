@@ -1,5 +1,5 @@
 /** git 탭 안의 화면들 */
-export type GitViewId = 'changes' | 'branches' | 'history' | 'stash' | 'actions' | 'conflicts';
+export type GitViewId = 'changes' | 'branches' | 'history' | 'stash' | 'actions' | 'mywork' | 'conflicts';
 
 export interface TabState {
   readonly merging: boolean;
@@ -15,6 +15,8 @@ export interface TabState {
 export function visibleGitViews(state: TabState | null): GitViewId[] {
   const show: GitViewId[] = ['changes', 'branches', 'history', 'stash'];
   if (state?.hasRemote === true) show.push('actions');
+  // 내 작업(이력서용)은 레포와 상관없이 늘 있다: 작업 폴더의 모든 레포를 본다
+  show.push('mywork');
   if (state !== null && (state.merging || state.files.some((f) => f.conflict))) show.push('conflicts');
   return show;
 }

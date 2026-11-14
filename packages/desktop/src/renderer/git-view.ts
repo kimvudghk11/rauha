@@ -6,6 +6,7 @@ import { buildChanges } from './git-changes-view.js';
 import { buildBranches, buildConflicts, buildHistory, requestHistoryCommit } from './git-lists-view.js';
 import { buildStash } from './git-stash-view.js';
 import { buildActions } from './git-actions-view.js';
+import { buildMyWork } from './my-work-view.js';
 import { askDialog, type GitCtx } from './git-common.js';
 import { openBranchMenu, openIdentityDialog, openNewBranchDialog } from './git-branch-ui.js';
 import { gitIcon } from './git-icons.js';
@@ -21,7 +22,14 @@ interface SubView {
   refresh(): Promise<void>;
 }
 
-const VIEW_LABEL: Readonly<Record<ViewId, string>> = { changes: 'Changes', branches: 'Branches', history: 'History', stash: 'Stash', actions: 'Actions', conflicts: 'Conflicts' };
+const VIEW_LABEL: Readonly<Record<ViewId, string>> = { changes: 'Changes', branches: 'Branches', history: 'History', stash: 'Stash', actions: 'Actions', mywork: 'My work', conflicts: 'Conflicts' };
+/** 내 작업(이력서용) 화면: 레포와 상관없이 작업 폴더의 모든 레포를 본다 */
+const myWork = () =>
+  buildMyWork({
+    api: window.rauha.myWork,
+    accounts: { get: async () => (await window.rauha.getSettings()).gitAccounts, set: async (next) => (await window.rauha.updateSettings({ gitAccounts: next })).gitAccounts },
+    copy: async (text) => navigator.clipboard.writeText(text).then(() => true, () => false),
+  });
 export const REMEMBER = 'rauha.git.repo';
 
 /** 다른 화면(코드 탭 blame)이 "git 탭을 History 로 열어 줘"라고 남긴 쪽지. 다음에 레포를 고를 때 한 번 쓴다. */
@@ -133,7 +141,7 @@ export function buildGit(listRepos: () => Promise<readonly RepoRow[]>, protected
   };
 
   const sub = (id: ViewId): SubView => {
-    const found = views[id] ?? (id === 'changes' ? buildChanges(ctx) : id === 'branches' ? buildBranches(ctx) : id === 'history' ? buildHistory(ctx) : id === 'stash' ? buildStash(ctx) : id === 'actions' ? buildActions(ctx) : buildConflicts(ctx));
+    const found = views[id] ?? (id === 'changes' ? buildChanges(ctx) : id === 'branches' ? buildBranches(ctx) : id === 'history' ? buildHistory(ctx) : id === 'stash' ? buildStash(ctx) : id === 'actions' ? buildActions(ctx) : id === 'mywork' ? myWork() : buildConflicts(ctx));
     if (found === undefined) {
       const stub = { root: el('div', 'dim pad', 'Coming soon.'), refresh: async () => {} };
       return (views[id] = stub);

@@ -2,6 +2,7 @@ import { DEFAULT_PROTECTED_BRANCHES } from './approval-summary.js';
 import { parseAutoSaveMode, type AutoSaveMode } from './auto-save.js';
 import { ModelNames, ModelSettingsDto, type ModelTier } from '@rauha/core/jobs';
 import { DEFAULT_CHARACTER_SET, toCharacterSetId, type CharacterSetId } from './character-set-ids.js';
+import { GitAccounts, type GitAccount } from './my-work.js';
 
 /** 알림을 켜고 끄는 항목. 단계 넘어감은 기본 꺼짐이다. */
 export interface NotifySettings {
@@ -48,6 +49,8 @@ export interface Settings {
   readonly recentFolders: readonly string[];
   /** 등급(haiku·sonnet·opus)마다 부를 모델 ID. 계정마다 쓸 수 있는 모델이 달라 바꿀 수 있다. 이상한 값은 기본값으로 돌아간다. */
   readonly models: Readonly<Record<ModelTier, string>>;
+  /** 이력서용 내 작업: "나"로 묶을 git 계정들(라벨 + 작성자 이메일). 회사 계정으로 옮긴 뒤에도 이전 커밋을 함께 센다 */
+  readonly gitAccounts: readonly GitAccount[];
 }
 
 export const RECENT_FOLDERS_MAX = 5;
@@ -76,6 +79,7 @@ export const DEFAULT_SETTINGS: Settings = {
   autoSave: 'off',
   recentFolders: [],
   models: ModelNames.defaults().toRecord(),
+  gitAccounts: [],
 };
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -124,6 +128,7 @@ export function parseSettings(input: unknown): Settings {
     autoSave: parseAutoSaveMode(input['autoSave']),
     recentFolders: folders(input['recentFolders']),
     models: ModelSettingsDto.from(input['models']).toRecord(),
+    gitAccounts: GitAccounts.from(input['gitAccounts']).list,
   };
 }
 

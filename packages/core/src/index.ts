@@ -151,6 +151,7 @@ export { RuleDraftDto, RULE_DRAFT_SCHEMA, type RuleDraft } from './orchestration
 export { draftRule } from './orchestration/infrastructure/agent-sdk-rule-parser.js';
 export { CommitDraftDto, commitDraftPrompt, COMMIT_DIFF_LIMIT, type CommitDraft } from './orchestration/application/dto/commit-draft.dto.js';
 export { draftCommit } from './orchestration/infrastructure/agent-sdk-commit-draft.js';
+export { draftResume, RESUME_NOTE_LIMIT } from './orchestration/infrastructure/agent-sdk-resume-draft.js';
 export { draftBlog, BLOG_NOTE_LIMIT, type BlogTone, type BlogQuery } from './orchestration/infrastructure/agent-sdk-blog-draft.js';
 
 // analysis

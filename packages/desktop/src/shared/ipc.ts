@@ -13,6 +13,7 @@ import type { UpdateView } from './update-record.js';
 import type { RecordsApi, TodoApi } from './data-api.js';
 import type { ClaudeHistoryApi } from './claude-history-ipc.js';
 import type { ExternalAiApi } from './external-ai-ipc.js';
+import type { MyWorkApi } from './my-work-ipc.js';
 import type { BlogApi } from './blog-dto.js';
 import type { CodeApi } from './code-api.js';
 import type { TerminalApi } from './terminal-api.js';
@@ -248,6 +249,8 @@ export interface RauhaApi {
   readonly claudeHistory: ClaudeHistoryApi;
   /** Kiro · ChatGPT(Codex) 한 번 묻기와 로그인 */
   readonly externalAi: ExternalAiApi;
+  /** 이력서용 내 작업(여러 git 계정 커밋 모으기 · 이력서 초안) */
+  readonly myWork: MyWorkApi;
   /** 기록 탭의 블로그 글: 가림 이름 받기·초안 쓰기(모델 한 번)·.md 저장 */
   readonly blog: BlogApi;
   /** 코드 탭: 파일 탐색·읽기·저장(main이 한다) */

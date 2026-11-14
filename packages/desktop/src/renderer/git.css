@@ -107,6 +107,23 @@ textarea.ginput, input.ginput { width: 100%; }
 .ghfind { margin: 0 0 var(--s1); width: 100%; }
 .gfiles.finding .ggraph { visibility: hidden; }
 .gmh .ghtools { margin-left: auto; flex: none; }
+/* 내 작업(이력서용) */
+.mywork { display: flex; flex-direction: column; gap: var(--s3); min-height: 0; overflow: auto; flex: 1; }
+.mw-acct-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: var(--s2); }
+.mw-acct { border: 1px solid var(--border2); border-radius: var(--r-lg); padding: var(--s3); display: flex; flex-direction: column; gap: var(--s2); }
+.mw-label { font-weight: 600; }
+.mw-emails { display: flex; flex-wrap: wrap; gap: var(--s1); }
+.mw-email { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 999px; background: var(--well); font-family: var(--mono); font-size: var(--fs-xs); }
+.mw-others { display: flex; flex-direction: column; gap: 2px; }
+.mw-other { display: flex; align-items: center; gap: var(--s2); padding: 4px var(--s2); border-radius: var(--r-sm); }
+.mw-other:hover { background: var(--row-hover); }
+.mw-account { border: 1px solid var(--border2); border-radius: var(--r-lg); padding: var(--s3); }
+.mw-account h3 { margin: 0 0 var(--s2); font-size: var(--fs-lg); color: var(--bright); }
+.mw-month summary { cursor: pointer; padding: 4px 0; }
+.mw-repo { padding: var(--s1) 0 var(--s2) var(--s3); }
+.mw-repo ul { margin: 2px 0 0; padding-left: 18px; color: var(--text); font-size: var(--fs-sm); }
+.mw-draft { border: 1px solid var(--accentfg); border-radius: var(--r-lg); padding: var(--s3); }
+.mw-md { white-space: pre-wrap; margin: var(--s2) 0 0; font-family: inherit; }
 .gmsg .gfix { margin-left: var(--s2); vertical-align: middle; }
 .gbm > .gbm-why { padding: 4px var(--s2); font-size: var(--fs-sm); }
 
