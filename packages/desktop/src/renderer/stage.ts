@@ -1,6 +1,9 @@
 import type { CharacterArt, CharacterRole, CharacterState } from './characters.js';
 import { pixelArt } from './pixel-art.js';
 import { layoutRow } from './stage-layout.js';
+import type { CharacterSetId } from '../shared/character-set-ids.js';
+import { actorX } from '../shared/scene-plan.js';
+import { drawScene } from './scene-draw.js';
 
 /** 그림 공급자. 수채화 PNG로 바꿀 때는 이 한 줄만 바꾼다. */
 let art: CharacterArt = pixelArt;
@@ -21,6 +24,8 @@ interface Mounted {
   /** 0이면 내용에 맞춘 고정 크기, 아니면 부모 너비에 맞춰 칸 수를 늘린다 */
   readonly fit: boolean;
   readonly rows: number;
+  /** 컨셉 배경을 깔고 팀원이 소품 사이를 오가게 할지(작업 카드 무대) */
+  readonly scene: (() => CharacterSetId) | null;
   cols: number;
   visible: boolean;
   /** 부모 크기 관찰을 시작했는지(붙기 전에 등록된 캔버스는 붙은 뒤에 시작한다) */
@@ -33,6 +38,8 @@ const mounted = new Set<Mounted>();
 const STEP_MS = 120;
 /** 붙기 전에 등록된 캔버스를 기다려 주는 걸음 수(약 12초) */
 const WAIT_STEPS = 100;
+/** 붙었다가 떨어진(다른 탭) 캔버스를 기다려 주는 걸음 수(약 30분) */
+const DETACHED_STEPS = 15_000;
 let lastStep = 0;
 let tick = 0;
 
@@ -69,6 +76,16 @@ function draw(m: Mounted): void {
   if (ctx === null) return;
   ctx.clearRect(0, 0, m.canvas.width, m.canvas.height);
   const actors = m.actors();
+  // 장면 무대: 배경·소품을 깔고, 팀원은 맡은 일의 두 소품 사이를 걸어 다닌다(팀장은 가운데)
+  if (m.scene !== null && m.cols >= 40) {
+    const id = m.scene();
+    drawScene(ctx, id, m.cols, m.rows, m.scale, tick);
+    actors.forEach((a, i) => {
+      const { w, h } = art.size(a.role);
+      art.draw(ctx, a.role, a.state, tick, { x: actorX(id, a.role, i, tick, m.cols, w), y: m.rows - 1 - h, scale: m.scale, seed: i });
+    });
+    return;
+  }
   // 뒤에 서는 줄이 없어서 순서대로 한 줄에 선다. 칸 수가 모자라거나 아직 모르면 겹치지 않을 만큼 늘린다.
   const sizes = actors.map((a) => art.size(a.role));
   const row = layoutRow(m.cols, sizes.map((s) => s.w));
@@ -93,13 +110,15 @@ function frame(now: number): void {
     tick += 1;
     for (const m of [...mounted]) {
       if (!m.canvas.isConnected) {
-        // 만들고 곧바로 붙이지 않는 화면도 있어서(첫 작업 배정 등) 잠깐은 기다린다. 오래 안 붙으면 치운다.
-        if (m.observed || (m.waiting += 1) > WAIT_STEPS) {
+        // 다른 탭에 갔다 오면 채팅 화면이 잠깐 떨어진다. 그때 지우면 돌아와도 무대가 굳어 있다(컨셉을 바꿔도 그대로).
+        // 그래서 떨어져 있는 동안은 건너뛰기만 하고, 한 번도 안 붙었으면 약 12초, 붙었던 것은 약 30분 뒤에 치운다.
+        if ((m.waiting += 1) > (m.observed ? DETACHED_STEPS : WAIT_STEPS)) {
           visibility.unobserve(m.canvas);
           mounted.delete(m);
         }
         continue;
       }
+      m.waiting = 0;
       watchParent(m);
       if (m.visible) draw(m);
     }
@@ -112,8 +131,8 @@ requestAnimationFrame(frame);
  * 캐릭터를 그릴 캔버스를 등록한다. scale은 정수(흐려지지 않게). rows는 칸 높이.
  * fit이면 부모 너비를 채우고 캐릭터가 고르게 선다.
  */
-export function mountStage(canvas: HTMLCanvasElement, options: { scale: number; rows: number; actors: () => readonly Actor[]; fit?: boolean }): { redraw(): void } {
-  const m: Mounted = { canvas, scale: options.scale, actors: options.actors, fit: options.fit === true, rows: options.rows, cols: 0, visible: true, observed: false, waiting: 0 };
+export function mountStage(canvas: HTMLCanvasElement, options: { scale: number; rows: number; actors: () => readonly Actor[]; fit?: boolean; scene?: () => CharacterSetId }): { redraw(): void } {
+  const m: Mounted = { canvas, scale: options.scale, actors: options.actors, fit: options.fit === true, rows: options.rows, scene: options.scene ?? null, cols: 0, visible: true, observed: false, waiting: 0 };
   canvas.height = options.rows * options.scale;
   canvas.style.height = `${options.rows * options.scale}px`;
   if (!m.fit) {

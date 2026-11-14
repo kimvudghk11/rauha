@@ -7,7 +7,7 @@ import { AI_LOGO_SVG, aiLogoUrl } from './ai-logos.js';
 import type { AiResult } from '../shared/external-ai-ipc.js';
 import { classifyDiffLine, type ChangeReview } from '../shared/branch-impact.js';
 import type { ApprovalChoice, ApprovalView, BoardView, JobView } from '../shared/ipc.js';
-import { CHARACTER_ROLES, leadName, spriteFor, type CharacterRole } from './characters.js';
+import { CHARACTER_ROLES, characterSetId, leadName, spriteFor, type CharacterRole } from './characters.js';
 import type { Command } from '../shared/command-book.js';
 import { attachSuggest } from './command-suggest.js';
 import { attachMentionSuggest } from './mention-suggest.js';
@@ -575,6 +575,8 @@ export function buildChat(actions: ChatActions) {
       rows: 20,
       fit: true,
       actors: () => current.cast.filter(isRole).map((role) => ({ role, state: characterStateOf(current) })),
+      // 컨셉 배경과 소품 사이를 오가는 팀원(카페: 커피머신 ↔ 설거지대, 왕국: 왕좌·훈련장 …)
+      scene: characterSetId,
     });
     return {
       root: room,

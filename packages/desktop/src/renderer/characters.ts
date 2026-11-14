@@ -1,4 +1,5 @@
 import { EXTRA_CHARACTER_IDS } from '../shared/character-ids.js';
+import { DEFAULT_CHARACTER_SET, toCharacterSetId, type CharacterSetId } from '../shared/character-set-ids.js';
 import { characterSetById, DEFAULT_SET, type CharacterSet } from './character-sets/index.js';
 import { resolveCharacter } from './character-sets/resolve.js';
 import { PIXEL_CHARACTERS, type PixelCharacter } from './characters-data.js';
@@ -44,10 +45,14 @@ export function useLooks(next: Looks): void {
 export const CHARACTER_CHOICES = { base: [...CHARACTER_ROLES] as readonly string[], extra: [...EXTRA_CHARACTER_IDS] as readonly string[] };
 
 let currentSet: CharacterSet = DEFAULT_SET;
+let currentSetId: CharacterSetId = DEFAULT_CHARACTER_SET;
 /** 캐릭터 테마(세트)를 적용한다. 모르는 id는 기본(바다) 세트다. 시작할 때와 설정에서 바뀔 때 부른다. */
 export function useCharacterSet(id: string): void {
   currentSet = characterSetById(id);
+  currentSetId = toCharacterSetId(id);
 }
+/** 지금 컨셉 id(작업 무대 배경을 고를 때) */
+export const characterSetId = (): CharacterSetId => currentSetId;
 
 const toSprite = (c: PixelCharacter): Sprite => ({ name: c.name, animal: c.animal, palette: c.colors, frames: c.frames });
 const own = (table: Readonly<Record<string, PixelCharacter>>, id: string): PixelCharacter | undefined => (Object.hasOwn(table, id) ? table[id] : undefined);
