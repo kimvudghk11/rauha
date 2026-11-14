@@ -104,6 +104,9 @@ const api: RauhaApi = {
   myWork: {
     scan: (since) => ipcRenderer.invoke(MY_WORK_IPC.scan, since),
     resume: (note) => ipcRenderer.invoke(MY_WORK_IPC.resume, note),
+    ghLogins: () => ipcRenderer.invoke(MY_WORK_IPC.ghLogins),
+    ghLogin: () => ipcRenderer.invoke(MY_WORK_IPC.ghLogin),
+    ghScan: (force) => ipcRenderer.invoke(MY_WORK_IPC.ghScan, force === true),
   },
   externalAi: {
     status: () => ipcRenderer.invoke(EXTERNAL_AI_IPC.status),

@@ -7,12 +7,13 @@ import { ClaudeHistoryService } from './history/claude-history-service.js';
 import { EXTERNAL_AI_IPC } from '../shared/external-ai-ipc.js';
 import { ExternalAiService } from './ai/external-ai-service.js';
 import { MY_WORK_IPC } from '../shared/my-work-ipc.js';
-import { GitAccounts, resumeNote, summarizeWork } from '../shared/my-work.js';
+import { GitAccounts, resumeNote, summarizeWork, type WorkCommit } from '../shared/my-work.js';
 import { INTERVIEW_IPC, type WorkFacts } from '../shared/interview-ipc.js';
 import { workFacts } from '../shared/hiring-banter.js';
 import { hiringInputOf } from '../shared/hiring-input.js';
 import { HiringHistory } from '../shared/hiring-history.js';
 import { scanMyWork, scanRepoStacks } from './git/my-work-service.js';
+import { GithubWorkService, type RemoteWork } from './github/github-work-service.js';
 import { accessSync, constants as fsConstants, existsSync, readdirSync, statSync } from 'node:fs';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -968,11 +969,30 @@ void app.whenReady().then(async () => {
   ipcMain.handle(EXTERNAL_AI_IPC.logout, (_e, id: unknown) => externalAi.logout(id));
   ipcMain.handle(EXTERNAL_AI_IPC.install, (_e, id: unknown) => externalAi.install(id));
   // 이력서용 내 작업: 작업 폴더 레포들의 커밋 읽기(읽기만) · 커밋 제목과 숫자만으로 이력서 초안
+  // clone 없이 GitHub 에서 읽기(gh CLI 여러 계정). 결과는 저장해 두고 My work·채용 검토실에 합친다
+  const githubWork = GithubWorkService.create({ platform: process.platform, env: process.env, cacheFile: join(dataDir, 'github-work.json') });
+  ipcMain.handle(MY_WORK_IPC.ghLogins, () => githubWork.logins());
+  ipcMain.handle(MY_WORK_IPC.ghLogin, () => githubWork.login());
+  ipcMain.handle(MY_WORK_IPC.ghScan, async (_e, force: unknown) => {
+    const r = await githubWork.scan(GitAccounts.from(settings.gitAccounts).logins, force === true);
+    workCache = null;
+    return r.ok ? { ok: true, data: { at: r.data.at, repos: r.data.repos, commits: r.data.commits.length, notes: r.data.notes } } : r;
+  });
+  /** 저장해 둔 GitHub 결과(계정에 GitHub 로그인을 묶었을 때만) */
+  const remoteWork = async (): Promise<RemoteWork | null> => (GitAccounts.from(settings.gitAccounts).logins.length === 0 ? null : githubWork.cached());
+  /** 로컬 커밋 + GitHub 커밋(같은 커밋은 한 번) */
+  const mergeCommits = (local: readonly WorkCommit[], remote: readonly WorkCommit[]): WorkCommit[] => {
+    const seen = new Set(local.map((c) => c.hash));
+    return [...local, ...remote.filter((c) => !seen.has(c.hash))];
+  };
   ipcMain.handle(MY_WORK_IPC.scan, async (_e, since: unknown) => {
     try {
       const repos = (await scanWorkFolder(currentWorkDir())).filter((e) => e.kind === 'repo').map((e) => e.root);
-      const commits = await scanMyWork(repos, typeof since === 'number' && Number.isFinite(since) && since > 0 ? since : 0);
-      return { ok: true, data: { commits, repos: repos.length } };
+      const from = typeof since === 'number' && Number.isFinite(since) && since > 0 ? since : 0;
+      const local = await scanMyWork(repos, from);
+      const remote = await remoteWork();
+      const commits = mergeCommits(local, (remote?.commits ?? []).filter((c) => c.at >= from));
+      return { ok: true, data: { commits, repos: repos.length + (remote?.repos ?? 0) } };
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
@@ -986,7 +1006,15 @@ void app.whenReady().then(async () => {
     const key = JSON.stringify([settings.gitAccounts, currentWorkDir()]);
     if (workCache?.key === key) return workCache;
     const repos = (await scanWorkFolder(currentWorkDir())).filter((e) => e.kind === 'repo').map((e) => e.root);
-    const [commits, stacks] = await Promise.all([scanMyWork(repos, 0), scanRepoStacks(repos)]);
+    const [local, localStacks] = await Promise.all([scanMyWork(repos, 0), scanRepoStacks(repos)]);
+    // GitHub 계정을 묶었으면 그 결과도(없으면 이번에 한 번 읽는다)
+    let remote = await remoteWork();
+    if (remote === null && accounts.logins.length > 0) {
+      const r = await githubWork.scan(accounts.logins, false);
+      remote = r.ok ? r.data : null;
+    }
+    const commits = mergeCommits(local, remote?.commits ?? []);
+    const stacks = [...localStacks, ...(remote?.stacks ?? []).filter((s) => !localStacks.some((l) => s.repo.endsWith(`/${l.repo}`)))];
     const summary = summarizeWork(commits, accounts, stacks);
     if (summary.total === 0) return null;
     workCache = { key, note: resumeNote(summary), facts: workFacts(summary) };

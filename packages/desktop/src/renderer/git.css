@@ -188,3 +188,8 @@ textarea.ginput, input.ginput { width: 100%; }
 .app[data-tier=s] .gconfcols, .app[data-tier=xs] .gconfcols { grid-template-columns: minmax(0, 1fr); }
 .gconfcols .gconfcode { overflow: hidden; text-overflow: ellipsis; }
 .gconfside.base { background: color-mix(in srgb, var(--purple) 14%, var(--bg)); border-left-color: var(--purple); } .gconfside.base .gconfwho { color: var(--purple); }
+
+.mw-gh { display: flex; flex-direction: column; gap: var(--s2); margin-top: var(--s3); padding-top: var(--s2); border-top: 1px solid var(--border); }
+.mw-gh-rows { display: flex; flex-direction: column; gap: 4px; }
+.mw-gh-row { display: flex; align-items: center; gap: var(--s2); }
+.mw-gh-note { color: var(--yellow); }

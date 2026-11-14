@@ -23,6 +23,11 @@ export function buildMyWork(deps: MyWorkDeps) {
   let busy = false;
   let draft = '';
   let note = '';
+  // GitHub(clone 없이 읽기): gh 에 로그인한 계정들과 읽은 결과
+  let gh: { installed: boolean; logins: readonly string[] } | null = null;
+  let ghBusy = false;
+  let ghMsg = '';
+  let ghNotes: readonly string[] = [];
 
   const head = el('div', 'gtools mw-head');
   const period = el('select', 'sm');
@@ -68,7 +73,7 @@ export function buildMyWork(deps: MyWorkDeps) {
       card.append(name, chips, del);
       grid.append(card);
     });
-    acctBox.append(grid);
+    acctBox.append(grid, githubBox());
     // 아직 계정에 넣지 않은 작성자: 내 것이면 골라서 넣는다(직접 입력하지 않아도 되게)
     if (s.others.length > 0) {
       acctBox.append(el('div', 'sub', 'Authors in your repos not in an account yet — add the ones that are you'));
@@ -90,9 +95,91 @@ export function buildMyWork(deps: MyWorkDeps) {
     }
   }
 
+  /** GitHub 계정 칸: gh 에 로그인한 계정마다 어느 "나" 계정(개인·회사)인지 고르고, clone 없이 읽는다 */
+  function githubBox(): HTMLElement {
+    const box = el('div', 'mw-gh');
+    box.append(el('div', 'sub', 'GitHub accounts — read repos without cloning (personal and company accounts, via the GitHub CLI)'));
+    if (gh === null) {
+      box.append(el('div', 'hint', 'Checking the GitHub CLI…'));
+      return box;
+    }
+    if (!gh.installed) {
+      const a = el('a', undefined, 'cli.github.com');
+      a.href = 'https://cli.github.com';
+      a.target = '_blank';
+      a.rel = 'noreferrer';
+      const p = el('div', 'hint');
+      p.append('The GitHub CLI (gh) is not installed. Install it from ', a, ', then press Check again.');
+      box.append(p);
+    }
+    const rows = el('div', 'mw-gh-rows');
+    for (const login of gh.logins) {
+      const row = el('div', 'mw-gh-row');
+      const linked = accounts.find((a) => (a.github ?? []).includes(login.toLowerCase()));
+      const pick = el('select', 'sm');
+      pick.id = `mw-gh-${login}`;
+      const none = el('option', undefined, 'Not mine / skip');
+      none.value = '';
+      pick.append(none);
+      const labels = [...new Set([...accounts.map((a) => a.label), 'Personal', 'Company'])];
+      for (const l of labels) {
+        const o = el('option', undefined, l);
+        o.value = l;
+        o.selected = linked?.label === l;
+        pick.append(o);
+      }
+      pick.addEventListener('change', () => {
+        const key = login.toLowerCase();
+        // 다른 계정에서 빼고, 고른 계정에 넣는다(없는 라벨이면 새 계정)
+        let next = accounts.map((a) => ({ ...a, github: (a.github ?? []).filter((g) => g !== key) }));
+        if (pick.value !== '') {
+          next = next.some((a) => a.label === pick.value) ? next.map((a) => (a.label === pick.value ? { ...a, github: [...a.github, key] } : a)) : [...next, { label: pick.value, emails: [], github: [key] }];
+        }
+        void save(next);
+      });
+      row.append(el('span', 'mw-email', `@${login}`), el('span', 'hint', 'counts as'), pick);
+      rows.append(row);
+    }
+    if (gh.installed && gh.logins.length === 0) rows.append(el('div', 'hint', 'No GitHub account signed in to the GitHub CLI yet.'));
+    box.append(rows);
+    const tools = el('div', 'btns');
+    const add = el('button', 'btn sm', '+ Add GitHub account');
+    add.title = 'Opens a terminal: gh auth login. Sign in with the account to add (do it once per account: personal, company).';
+    add.disabled = gh.installed === false;
+    add.addEventListener('click', () => void deps.api.ghLogin().then((r) => ((ghMsg = r.ok ? 'Finish signing in in the terminal and browser, then press Check again.' : r.error), paint())));
+    const check = el('button', 'btn sm', 'Check again');
+    check.addEventListener('click', () => void loadGh());
+    const read = el('button', 'btn sm primary', ghBusy ? 'Reading from GitHub…' : 'Read from GitHub');
+    read.disabled = ghBusy || !accounts.some((a) => (a.github ?? []).length > 0);
+    read.title = 'Reads repo lists, your commits (subjects and dates), languages, file layout and a few manifests. No code is sent anywhere.';
+    read.addEventListener('click', () => void readGithub());
+    tools.append(el('span', 'hint grow', ghMsg), add, check, read);
+    box.append(tools);
+    for (const n of ghNotes) box.append(el('div', 'hint mw-gh-note', n));
+    return box;
+  }
+
+  async function loadGh(): Promise<void> {
+    gh = await deps.api.ghLogins();
+    paint();
+  }
+
+  async function readGithub(): Promise<void> {
+    ghBusy = true;
+    ghMsg = 'Reading repositories and your commits from GitHub… (a minute for many repos)';
+    paint();
+    const r = await deps.api.ghScan(true);
+    ghBusy = false;
+    if (r.ok) {
+      ghMsg = `Read ${r.data.commits} of your commits in ${r.data.repos} GitHub repos.`;
+      ghNotes = r.data.notes;
+    } else ghMsg = r.error;
+    await scan();
+  }
+
   function paintSummary(s: WorkSummary): void {
     result.replaceChildren();
-    if (accounts.length === 0) return void result.append(el('div', 'dim pad', 'Add your own author emails above (personal and company). Then your commits from both show up here together.'));
+    if (accounts.length === 0) return void result.append(el('div', 'dim pad', 'Add your own author emails above (personal and company), or link GitHub accounts below. Then your commits from both show up here together.'));
     if (s.total === 0) return void result.append(el('div', 'dim pad', 'No commits by these accounts in this period.'));
     const tools = el('div', 'btns');
     const write = el('button', 'btn primary', busy ? 'Writing…' : '✨ Resume bullets');
@@ -167,6 +254,7 @@ export function buildMyWork(deps: MyWorkDeps) {
   void deps.accounts.get().then((a) => {
     accounts = [...a];
     void scan();
+    void loadGh();
   });
   return { root, refresh: async () => {} };
 }

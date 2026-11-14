@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { GitAccounts, parseWorkLog, resumeNote, summarizeWork } from './my-work.js';
+import { GitAccounts, githubAuthor, parseWorkLog, resumeNote, summarizeWork } from './my-work.js';
 
 const accounts = GitAccounts.from([
   { label: 'Personal', emails: ['me@gmail.com', ' ME@Gmail.com '] },
@@ -29,6 +29,19 @@ const log = [
   '3\t1\tsrc/pay.ts',
   `@@${['h3', 'Lee', 'lee@corp.com', '1717200000', 'chore: deps'].join(US)}`,
 ].join('\n');
+
+describe('GitHub 로그인 묶기', () => {
+  it('계정에 GitHub 로그인을 묶으면 GitHub 에서 읽은 커밋(github:<로그인>)을 그 계정으로 센다', () => {
+    const a = GitAccounts.from([{ label: 'Company', emails: [], github: ['Kim-Corp', 'bad login!', 'kim-corp'] }]);
+    expect(a.list).toEqual([{ label: 'Company', emails: [], github: ['kim-corp'] }]);
+    expect(a.labelOf(githubAuthor('Kim-Corp'))).toBe('Company');
+    expect(a.labelOf('github:someone')).toBeNull();
+    expect(a.logins).toEqual(['kim-corp']);
+  });
+  it('이메일도 로그인도 없는 계정은 버린다', () => {
+    expect(GitAccounts.from([{ label: 'X', emails: [], github: [] }]).list).toEqual([]);
+  });
+});
 
 describe('커밋 기록 읽기', () => {
   it('커밋마다 해시·작성자·시각·제목과 늘고 준 줄 수(바이너리는 0)', () => {

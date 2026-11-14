@@ -6,7 +6,13 @@ import { langOf } from './tech-stack.js';
 export interface GitAccount {
   readonly label: string;
   readonly emails: readonly string[];
+  /** 이 계정의 GitHub 로그인(clone 없이 GitHub 에서 읽은 커밋을 이 계정으로 센다) */
+  readonly github?: readonly string[];
 }
+
+/** GitHub 에서 읽은 커밋의 작성자 표시: "github:<로그인>" */
+export const githubAuthor = (login: string): string => `github:${login.toLowerCase()}`;
+const LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
 
 const EMAIL = /^[^\s@]+@[^\s@]+$/;
 const LABEL_MAX = 40;
@@ -24,14 +30,21 @@ export class GitAccounts {
       const o = a as Record<string, unknown>;
       const label = typeof o['label'] === 'string' ? o['label'].trim().slice(0, LABEL_MAX) : '';
       const emails = [...new Set((Array.isArray(o['emails']) ? o['emails'] : []).filter((e): e is string => typeof e === 'string').map((e) => e.trim().toLowerCase()).filter((e) => EMAIL.test(e)))].slice(0, EMAILS_MAX);
-      if (label !== '' && emails.length > 0) out.push({ label, emails });
+      const github = [...new Set((Array.isArray(o['github']) ? o['github'] : []).filter((g): g is string => typeof g === 'string' && LOGIN.test(g.trim())).map((g) => g.trim().toLowerCase()))].slice(0, EMAILS_MAX);
+      if (label !== '' && (emails.length > 0 || github.length > 0)) out.push(github.length > 0 ? { label, emails, github } : { label, emails });
     }
     return new GitAccounts(out);
   }
 
   labelOf(email: string): string | null {
     const e = email.trim().toLowerCase();
+    if (e.startsWith('github:')) return this.list.find((a) => (a.github ?? []).includes(e.slice(7)))?.label ?? null;
     return this.list.find((a) => a.emails.includes(e))?.label ?? null;
+  }
+
+  /** 계정에 묶인 GitHub 로그인 전부 */
+  get logins(): string[] {
+    return [...new Set(this.list.flatMap((a) => a.github ?? []))];
   }
 }
 
