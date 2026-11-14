@@ -9,6 +9,10 @@
 - DB 나무 남은 일: 연결 여러 개를 동시에 펼치기(지금은 지금 연결 하나만), 스키마 단계(PostgreSQL search_path 밖), 테이블 더블클릭 = 새 SQL 탭(DBeaver 식 편집기 탭)은 없음.
 - Postman 대비 남은 것: 폴더 단위 인증·변수, fetch/axios/Python 코드 스니펫, 응답 검색·JSON 접기, 요청별 시간 제한·리다이렉트 끄기, WebSocket.
 
+## v0.2.11 (2026-11-14) — Kiro·Codex 로그인 창 고침
+
+- Sign in·Switch account 로 뜨는 터미널이 `codex` 명령을 못 찾던 문제: 이름 대신 찾아 둔 전체 경로(node.exe + codex.js, kiro-cli.exe)를 배치 파일로 실행. npm 폴더가 없는 PATH 로 실제 실행 확인.
+
 ## v0.2.10 (2026-11-14) — My work(이력서용)·면접관 패널
 
 - **Git › My work**: 여러 git 계정(개인·회사) 이메일을 나로 묶기(레포에서 찾은 작성자를 단추로 추가), 작업 폴더 모든 레포 커밋을 계정→월→레포로, ✨ Resume bullets(커밋 제목·숫자만 Haiku).
