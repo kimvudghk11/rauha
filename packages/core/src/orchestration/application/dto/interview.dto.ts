@@ -1,8 +1,9 @@
 import { DomainError } from '../../../shared/domain-error.js';
+import type { JobPosting } from '../../domain/job-posting.js';
 
 /**
  * 채용 검토실: A~E 회사 다섯 곳이 내 작업 요약(커밋 제목·숫자)을 읽고 채용 단계를 어디까지 갈지 본다.
- * 회사마다 가상 담당자 3명이 있고, 담당자마다 유명 인물이 공개적으로 한 "사람 보는 법" 하나를 기준으로 맡는다(출처를 밝힌다).
+ * 공고(업종·직무·스택·경쟁률)는 보낼 때마다 job-posting 이 새로 만들고, 방(A~E)마다 가상 담당자 3명이 있고, 담당자마다 유명 인물이 공개적으로 한 "사람 보는 법" 하나를 기준으로 맡는다(출처를 밝힌다).
  * 담당자는 그 인물인 척 말하지 않는다. 회사마다 따로 평가해서 먼저 끝난 회사부터 화면에 결과가 뜬다.
  */
 export interface Principle {
@@ -22,18 +23,6 @@ export interface Recruiter {
 export interface Company {
   /** A~E */
   readonly id: string;
-  /** 회사 이름(가상) */
-  readonly label: string;
-  /** 규모·업종 한 줄 */
-  readonly size: string;
-  /** 채용 공고 직무 */
-  readonly role: string;
-  /** 공고가 원하는 스택·경험 */
-  readonly wants: readonly string[];
-  /** 자리 하나에 오는 지원자 수(경쟁률 N:1) */
-  readonly applicants: number;
-  /** 단계별 통과율(%). 서류 통과율 = 지원자 중 상위 몇 %까지 붙는지 */
-  readonly passRates: Readonly<Record<StageId, number>>;
   readonly lens: string;
   /** 모델에 주는 분위기·말투 */
   readonly style: string;
@@ -47,12 +36,6 @@ const people = '인사 담당';
 export const COMPANIES: readonly Company[] = [
   {
     id: 'A',
-    label: 'A사 · 금융 운용사',
-    size: '임직원 3,000명 · 증권 · 안정성 우선',
-    role: '백엔드 개발자(경력 3년 이상)',
-    wants: ['Java', 'Spring Boot', 'Oracle·SQL 튜닝', '배치 처리', '금융 도메인·정합성'],
-    applicants: 60,
-    passRates: { document: 20, assignment: 50, technical: 40, culture: 60, offer: 85 },
     lens: 'Integrity, long-term value, knowing your limits',
     style: 'Calm, plain words, short anecdotes; asks what lasts ten years and whether the record is honest.',
     recruiters: [
@@ -63,12 +46,6 @@ export const COMPANIES: readonly Company[] = [
   },
   {
     id: 'B',
-    label: 'B사 · 소비자 제품',
-    size: '월 사용자 1,000만 · 커머스 B2C',
-    role: '프론트엔드 개발자(경력 3년 이상)',
-    wants: ['TypeScript', 'React', 'Next.js', '디자인 시스템', '웹 성능 지표 개선'],
-    applicants: 180,
-    passRates: { document: 10, assignment: 45, technical: 35, culture: 60, offer: 85 },
     lens: 'Product taste, craft, growth',
     style: 'Intense, blunt, obsessed with simplicity and the end user; dislikes feature lists without a point.',
     recruiters: [
@@ -79,12 +56,6 @@ export const COMPANIES: readonly Company[] = [
   },
   {
     id: 'C',
-    label: 'C사 · 핀테크',
-    size: '유니콘 · 송금·결제',
-    role: '서버 개발자(경력 3년 이상)',
-    wants: ['Kotlin', 'Spring', 'Kafka', 'MySQL', '대용량 트래픽', '돈의 정합성'],
-    applicants: 250,
-    passRates: { document: 8, assignment: 40, technical: 30, culture: 55, offer: 85 },
     lens: 'Technical depth, evidence in code, finishing',
     style: 'Fast, precise, keeps asking "why" and "how did you measure it"; cares about reliability, money flows and ownership.',
     recruiters: [
@@ -95,12 +66,6 @@ export const COMPANIES: readonly Company[] = [
   },
   {
     id: 'D',
-    label: 'D사 · 대규모 플랫폼',
-    size: '빅테크 · 클라우드 플랫폼',
-    role: '백엔드·인프라 엔지니어(경력 5년 이상)',
-    wants: ['Go 또는 Java', 'Kubernetes', 'AWS', '분산 시스템', '장애 대응·SRE'],
-    applicants: 300,
-    passRates: { document: 6, assignment: 40, technical: 30, culture: 50, offer: 80 },
     lens: 'Scale, reliability, raising the bar',
     style: 'Methodical; asks about trade-offs, failure modes, boundaries and how the system grows.',
     recruiters: [
@@ -111,12 +76,6 @@ export const COMPANIES: readonly Company[] = [
   },
   {
     id: 'E',
-    label: 'E사 · 초기 스타트업',
-    size: '시리즈 A SaaS · 12명',
-    role: '풀스택 개발자(연차 무관)',
-    wants: ['TypeScript', 'Node.js', 'React', 'AWS', '혼자 끝까지 만들어 낸 경험'],
-    applicants: 25,
-    passRates: { document: 35, assignment: 50, technical: 45, culture: 60, offer: 80 },
     lens: 'Execution, speed, initiative',
     style: 'Energetic; cares about shipping, learning loops and doing hard things without being asked.',
     recruiters: [
@@ -197,18 +156,20 @@ const strs = (v: unknown, n = 6): string[] => (Array.isArray(v) ? v.map((x) => s
 const stage = (v: unknown): StageId => (stageIds.includes(v as string) ? (v as StageId) : 'document');
 const stampOf = (v: unknown): Stamp => ((STAMPS as readonly string[]).includes(v as string) ? (v as Stamp) : 'hold');
 const TALK_MAX = 12;
+/** 공고 연차보다 이만큼 모자라면 서류 PASS 를 주지 않는다 */
+export const YEARS_GAP_MAX = 3;
 
 export class CompanyVerdictDto {
   private constructor() {}
 
   /** 모델이 낸 한 회사의 평가. 담당자 이름은 이 회사 사람만 받는다(지어낸 이름은 버림) */
-  static from(company: Company, output: unknown): CompanyVerdict {
-    if (!isObj(output)) throw new DomainError('INTERVIEW_FAILED', `Could not read ${company.label}'s evaluation.`);
+  static from(company: Company, posting: JobPosting, output: unknown, years: number): CompanyVerdict {
+    if (!isObj(output)) throw new DomainError('INTERVIEW_FAILED', `Could not read ${posting.label}'s evaluation.`);
     const names = company.recruiters.map((r) => r.name);
     const rows = (v: unknown, key: string): { who: string; text: string }[] =>
       (Array.isArray(v) ? v.filter(isObj) : []).map((x) => ({ who: str(x['who'], 40), text: str(x[key], 500) })).filter((x) => names.includes(x.who) && x.text !== '');
     const notes = rows(output['notes'], 'note');
-    const { reached, stamp, percentile } = CompanyVerdictDto.calibrate(company, stage(output['reached']), stampOf(output['stamp']), output['percentile']);
+    const { reached, stamp, percentile } = CompanyVerdictDto.calibrate(posting, years, stage(output['reached']), stampOf(output['stamp']), output['percentile']);
     return {
       id: company.id,
       reached,
@@ -228,14 +189,16 @@ export class CompanyVerdictDto {
 
   /**
    * 후하게 나오지 않게 하는 규칙. 서류 통과율이 8%면 지원자 중 상위 8% 안이어야 PASS.
-   * 통과선 밖이면 2배 안은 HOLD, 그 밖은 DROP. 도장과 단계가 어긋나면 더 엄격한 쪽을 따른다.
+   * 통과선 밖이면 2배 안은 HOLD, 그 밖은 DROP. 공고 연차보다 3년 이상 모자라면 PASS 불가(HOLD).
+   * 도장과 단계가 어긋나면 더 엄격한 쪽을 따른다.
    */
-  private static calibrate(company: Company, reached0: StageId, stamp0: Stamp, rawPct: unknown): { reached: StageId; stamp: Stamp; percentile: number } {
+  private static calibrate(posting: JobPosting, years: number, reached0: StageId, stamp0: Stamp, rawPct: unknown): { reached: StageId; stamp: Stamp; percentile: number } {
     const percentile = typeof rawPct === 'number' && Number.isFinite(rawPct) && rawPct >= 1 && rawPct <= 100 ? Math.round(rawPct) : 100;
-    const cut = company.passRates.document;
+    const cut = posting.passRates.document;
     let stamp = stamp0;
     let reached = reached0;
     if (percentile > cut && stamp === 'pass') stamp = percentile <= cut * 2 ? 'hold' : 'drop';
+    if (posting.minYears - years >= YEARS_GAP_MAX && stamp === 'pass') stamp = 'hold';
     if (stamp !== 'pass') reached = 'document';
     else if (reached === 'document') stamp = 'hold';
     return { reached, stamp, percentile };

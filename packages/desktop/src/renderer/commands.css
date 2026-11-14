@@ -222,3 +222,18 @@
 .hr-rank-me { position: absolute; top: 50%; width: 14px; height: 14px; border-radius: 50%; transform: translate(-50%, -50%); border: 2px solid var(--bg); background: var(--yellow); }
 .hr-rank-me.pass { background: var(--green); }
 .hr-rank-me.drop { background: var(--red); }
+.hr-market { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
+.hr-hub { align-items: stretch; justify-content: flex-start; text-align: left; overflow: auto; }
+.hr-hub > .px, .hr-hub > b { align-self: center; }
+.hr-field { display: flex; align-items: center; justify-content: space-between; gap: var(--s2); font-size: var(--fs-xs); color: var(--muted); }
+.hr-field.col { flex-direction: column; align-items: stretch; }
+.hr-years { width: 72px; }
+.hr-role { max-width: 60%; }
+.hr-dbs { display: flex; flex-wrap: wrap; gap: 4px; }
+.hr-db { font-size: var(--fs-xs); padding: 1px 8px; border-radius: var(--r-pill); border: 1px solid var(--border2); background: transparent; color: var(--muted); cursor: pointer; }
+.hr-db.on { color: var(--bright); border-color: var(--delfi); background: color-mix(in srgb, var(--delfi) 18%, transparent); }
+.hr-db.git::after { content: " · git"; color: var(--dim); }
+.hr-db-other { width: 120px; font-size: var(--fs-xs); }
+.hr-stack { font-size: var(--fs-xs); overflow-wrap: anywhere; }
+.hr-basis { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s2); align-items: center; margin-top: 2px; }
+.hr-src { font-size: var(--fs-xs); color: var(--accentfg); }

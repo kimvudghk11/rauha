@@ -1,4 +1,5 @@
-import { randomUUID } from 'node:crypto';
+import { randomInt, randomUUID } from 'node:crypto';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { cpus, homedir, release, userInfo } from 'node:os';
 import { basename, join, resolve as resolvePath } from 'node:path';
 import { CLAUDE_HISTORY_IPC } from '../shared/claude-history-ipc.js';
@@ -9,12 +10,13 @@ import { MY_WORK_IPC } from '../shared/my-work-ipc.js';
 import { GitAccounts, resumeNote, summarizeWork } from '../shared/my-work.js';
 import { INTERVIEW_IPC, type WorkFacts } from '../shared/interview-ipc.js';
 import { workFacts } from '../shared/hiring-banter.js';
+import { hiringInputOf } from '../shared/hiring-input.js';
 import { scanMyWork, scanRepoStacks } from './git/my-work-service.js';
 import { accessSync, constants as fsConstants, existsSync, readdirSync, statSync } from 'node:fs';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, Notification, safeStorage, screen, shell, type IpcMainInvokeEvent } from 'electron';
-import { DefaultRuleSet, DefaultRulesDto, DomainError, askInterviewer, COMPANIES, companyOf, discoverRepos, draftBlog, draftCommit, draftResume, draftRule, evaluateCompany, STAGES, FileRuleStore, loadSecretPolicy, PromptLibrary, readPlanUsage, RuleBook, RuleBookDto, type PlanUsage } from '@rauha/core';
+import { DefaultRuleSet, DefaultRulesDto, DomainError, askInterviewer, COMPANIES, companyOf, discoverRepos, draftBlog, draftCommit, draftPostings, draftResume, draftRule, evaluateCompany, INDUSTRY_ROLES, MarketDto, researchMarket, STAGES, type JobPosting, type Market, FileRuleStore, loadSecretPolicy, PromptLibrary, readPlanUsage, RuleBook, RuleBookDto, type PlanUsage } from '@rauha/core';
 import { JobRunner } from '@rauha/core/jobs';
 import { replaceRule, ruleSizeError, type RuleView } from '../shared/rules-form.js';
 import { boardView, jobView, IPC, type ThreadLink, type ApprovalChoice, type DiagnosticsResult, type RepoRow, type SettingsPatch } from '../shared/ipc.js';
@@ -974,7 +976,7 @@ void app.whenReady().then(async () => {
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
   });
-  // 채용 검토실: My work 에 묶은 내 계정들의 커밋 요약(제목·숫자만)으로 A~E 회사가 따로 평가·대화.
+  // 채용 검토실: My work 에 묶은 내 계정들의 커밋 요약(제목·숫자·언어·설정 파일 스택)으로 A~E 회사가 따로 평가·대화.
   // 다섯 회사가 같은 요약을 쓰므로 한 번 모아 두고(계정·작업 폴더가 같을 때) 다시 쓴다
   let workCache: { key: string; note: string; facts: WorkFacts } | null = null;
   const myWork = async (): Promise<{ note: string; facts: WorkFacts } | null> => {
@@ -989,23 +991,56 @@ void app.whenReady().then(async () => {
     workCache = { key, note: resumeNote(summary), facts: workFacts(summary) };
     return workCache;
   };
-  const myWorkNote = async (): Promise<string> => (await myWork().catch(() => null))?.note ?? '';
+  // 이번에 보낸 이력서: 연차·공고(main 이 만든 것만 믿는다)·DB 를 붙인 요약
+  let round: { years: number; postings: Map<string, JobPosting>; note: string } | null = null;
+  const marketFile = join(dataDir, 'hiring-market.json');
+  const loadMarket = async (): Promise<Market | null> => MarketDto.fromSaved(JSON.parse(await readFile(marketFile, 'utf8').catch(() => 'null')));
   const interviewEnv = async (): Promise<Record<string, string>> => ({ ...(process.env as Record<string, string>), ...(await profileResolver(home, settings.account))(currentWorkDir()).agentEnv(home) });
   const NEED_ACCOUNTS = 'Add your git accounts in Git > My work first. The recruiters read your commits from there.';
+  const NEED_ROUND = 'Send your resume first.';
   ipcMain.handle(INTERVIEW_IPC.panel, () => ({
-    companies: COMPANIES.map((c) => ({ id: c.id, label: c.label, lens: c.lens, size: c.size, role: c.role, wants: c.wants, applicants: c.applicants, passRates: c.passRates, recruiters: c.recruiters.map((r) => ({ name: r.name, title: r.title, by: r.principle.by, rule: r.principle.rule })) })),
+    companies: COMPANIES.map((c) => ({ id: c.id, lens: c.lens, recruiters: c.recruiters.map((r) => ({ name: r.name, title: r.title, by: r.principle.by, rule: r.principle.rule })) })),
     stages: STAGES.map((s) => ({ id: s.id, label: s.label })),
   }));
-  ipcMain.handle(INTERVIEW_IPC.prepare, async () => {
-    workCache = null;
+  ipcMain.handle(INTERVIEW_IPC.facts, async () => {
     const w = await myWork().catch(() => null);
     return w === null ? { ok: false, error: NEED_ACCOUNTS } : { ok: true, data: w.facts };
+  });
+  ipcMain.handle(INTERVIEW_IPC.prepare, async (_e, raw: unknown) => {
+    const input = hiringInputOf(raw);
+    if (input === null) return { ok: false, error: 'Enter your years of experience (0 to 40).' };
+    workCache = null;
+    const w = await myWork().catch(() => null);
+    if (w === null) return { ok: false, error: NEED_ACCOUNTS };
+    // 보낼 때마다 다른 회사 조건: seed 는 main 이 정한다(화면이 고르지 못하게)
+    const postings = draftPostings({ years: input.years, role: input.role, seed: randomInt(1, 2 ** 31 - 1) }, await loadMarket().catch(() => null));
+    const dbLine = input.dbs.length === 0 ? '' : `\n## Databases the candidate says they use (self-reported, not from git)\n${input.dbs.join(', ')}`;
+    round = { years: input.years, postings: new Map(postings.map((p) => [p.id, p])), note: `${w.note}${dbLine}` };
+    return { ok: true, data: { facts: w.facts, postings } };
+  });
+  ipcMain.handle(INTERVIEW_IPC.market, async () => {
+    const m = await loadMarket().catch(() => null);
+    return { checkedAt: m?.checkedAt ?? null, profiles: m?.profiles.length ?? 0 };
+  });
+  ipcMain.handle(INTERVIEW_IPC.refreshMarket, async () => {
+    // 확인한 날은 이 컴퓨터 날짜(YYYY-MM-DD)
+    const today = new Date().toLocaleDateString('sv-SE');
+    try {
+      const market = FAKE
+        ? MarketDto.from({ profiles: INDUSTRY_ROLES.flatMap((i) => i.roles.map((role) => ({ industry: i.name, role, stacks: [['(test) Kotlin', 'Spring', 'MySQL']], extras: ['(test) 대용량 트래픽'], companies: ['(test) 예시회사'], sources: [{ title: '(test) 공고', url: 'https://example.com/jobs/1' }] }))) }, today)
+        : await researchMarket(today, await interviewEnv(), claudeExecutable(), settings.models.sonnet);
+      await mkdir(dataDir, { recursive: true });
+      await writeFile(marketFile, JSON.stringify(market, null, 2), 'utf8');
+      return { ok: true, data: { checkedAt: market.checkedAt, profiles: market.profiles.length } };
+    } catch (e) {
+      return { ok: false, error: e instanceof DomainError ? e.message : 'Could not look up real postings. Check sign-in or the usage limit.' };
+    }
   });
   ipcMain.handle(INTERVIEW_IPC.evaluate, async (_e, id: unknown) => {
     const c = companyOf(id);
     if (c === null) return { ok: false, error: 'Unknown company.' };
-    const note = await myWorkNote();
-    if (note === '') return { ok: false, error: NEED_ACCOUNTS };
+    const posting = round?.postings.get(c.id);
+    if (round === null || posting === undefined) return { ok: false, error: NEED_ROUND };
     if (FAKE) {
       // 확인용: 회사마다 끝나는 시각을 달리해 먼저 끝난 곳부터 보이는지 본다
       const i = COMPANIES.indexOf(c);
@@ -1019,8 +1054,8 @@ void app.whenReady().then(async () => {
           stamp: (['pass', 'pass', 'drop', 'pass', 'hold'] as const)[i]!,
           percentile: [12, 9, 40, 5, 50][i]!,
           stackHave: ['TypeScript'],
-          stackMissing: c.wants.slice(0, 2),
-          comment: `(test) ${c.label}`,
+          stackMissing: posting.wants.slice(0, 2),
+          comment: `(test) ${posting.label}`,
           strengths: ['tests'],
           gaps: ['no impact numbers'],
           question: 'Why?',
@@ -1031,19 +1066,19 @@ void app.whenReady().then(async () => {
       };
     }
     try {
-      return { ok: true, data: await evaluateCompany(c.id, note, await interviewEnv(), claudeExecutable(), settings.models.sonnet) };
+      return { ok: true, data: await evaluateCompany(c.id, posting, round.years, round.note, await interviewEnv(), claudeExecutable(), settings.models.sonnet) };
     } catch (e) {
-      return { ok: false, error: e instanceof DomainError ? e.message : `${c.label} could not answer. Check sign-in or the usage limit.` };
+      return { ok: false, error: e instanceof DomainError ? e.message : `${posting.label} could not answer. Check sign-in or the usage limit.` };
     }
   });
   ipcMain.handle(INTERVIEW_IPC.ask, async (_e, id: unknown, history: unknown, question: unknown) => {
     if (typeof id !== 'string' || typeof question !== 'string' || question.trim() === '') return { ok: false, error: 'Type a question first.' };
     const turns = (Array.isArray(history) ? history : []).filter((h): h is { from: 'me' | 'them'; text: string } => typeof h === 'object' && h !== null && (h.from === 'me' || h.from === 'them') && typeof h.text === 'string').slice(-8);
-    const note = await myWorkNote();
-    if (note === '') return { ok: false, error: NEED_ACCOUNTS };
+    const posting = round?.postings.get(id);
+    if (round === null || posting === undefined) return { ok: false, error: NEED_ROUND };
     if (FAKE) return { ok: true, data: `${companyOf(id)?.recruiters[0]?.name ?? id}: (test) ${question.slice(0, 40)}` };
     try {
-      return { ok: true, data: await askInterviewer(id, note, turns, question, await interviewEnv(), claudeExecutable(), settings.models.haiku) };
+      return { ok: true, data: await askInterviewer(id, posting, round.years, round.note, turns, question, await interviewEnv(), claudeExecutable(), settings.models.haiku) };
     } catch (e) {
       return { ok: false, error: e instanceof DomainError ? e.message : 'The recruiters could not answer.' };
     }

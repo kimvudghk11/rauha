@@ -93,7 +93,10 @@ const api: RauhaApi = {
   },
   interview: {
     panel: () => ipcRenderer.invoke(INTERVIEW_IPC.panel),
-    prepare: () => ipcRenderer.invoke(INTERVIEW_IPC.prepare),
+    facts: () => ipcRenderer.invoke(INTERVIEW_IPC.facts),
+    prepare: (input) => ipcRenderer.invoke(INTERVIEW_IPC.prepare, input),
+    market: () => ipcRenderer.invoke(INTERVIEW_IPC.market),
+    refreshMarket: () => ipcRenderer.invoke(INTERVIEW_IPC.refreshMarket),
     evaluate: (id) => ipcRenderer.invoke(INTERVIEW_IPC.evaluate, id),
     ask: (id, history, question) => ipcRenderer.invoke(INTERVIEW_IPC.ask, id, history, question),
   },
