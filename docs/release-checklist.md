@@ -9,6 +9,13 @@
 - DB 나무 남은 일: 연결 여러 개를 동시에 펼치기(지금은 지금 연결 하나만), 스키마 단계(PostgreSQL search_path 밖), 테이블 더블클릭 = 새 SQL 탭(DBeaver 식 편집기 탭)은 없음.
 - Postman 대비 남은 것: 폴더 단위 인증·변수, fetch/axios/Python 코드 스니펫, 응답 검색·JSON 접기, 요청별 시간 제한·리다이렉트 끄기, WebSocket.
 
+## v0.2.10 (2026-11-14) — My work(이력서용)·면접관 패널
+
+- **Git › My work**: 여러 git 계정(개인·회사) 이메일을 나로 묶기(레포에서 찾은 작성자를 단추로 추가), 작업 폴더 모든 레포 커밋을 계정→월→레포로, ✨ Resume bullets(커밋 제목·숫자만 Haiku).
+- **Interview 탭**: 가상 면접관 5명(실존 인물 아님)이 1차 서류~최종 중 어디까지 갈지·잘하는 것·부족한 것·다음 질문, 면접관별 대화. 실제 sonnet 평가 29초 확인.
+- 전체 테스트 4,996개 통과. v0.2.9 설치 파일(exe 218MB · arm64 237MB · x64 248MB).
+- 남음: gh 여러 계정 로그인·저장소별 계정, Codex 실제 답 확인.
+
 ## v0.2.9 (2026-11-14) — 모든 대화·이어가기·팀 대화·컨셉 무대·여백
 
 - **Records = All conversations**(기본): Claude Code(모든 rauha 계정)·Kiro CLI·Kiro crew·Codex 한 목록, 출처 칩, 질문 카드(You asked / <AI> did: 한 일 요약 + 접히는 답), 내 질문만, ✍ Blog post.
