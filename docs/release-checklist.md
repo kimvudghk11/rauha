@@ -9,6 +9,13 @@
 - DB 나무 남은 일: 연결 여러 개를 동시에 펼치기(지금은 지금 연결 하나만), 스키마 단계(PostgreSQL search_path 밖), 테이블 더블클릭 = 새 SQL 탭(DBeaver 식 편집기 탭)은 없음.
 - Postman 대비 남은 것: 폴더 단위 인증·변수, fetch/axios/Python 코드 스니펫, 응답 검색·JSON 접기, 요청별 시간 제한·리다이렉트 끄기, WebSocket.
 
+## v0.2.16 (2026-11-15) — GitHub 계정 여러 개로 clone 없이 내 작업 읽기
+
+- Git › My work › GitHub accounts: gh CLI 로 개인·회사 계정을 각각 로그인(+ Add GitHub account → 터미널), 계정마다 Personal·Company 에 묶기.
+- Read from GitHub: 레포 목록(계정당 최근 60개), 내 커밋(레포당 200개, 제목·시각), 언어 비중(레포 통계로 어림), 파일 트리(아키텍처 신호·파일 구성 스택), 얕은 설정 파일 15개(스택 이름). 하루 저장, My work·채용 검토실에 로컬 커밋과 합침.
+- 토큰은 main 안에서만(gh auth token --user). 조직 SSO 로 막히면 gh auth refresh 안내.
+- 확인: 가짜 GitHub API 로 서비스 테스트(여러 계정·NestJS·Spring·SSO·저장 재사용). 이 PC 에는 gh 가 없어 실제 계정으로는 미확인.
+
 ## v0.2.15 (2026-11-15) — 채용 검토실: 매번 새 공고·회사 평가표·아키텍처·N차 review
 
 - Me 칸: 연차(필수)·희망 직무·희망 연봉(선택, 최종 처우만)·쓰는 DB(git 에서 찾은 것 미리 체크). 기술 스택은 git 에서만(읽은 레포별 스택 표시).
