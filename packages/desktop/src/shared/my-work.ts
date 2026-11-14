@@ -109,6 +109,8 @@ export interface WorkSummary {
 export interface RepoStack {
   readonly repo: string;
   readonly stack: readonly string[];
+  /** 파일 배치에서 읽은 아키텍처 신호(사람이 읽는 줄) */
+  readonly architecture: readonly string[];
 }
 
 const monthOf = (at: number): string => new Date(at * 1000).toISOString().slice(0, 7);
@@ -150,7 +152,7 @@ export function summarizeWork(commits: readonly WorkCommit[], accounts: GitAccou
   });
   accountsOut.sort((a, b) => b.last - a.last);
   const myRepos = new Set([...mine.values()].flat().map((c) => c.repo));
-  return { total: accountsOut.reduce((n, a) => n + a.commits, 0), accounts: accountsOut, others: [...others.values()].sort((a, b) => b.commits - a.commits), stacks: stacks.filter((r) => myRepos.has(r.repo) && r.stack.length > 0) };
+  return { total: accountsOut.reduce((n, a) => n + a.commits, 0), accounts: accountsOut, others: [...others.values()].sort((a, b) => b.commits - a.commits), stacks: stacks.filter((r) => myRepos.has(r.repo) && (r.stack.length > 0 || r.architecture.length > 0)) };
 }
 
 const NOTE_MAX = 12_000;
@@ -164,8 +166,11 @@ export function resumeNote(s: WorkSummary): string {
     lines.push(`# Overview: ${s.total} commits, history spans ${monthOf(first)} ~ ${monthOf(last)} (about ${Math.max(1, Math.round((last - first) / (30 * 86400)))} months)`);
   }
   if (s.stacks.length > 0) {
-    lines.push('## Repo tech stacks (read from manifests like package.json, build.gradle)');
-    for (const r of s.stacks) lines.push(`- ${r.repo}: ${r.stack.join(', ')}`);
+    lines.push('## Repo tech stacks and architecture (read from manifests and the file layout, no code)');
+    for (const r of s.stacks) {
+      lines.push(`- ${r.repo}: ${r.stack.join(', ') || '(no manifest stack)'}`);
+      for (const a of r.architecture) lines.push(`  - ${a}`);
+    }
   }
   for (const a of s.accounts) {
     const changed = a.langs.reduce((n, l) => n + l.lines, 0);

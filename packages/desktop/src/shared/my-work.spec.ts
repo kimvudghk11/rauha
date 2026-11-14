@@ -55,9 +55,10 @@ describe('내 작업 묶기', () => {
     expect(summarizeWork(commits, accounts).accounts[1]!.langs).toEqual([{ lang: 'TypeScript', lines: 12 }]);
   });
   it('메모에 기록 기간, 바꾼 언어 비중, 내가 커밋한 레포의 설정 파일 스택이 들어간다(남의 레포 스택은 빼고)', () => {
-    const note = resumeNote(summarizeWork(commits, accounts, [{ repo: 'shop', stack: ['React', 'Vitest'] }, { repo: 'other', stack: ['Django'] }]));
+    const note = resumeNote(summarizeWork(commits, accounts, [{ repo: 'shop', stack: ['React', 'Vitest'], architecture: ['layered folders: domain, application'] }, { repo: 'other', stack: ['Django'], architecture: [] }]));
     expect(note).toMatch(/TypeScript 100%/);
     expect(note).toContain('shop: React, Vitest');
+    expect(note).toContain('layered folders: domain, application');
     expect(note).not.toContain('Django');
     expect(note).toMatch(/2024-05 ~ 2024-06/);
   });

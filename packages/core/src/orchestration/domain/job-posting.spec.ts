@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { draftPostings, INDUSTRY_ROLES, JOB_ROLES, seniorityOf, type Market } from './job-posting.js';
+import { CRITERIA, draftPostings, INDUSTRY_ROLES, JOB_ROLES, seniorityOf, type Market } from './job-posting.js';
 
 const ids = ['A', 'B', 'C', 'D', 'E'];
 
@@ -72,5 +72,44 @@ describe('실제 공고에서 모은 시장 정보로 만들기', () => {
   });
   it('시장 정보가 없으면 내장 틀(근거 없음)', () => {
     expect(draftPostings({ years: 3, role: 'any', seed: 5 }).every((p) => p.basis === null)).toBe(true);
+  });
+});
+
+describe('회사마다 서류 평가표(실제 회사가 AI 서류 검토에 주는 기준처럼)', () => {
+  it('항목 다섯, 배점 합 100, 기준 점수와 언어 정책·주 언어가 있다', () => {
+    for (let seed = 1; seed <= 30; seed++)
+      for (const p of draftPostings({ years: 4, role: 'any', seed })) {
+        expect(p.rubric.criteria).toHaveLength(5);
+        expect(new Set(p.rubric.criteria.map((c) => c.key)).size).toBe(5);
+        expect(p.rubric.criteria.reduce((n, c) => n + c.weight, 0)).toBe(100);
+        for (const c of p.rubric.criteria) expect(c.label).toBe(CRITERIA[c.key]);
+        expect(p.rubric.passScore).toBeGreaterThanOrEqual(55);
+        expect(p.rubric.passScore).toBeLessThanOrEqual(85);
+        expect(['required', 'preferred', 'any']).toContain(p.rubric.languagePolicy);
+        expect(p.wants).toContain(p.rubric.mainLanguage);
+      }
+  });
+  it('스타트업은 성과·성장에, 빅테크는 설계·깊이에 무게를 두고 기준 점수가 더 높다', () => {
+    const all = Array.from({ length: 40 }, (_, s) => draftPostings({ years: 4, role: 'any', seed: s + 1 })).flat();
+    const s = all.filter((p) => p.tier === 'startup');
+    const b = all.filter((p) => p.tier === 'bigtech');
+    expect(s.every((p) => p.rubric.criteria.slice(0, 3).map((c) => c.key).includes('impact'))).toBe(true);
+    expect(b.every((p) => p.rubric.criteria.slice(0, 3).map((c) => c.key).includes('design'))).toBe(true);
+    const avg = (xs: typeof all) => xs.reduce((n, p) => n + p.rubric.passScore, 0) / xs.length;
+    expect(avg(b)).toBeGreaterThan(avg(s));
+  });
+  it('언어 정책은 회사마다 달라 언어 무관 공고도 나온다', () => {
+    const all = Array.from({ length: 20 }, (_, s) => draftPostings({ years: 4, role: 'any', seed: s + 1 })).flat();
+    expect(new Set(all.map((p) => p.rubric.languagePolicy))).toEqual(new Set(['required', 'preferred', 'any']));
+  });
+});
+
+describe('연봉 범위(만 원)', () => {
+  it('최소 < 최대, 연차가 높을수록·빅테크일수록 높다', () => {
+    const all = Array.from({ length: 40 }, (_, s) => draftPostings({ years: 4, role: 'any', seed: s + 1 })).flat();
+    for (const p of all) expect(p.salary.min).toBeLessThan(p.salary.max);
+    const avg = (xs: typeof all) => xs.reduce((n, p) => n + p.salary.max, 0) / xs.length;
+    expect(avg(all.filter((p) => p.tier === 'bigtech'))).toBeGreaterThan(avg(all.filter((p) => p.tier === 'startup')));
+    expect(avg(all.filter((p) => p.minYears >= 6))).toBeGreaterThan(avg(all.filter((p) => p.minYears <= 2)));
   });
 });

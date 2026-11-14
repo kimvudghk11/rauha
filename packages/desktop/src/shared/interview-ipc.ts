@@ -1,3 +1,5 @@
+import type { HiringRound } from './hiring-history.js';
+
 /** 채용 검토실 채널과 화면용 모양(core 의 interview.dto 와 같은 모양) */
 export const INTERVIEW_IPC = {
   panel: 'interview:panel',
@@ -5,6 +7,7 @@ export const INTERVIEW_IPC = {
   prepare: 'interview:prepare',
   market: 'interview:market',
   refreshMarket: 'interview:refresh-market',
+  history: 'interview:history',
   evaluate: 'interview:evaluate',
   ask: 'interview:ask',
 } as const;
@@ -36,6 +39,10 @@ export interface PostingView {
   readonly applicants: number;
   /** 단계별 통과율(%) */
   readonly passRates: Readonly<Record<string, number>>;
+  /** 회사 서류 평가표: 항목·배점(합 100)·언어 정책·기준 점수 */
+  readonly rubric: { readonly criteria: readonly { readonly key: string; readonly label: string; readonly weight: number }[]; readonly languagePolicy: 'required' | 'preferred' | 'any'; readonly mainLanguage: string; readonly passScore: number };
+  /** 연봉 범위(만 원) */
+  readonly salary: { readonly min: number; readonly max: number };
   /** 실제 공고 근거(시장 정보로 만들었을 때) */
   readonly basis: { readonly companies: readonly string[]; readonly sources: readonly { readonly title: string; readonly url: string }[]; readonly checkedAt: string } | null;
 }
@@ -57,8 +64,12 @@ export interface VerdictView {
   readonly id: string;
   readonly reached: string;
   readonly stamp: StampView;
-  /** 이 회사 지원자 중 추정 순위(상위 %) */
+  /** 이 회사 지원자 중 추정 순위(상위 %) — 참고용 */
   readonly percentile: number;
+  /** 평가표 항목별 점수와 근거, 배점 반영 합계 */
+  readonly scores: readonly { readonly key: string; readonly label: string; readonly weight: number; readonly score: number; readonly evidence: string }[];
+  readonly total: number;
+  readonly languageMet: boolean;
   readonly stackHave: readonly string[];
   readonly stackMissing: readonly string[];
   readonly comment: string;
@@ -81,6 +92,8 @@ export interface WorkFacts {
   readonly langs: readonly { readonly lang: string; readonly share: number }[];
   /** 레포 설정 파일에서 읽은 스택(합쳐서) */
   readonly stack: readonly string[];
+  /** 읽은 레포마다 스택(Me 칸에서 빠진 게 없는지 보인다) */
+  readonly scanned: readonly { readonly repo: string; readonly stack: readonly string[] }[];
 }
 
 /** 보내기 전 Me 칸 입력 */
@@ -88,6 +101,8 @@ export interface PrepareInput {
   readonly years: number;
   readonly role: string;
   readonly dbs: readonly string[];
+  /** 희망 연봉(만 원), 없으면 null */
+  readonly desiredSalary: number | null;
 }
 
 export type InterviewReply<T> = { readonly ok: true; readonly data: T } | { readonly ok: false; readonly error: string };
@@ -104,6 +119,8 @@ export interface InterviewApi {
   refreshMarket(): Promise<InterviewReply<MarketView>>;
   /** 회사 한 곳의 평가(회사마다 따로 불러 먼저 끝난 곳부터 보인다) */
   evaluate(id: string): Promise<InterviewReply<VerdictView>>;
+  /** N차 리뷰 기록(최근 20회차) */
+  history(): Promise<{ readonly rounds: readonly HiringRound[] }>;
   /** 회사 담당자들과 대화 */
   ask(id: string, history: readonly { readonly from: 'me' | 'them'; readonly text: string }[], question: string): Promise<InterviewReply<string>>;
 }

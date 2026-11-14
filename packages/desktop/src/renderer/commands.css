@@ -237,3 +237,18 @@
 .hr-stack { font-size: var(--fs-xs); overflow-wrap: anywhere; }
 .hr-basis { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s2); align-items: center; margin-top: 2px; }
 .hr-src { font-size: var(--fs-xs); color: var(--accentfg); }
+
+.hr-rubric { display: flex; flex-direction: column; gap: 4px; padding: var(--s2) var(--s3); border: 1px solid var(--border); border-radius: var(--r-md); }
+.hr-rubric-head { font-size: var(--fs-xs); color: var(--muted); margin-bottom: 2px; }
+.hr-rubric-row { display: grid; grid-template-columns: 9em 90px 2.5em minmax(0, 1fr); gap: var(--s2); align-items: center; font-size: var(--fs-sm); }
+.hr-rubric-label { color: var(--text); white-space: nowrap; }
+.hr-rubric-bar { height: 8px; border-radius: var(--r-pill); background: var(--well); overflow: hidden; }
+.hr-rubric-fill { height: 100%; background: var(--co); }
+.hr-rubric-score { text-align: right; font-variant-numeric: tabular-nums; color: var(--bright); }
+.hr-rubric-ev { color: var(--muted); font-size: var(--fs-xs); min-width: 0; overflow-wrap: anywhere; }
+.hr-rubric-total { margin-top: 4px; font-weight: 700; font-size: var(--fs-sm); }
+.hr-rubric-total.pass { color: var(--green); }
+.hr-rubric-total.hold { color: var(--yellow); }
+.hr-rubric-total.drop { color: var(--red); }
+.hr-history { --co: var(--delfi); }
+.hr-round { margin: 0; white-space: pre-wrap; font-family: inherit; font-size: var(--fs-sm); line-height: 1.6; padding: var(--s2) var(--s3); border: 1px solid var(--border); border-radius: var(--r-md); background: var(--well); }

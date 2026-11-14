@@ -20,9 +20,9 @@ export function langOf(path: string): string | null {
 }
 
 const MANIFESTS = new Set(['package.json', 'build.gradle', 'build.gradle.kts', 'pom.xml', 'requirements.txt', 'pyproject.toml', 'go.mod', 'Cargo.toml', 'Gemfile', 'composer.json', 'Dockerfile', 'docker-compose.yml', 'docker-compose.yaml', 'compose.yaml', 'Chart.yaml', 'pubspec.yaml']);
-const MAX_DEPTH = 3;
+const MAX_DEPTH = 5;
 
-/** 스택을 읽을 설정 파일인지(레포 안 경로, / 구분) */
+/** 스택을 읽을 설정 파일인지(레포 안 경로, / 구분, 깊이 5 까지 — 모노레포 apps/api/package.json 같은 곳도) */
 export function isManifestPath(path: string): boolean {
   const parts = path.split('/');
   if (parts.some((p) => p === 'node_modules' || p === 'vendor' || p === 'dist' || p === 'build')) return false;

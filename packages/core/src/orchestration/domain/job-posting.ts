@@ -34,6 +34,38 @@ export interface JobPosting {
   readonly passRates: Readonly<Record<StageKey, number>>;
   /** 실제 공고 근거(웹에서 찾아 저장한 시장 정보로 만들었을 때). 내장 틀이면 null */
   readonly basis: PostingBasis | null;
+  /** 이 회사가 서류를 거르는 평가표(실제 회사가 AI 서류 검토에 주는 기준처럼) */
+  readonly rubric: Rubric;
+  /** 이 자리 연봉 범위(만 원, 연봉) — 최종 처우 단계에서 희망 연봉과 비교 */
+  readonly salary: { readonly min: number; readonly max: number };
+}
+
+export type CriterionKey = 'design' | 'depth' | 'fit' | 'ops' | 'collab' | 'growth' | 'impact';
+export const CRITERIA: Readonly<Record<CriterionKey, string>> = {
+  design: '문제 해결·설계',
+  depth: '기술 깊이',
+  fit: '직무 적합',
+  ops: '운영·품질',
+  collab: '협업·소통',
+  growth: '성장·학습',
+  impact: '성과·임팩트',
+};
+/** required: 공고 주 언어 경험 필수 · preferred: 우대 · any: 언어 무관(설계·기본기로 본다) */
+export type LanguagePolicy = 'required' | 'preferred' | 'any';
+export const LANGUAGE_POLICY_LABEL: Readonly<Record<LanguagePolicy, string>> = {
+  required: '주 언어 경험 필수',
+  preferred: '주 언어 경험 우대',
+  any: '언어 무관(설계·기본기로 평가)',
+};
+
+export interface Rubric {
+  /** 항목과 배점(합 100) */
+  readonly criteria: readonly { readonly key: CriterionKey; readonly label: string; readonly weight: number }[];
+  readonly languagePolicy: LanguagePolicy;
+  /** 주 언어(공고 스택의 첫 언어) */
+  readonly mainLanguage: string;
+  /** 서류 통과 기준 점수(100점 만점) */
+  readonly passScore: number;
 }
 
 export interface PostingBasis {
@@ -113,6 +145,23 @@ const TIER_RANGE: Readonly<Record<Tier, { applicants: readonly [number, number];
   bigtech: { applicants: [270, 420], document: [4, 6] },
 };
 
+/** 등급별 평가표 성향: 무게를 더 두는 항목, 언어 정책 가능성, 서류 기준 점수 */
+const TIER_RUBRIC: Readonly<Record<Tier, { readonly lean: readonly CriterionKey[]; readonly policies: readonly LanguagePolicy[]; readonly pass: readonly [number, number] }>> = {
+  startup: { lean: ['impact', 'growth', 'design'], policies: ['any', 'preferred', 'preferred'], pass: [58, 66] },
+  mid: { lean: ['fit', 'design', 'collab'], policies: ['preferred', 'preferred', 'any', 'required'], pass: [66, 72] },
+  big: { lean: ['fit', 'ops', 'depth'], policies: ['required', 'required', 'preferred'], pass: [72, 78] },
+  bigtech: { lean: ['design', 'depth', 'ops'], policies: ['any', 'any', 'preferred'], pass: [78, 84] },
+};
+const LANGS = new Set(['Java', 'Kotlin', 'Go', 'Python', 'TypeScript', 'JavaScript', 'Swift', 'Dart', 'Rust', 'C#', 'C++', 'Node.js']);
+
+/** 등급별 연봉 대략값(만 원): 기본 + 연차당 */
+const SALARY: Readonly<Record<Tier, { readonly base: number; readonly perYear: number }>> = {
+  startup: { base: 3400, perYear: 380 },
+  mid: { base: 3700, perYear: 420 },
+  big: { base: 4300, perYear: 480 },
+  bigtech: { base: 5200, perYear: 580 },
+};
+
 export function seniorityOf(years: number): '신입' | '주니어' | '미들' | '시니어' {
   return years <= 0 ? '신입' : years <= 3 ? '주니어' : years <= 7 ? '미들' : '시니어';
 }
@@ -164,6 +213,16 @@ export function draftPostings(input: PostingInput, market: Market | null = null)
     const prof = market?.profiles.find((p) => p.industry === ind.name && p.role === roleKey && p.stacks.length > 0);
     const stack = pick(prof?.stacks ?? STACKS[roleKey]);
     const extras = [...(prof !== undefined && prof.extras.length > 0 ? prof.extras : EXTRAS[roleKey])].sort(() => r() - 0.5).slice(0, 2);
+    // 평가표: 등급 성향 항목 셋 + 나머지에서 둘, 성향 항목에 배점을 더 준다(합 100)
+    const lean = TIER_RUBRIC[ind.tier];
+    const others = (Object.keys(CRITERIA) as CriterionKey[]).filter((k) => !lean.lean.includes(k)).sort(() => r() - 0.5).slice(0, 2);
+    const keys = [...lean.lean, ...others];
+    const raw = keys.map((k) => (lean.lean.includes(k) ? between(22, 30) : between(10, 16)));
+    const sum = raw.reduce((n, x) => n + x, 0);
+    const weights = raw.map((x) => Math.round((x / sum) * 100));
+    weights[0]! += 100 - weights.reduce((n, x) => n + x, 0);
+    const mainLanguage = stack.find((x) => LANGS.has(x)) ?? stack[0] ?? '';
+    const rubric: Rubric = { criteria: keys.map((key, i) => ({ key, label: CRITERIA[key], weight: weights[i]! })), languagePolicy: pick(lean.policies), mainLanguage, passScore: between(lean.pass[0], lean.pass[1]) };
     const basis: PostingBasis | null = prof === undefined || market === null ? null : { companies: prof.companies, sources: prof.sources, checkedAt: market.checkedAt };
     const range = TIER_RANGE[ind.tier];
     // 신입·주니어 자리는 지원자가 더 몰린다
@@ -180,6 +239,12 @@ export function draftPostings(input: PostingInput, market: Market | null = null)
       applicants: Math.max(5, Math.round(between(range.applicants[0], range.applicants[1]) * crowd)),
       passRates: { document: between(range.document[0], range.document[1]), assignment: between(35, 55), technical: between(25, 45), culture: between(50, 70), offer: between(75, 90) },
       basis,
+      rubric,
+      salary: (() => {
+        const mid = SALARY[ind.tier].base + SALARY[ind.tier].perYear * minYears;
+        const spread = between(10, 18) / 100;
+        return { min: Math.round((mid * (1 - spread)) / 100) * 100, max: Math.round((mid * (1 + spread)) / 100) * 100 };
+      })(),
     };
   });
 }

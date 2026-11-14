@@ -21,7 +21,7 @@ const summary: WorkSummary = {
     { label: 'Personal', commits: 40, added: 1, removed: 1, langs: [{ lang: 'TypeScript', lines: 100 }], first: Date.UTC(2025, 0, 1) / 1000, last: Date.UTC(2026, 3, 1) / 1000, months: [{ month: '2026-04', repos: [{ repo: 'rauha', commits: 40, added: 1, removed: 1, subjects: ['feat: 팀 대화'] }] }] },
   ],
   others: [],
-  stacks: [{ repo: 'pay', stack: ['Spring Boot', 'Kotlin'] }],
+  stacks: [{ repo: 'pay', stack: ['Spring Boot', 'Kotlin'], architecture: ['layered folders: domain'] }],
 };
 
 const crew = [
@@ -71,6 +71,6 @@ describe('검토 중 담당자 대화(판정 없이 사실만)', () => {
     expect(waitingTalk(crew, facts, 1).map((l) => l.text)).not.toEqual(waitingTalk(crew, facts, 2).map((l) => l.text));
   });
   it('커밋이 없어도 깨지지 않는다', () => {
-    expect(waitingTalk(crew, { total: 0, accounts: [], repos: [], samples: [], langs: [], stack: [] }, 3).length).toBeGreaterThan(0);
+    expect(waitingTalk(crew, { total: 0, accounts: [], repos: [], samples: [], langs: [], stack: [], scanned: [] }, 3).length).toBeGreaterThan(0);
   });
 });

@@ -3,7 +3,7 @@ import { DB_CHOICES, detectedDbs, hiringInputOf } from './hiring-input.js';
 
 describe('채용 검토실 입력(연차·직무·DB) 검사', () => {
   it('연차는 0~40 정수(반올림), 직무는 정해진 것 또는 any', () => {
-    expect(hiringInputOf({ years: 3.6, role: 'backend', dbs: [] })).toEqual({ years: 4, role: 'backend', dbs: [] });
+    expect(hiringInputOf({ years: 3.6, role: 'backend', dbs: [] })).toEqual({ years: 4, role: 'backend', dbs: [], desiredSalary: null });
     expect(hiringInputOf({ years: 0, role: 'any', dbs: [] })?.years).toBe(0);
     expect(hiringInputOf({ years: -1, role: 'any', dbs: [] })).toBeNull();
     expect(hiringInputOf({ years: 41, role: 'any', dbs: [] })).toBeNull();
@@ -18,6 +18,14 @@ describe('채용 검토실 입력(연차·직무·DB) 검사', () => {
   it('모양이 틀리면 null', () => {
     expect(hiringInputOf(null)).toBeNull();
     expect(hiringInputOf({ years: 1, role: 'any' })?.dbs).toEqual([]);
+  });
+});
+
+describe('희망 연봉(선택, 만 원)', () => {
+  it('1,000 ~ 100,000 만 원만 받고, 그 밖·숫자가 아니면 없는 것으로', () => {
+    expect(hiringInputOf({ years: 3, role: 'any', dbs: [], desiredSalary: 5200.4 })?.desiredSalary).toBe(5200);
+    expect(hiringInputOf({ years: 3, role: 'any', dbs: [], desiredSalary: 52 })?.desiredSalary).toBeNull();
+    expect(hiringInputOf({ years: 3, role: 'any', dbs: [], desiredSalary: '5200' })?.desiredSalary).toBeNull();
   });
 });
 

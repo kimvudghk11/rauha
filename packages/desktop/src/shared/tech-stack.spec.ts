@@ -18,7 +18,7 @@ describe('바꾼 파일의 언어', () => {
 });
 
 describe('레포 설정 파일에서 스택 읽기(이름만)', () => {
-  it('설정 파일을 알아본다(깊이 3 까지, node_modules 는 빼고)', () => {
+  it('설정 파일을 알아본다(깊이 5 까지, node_modules 는 빼고)', () => {
     expect(isManifestPath('package.json')).toBe(true);
     expect(isManifestPath('packages/desktop/package.json')).toBe(true);
     expect(isManifestPath('build.gradle.kts')).toBe(true);
@@ -26,7 +26,8 @@ describe('레포 설정 파일에서 스택 읽기(이름만)', () => {
     expect(isManifestPath('infra/main.tf')).toBe(true);
     expect(isManifestPath('Dockerfile')).toBe(true);
     expect(isManifestPath('node_modules/x/package.json')).toBe(false);
-    expect(isManifestPath('a/b/c/d/package.json')).toBe(false);
+    expect(isManifestPath('backend/apps/api/src/package.json')).toBe(true);
+    expect(isManifestPath('a/b/c/d/e/package.json')).toBe(false);
     expect(isManifestPath('src/index.ts')).toBe(false);
   });
   it('package.json 의 의존성에서 아는 기술 이름만', () => {

@@ -152,9 +152,9 @@ export { draftRule } from './orchestration/infrastructure/agent-sdk-rule-parser.
 export { CommitDraftDto, commitDraftPrompt, COMMIT_DIFF_LIMIT, type CommitDraft } from './orchestration/application/dto/commit-draft.dto.js';
 export { draftCommit } from './orchestration/infrastructure/agent-sdk-commit-draft.js';
 export { draftResume, RESUME_NOTE_LIMIT } from './orchestration/infrastructure/agent-sdk-resume-draft.js';
-export { COMPANIES, STAGES, STAMPS, CompanyVerdictDto, companyOf, YEARS_GAP_MAX, type Company, type CompanyVerdict, type Recruiter, type Principle, type Stamp, type StageId } from './orchestration/application/dto/interview.dto.js';
+export { COMPANIES, STAGES, STAMPS, CompanyVerdictDto, companyOf, HOLD_BAND, YEARS_GAP_MAX, type Company, type CompanyVerdict, type Recruiter, type Principle, type Stamp, type StageId } from './orchestration/application/dto/interview.dto.js';
 export { askInterviewer, evaluateCompany, researchMarket } from './orchestration/infrastructure/agent-sdk-interview.js';
-export { draftPostings, INDUSTRY_ROLES, JOB_ROLES, seniorityOf, type JobPosting, type Market, type MarketProfile, type PostingBasis, type PostingInput, type RoleKey } from './orchestration/domain/job-posting.js';
+export { CRITERIA, draftPostings, INDUSTRY_ROLES, JOB_ROLES, LANGUAGE_POLICY_LABEL, seniorityOf, type JobPosting, type Rubric, type CriterionKey, type LanguagePolicy, type Market, type MarketProfile, type PostingBasis, type PostingInput, type RoleKey } from './orchestration/domain/job-posting.js';
 export { MarketDto } from './orchestration/application/dto/market.dto.js';
 export { draftBlog, BLOG_NOTE_LIMIT, type BlogTone, type BlogQuery } from './orchestration/infrastructure/agent-sdk-blog-draft.js';
 

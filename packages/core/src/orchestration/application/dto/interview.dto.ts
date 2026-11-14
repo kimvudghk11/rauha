@@ -109,8 +109,14 @@ export interface CompanyVerdict {
   readonly reached: StageId;
   /** 1차 서류 결과 */
   readonly stamp: Stamp;
-  /** 이 회사 지원자 중 추정 순위(상위 %, 1 이 가장 좋음) */
+  /** 이 회사 지원자 중 추정 순위(상위 %, 1 이 가장 좋음) — 참고용 */
   readonly percentile: number;
+  /** 평가표 항목별 점수(0~100)와 근거 */
+  readonly scores: readonly { readonly key: string; readonly label: string; readonly weight: number; readonly score: number; readonly evidence: string }[];
+  /** 배점을 반영한 합계(100점 만점) */
+  readonly total: number;
+  /** 공고 주 언어 경험의 근거가 있는지 */
+  readonly languageMet: boolean;
   /** 공고가 원하는 것 중 근거가 있는 것 / 없는 것 */
   readonly stackHave: readonly string[];
   readonly stackMissing: readonly string[];
@@ -133,11 +139,16 @@ const whoText = (key: string) => ({ type: 'array', items: { type: 'object', prop
 export const COMPANY_SCHEMA = {
   type: 'object',
   properties: {
+    scores: {
+      type: 'array',
+      description: 'One entry per rubric criterion key: score 0-100 and one Korean sentence of evidence',
+      items: { type: 'object', properties: { key: { type: 'string' }, score: { type: 'number' }, evidence: { type: 'string' } }, required: ['key', 'score', 'evidence'] },
+    },
+    languageMet: { type: 'boolean', description: 'Whether the summary shows real work in the posting’s main language' },
     percentile: { type: 'number', description: 'Where the candidate ranks among this company’s real applicants for this role: top N percent (1 = best, 100 = worst)' },
     stackHave: { ...strArr, description: 'Items of the job posting the summary gives real evidence for' },
     stackMissing: { ...strArr, description: 'Items of the job posting with no evidence in the summary' },
     reached: { type: 'string', enum: stageIds, description: 'The stage where the candidate would stop (offer = gets the offer)' },
-    stamp: { type: 'string', enum: STAMPS, description: 'Result of the document screening: pass = moves on, hold = borderline, drop = rejected' },
     comment: { type: 'string', description: 'The company’s decision in two to four Korean sentences' },
     strengths: strArr,
     gaps: strArr,
@@ -146,7 +157,7 @@ export const COMPANY_SCHEMA = {
     evidence: { ...strArr, description: 'Commit subjects, repos or numbers from the summary this rests on (quote them)' },
     talk: { ...whoText('text'), description: '6 to 10 short Korean lines: the three recruiters discussing the candidate like real colleagues, leading to the decision' },
   },
-  required: ['percentile', 'stackHave', 'stackMissing', 'reached', 'stamp', 'comment', 'strengths', 'gaps', 'question', 'notes', 'evidence', 'talk'],
+  required: ['scores', 'languageMet', 'percentile', 'stackHave', 'stackMissing', 'reached', 'comment', 'strengths', 'gaps', 'question', 'notes', 'evidence', 'talk'],
 } as const;
 
 type Obj = Record<string, unknown>;
@@ -154,10 +165,11 @@ const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !
 const str = (v: unknown, max = 1200): string => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 const strs = (v: unknown, n = 6): string[] => (Array.isArray(v) ? v.map((x) => str(x, 300)).filter((x) => x !== '').slice(0, n) : []);
 const stage = (v: unknown): StageId => (stageIds.includes(v as string) ? (v as StageId) : 'document');
-const stampOf = (v: unknown): Stamp => ((STAMPS as readonly string[]).includes(v as string) ? (v as Stamp) : 'hold');
 const TALK_MAX = 12;
 /** 공고 연차보다 이만큼 모자라면 서류 PASS 를 주지 않는다 */
 export const YEARS_GAP_MAX = 3;
+/** 기준 점수에서 이만큼 안쪽이면 HOLD */
+export const HOLD_BAND = 8;
 
 export class CompanyVerdictDto {
   private constructor() {}
@@ -169,12 +181,24 @@ export class CompanyVerdictDto {
     const rows = (v: unknown, key: string): { who: string; text: string }[] =>
       (Array.isArray(v) ? v.filter(isObj) : []).map((x) => ({ who: str(x['who'], 40), text: str(x[key], 500) })).filter((x) => names.includes(x.who) && x.text !== '');
     const notes = rows(output['notes'], 'note');
-    const { reached, stamp, percentile } = CompanyVerdictDto.calibrate(posting, years, stage(output['reached']), stampOf(output['stamp']), output['percentile']);
+    const rawScores = Array.isArray(output['scores']) ? output['scores'].filter(isObj) : [];
+    const scores = posting.rubric.criteria.map((c) => {
+      const hit = rawScores.find((x) => x['key'] === c.key);
+      const n = typeof hit?.['score'] === 'number' && Number.isFinite(hit['score']) ? Math.max(0, Math.min(100, Math.round(hit['score']))) : 0;
+      return { key: c.key, label: c.label, weight: c.weight, score: n, evidence: str(hit?.['evidence'], 300) };
+    });
+    const total = Math.round(scores.reduce((n, x) => n + (x.weight * x.score) / 100, 0));
+    const languageMet = output['languageMet'] === true;
+    const { reached, stamp } = CompanyVerdictDto.calibrate(posting, years, total, languageMet, stage(output['reached']));
+    const pct = output['percentile'];
     return {
       id: company.id,
       reached,
       stamp,
-      percentile,
+      percentile: typeof pct === 'number' && Number.isFinite(pct) && pct >= 1 && pct <= 100 ? Math.round(pct) : 100,
+      scores,
+      total,
+      languageMet,
       stackHave: strs(output['stackHave'], 10),
       stackMissing: strs(output['stackMissing'], 10),
       comment: str(output['comment']),
@@ -188,19 +212,16 @@ export class CompanyVerdictDto {
   }
 
   /**
-   * 후하게 나오지 않게 하는 규칙. 서류 통과율이 8%면 지원자 중 상위 8% 안이어야 PASS.
-   * 통과선 밖이면 2배 안은 HOLD, 그 밖은 DROP. 공고 연차보다 3년 이상 모자라면 PASS 불가(HOLD).
-   * 도장과 단계가 어긋나면 더 엄격한 쪽을 따른다.
+   * 판정은 회사 평가표로(모델의 도장은 쓰지 않는다): 배점 합계가 기준 점수 이상이면 PASS, 기준보다 HOLD_BAND(8)점 안이면 HOLD, 그 밖은 DROP.
+   * 주 언어 경험이 "필수"인 공고에서 근거가 없으면 DROP. 공고 연차보다 3년 이상 모자라면 PASS 불가(HOLD).
+   * PASS 면 적어도 2차까지 가고, 아니면 서류에서 멈춘다.
    */
-  private static calibrate(posting: JobPosting, years: number, reached0: StageId, stamp0: Stamp, rawPct: unknown): { reached: StageId; stamp: Stamp; percentile: number } {
-    const percentile = typeof rawPct === 'number' && Number.isFinite(rawPct) && rawPct >= 1 && rawPct <= 100 ? Math.round(rawPct) : 100;
-    const cut = posting.passRates.document;
-    let stamp = stamp0;
-    let reached = reached0;
-    if (percentile > cut && stamp === 'pass') stamp = percentile <= cut * 2 ? 'hold' : 'drop';
+  private static calibrate(posting: JobPosting, years: number, total: number, languageMet: boolean, reached0: StageId): { reached: StageId; stamp: Stamp } {
+    const pass = posting.rubric.passScore;
+    let stamp: Stamp = total >= pass ? 'pass' : total >= pass - HOLD_BAND ? 'hold' : 'drop';
+    if (posting.rubric.languagePolicy === 'required' && !languageMet) stamp = 'drop';
     if (posting.minYears - years >= YEARS_GAP_MAX && stamp === 'pass') stamp = 'hold';
-    if (stamp !== 'pass') reached = 'document';
-    else if (reached === 'document') stamp = 'hold';
-    return { reached, stamp, percentile };
+    const reached: StageId = stamp !== 'pass' ? 'document' : reached0 === 'document' ? 'assignment' : reached0;
+    return { reached, stamp };
   }
 }

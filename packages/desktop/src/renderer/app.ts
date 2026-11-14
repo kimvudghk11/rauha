@@ -200,7 +200,7 @@ function show(id: TabId): void {
   else if (id === 'api') screen.replaceChildren(buildApi({ api: window.rauha.api, copy: copyText, toChat: (text) => (show('chat'), chat.fill(text)) }).root);
   else if (id === 'docker') screen.replaceChildren(buildDocker({ api: window.rauha.docker, copy: copyText }).root);
   else if (id === 'db') screen.replaceChildren(buildDb({ api: window.rauha.db, copy: copyText }).root);
-  else if (id === 'interview') screen.replaceChildren(buildInterview({ api: window.rauha.interview, openMyWork: () => show('git') }).root);
+  else if (id === 'interview') screen.replaceChildren(buildInterview({ api: window.rauha.interview, openMyWork: () => show('git'), toMain: (text) => (show('chat'), chat.fill(text)) }).root);
   else if (id === 'extensions') screen.replaceChildren(buildExtensions({ connectors: window.rauha.connectors, plugins: window.rauha.plugins, toChat: (text) => (show('chat'), chat.fill(text)) }).root);
   else if (id === 'records')
     screen.replaceChildren(

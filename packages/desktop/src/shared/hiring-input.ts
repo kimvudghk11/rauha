@@ -19,6 +19,8 @@ export interface HiringInput {
   readonly years: number;
   readonly role: HiringRole;
   readonly dbs: readonly string[];
+  /** 희망 연봉(만 원). 선택. 최종 처우 단계에서만 쓴다 */
+  readonly desiredSalary: number | null;
 }
 
 const YEARS_MAX = 40;
@@ -41,7 +43,9 @@ export function hiringInputOf(raw: unknown): HiringInput | null {
     dbs.push(t);
     if (dbs.length >= DBS_MAX) break;
   }
-  return { years: Math.round(years), role, dbs };
+  const pay = o['desiredSalary'];
+  const desiredSalary = typeof pay === 'number' && Number.isFinite(pay) && pay >= 1000 && pay <= 100_000 ? Math.round(pay) : null;
+  return { years: Math.round(years), role, dbs, desiredSalary };
 }
 
 /** git 설정 파일 스택 중 DB 인 것 */

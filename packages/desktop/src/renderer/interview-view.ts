@@ -1,5 +1,6 @@
 import { waitingTalk } from '../shared/hiring-banter.js';
 import { DB_CHOICES, detectedDbs, HIRING_ROLE_LABEL, HIRING_ROLES, type HiringRole } from '../shared/hiring-input.js';
+import { portfolioPrompt, roundMarkdown, salaryFit, type HiringRound } from '../shared/hiring-history.js';
 import type { CompanyView, InterviewApi, Line, MarketView, PostingView, StageView, VerdictView, WorkFacts } from '../shared/interview-ipc.js';
 import { el, isEnterKey } from './dom.js';
 import { drawRecruiter } from './recruiter-sprite.js';
@@ -38,9 +39,13 @@ interface MeInput {
   years: number | null;
   role: HiringRole;
   dbs: string[];
+  /** 희망 연봉(만 원), 선택 */
+  desiredSalary: number | null;
 }
 
 const TICK_MS = 2600;
+const LANG_POLICY = { required: 'main language required', preferred: 'main language preferred', any: 'any language' } as const;
+const SALARY_FIT = { in: 'within band', below: 'below band', stretch: 'a little above (negotiable)', above: 'well above band (offer risk)' } as const;
 const STAMP_TEXT = { pass: 'PASS', hold: 'HOLD', drop: 'DROP' } as const;
 const ME_KEY = 'rauha.hiring.me';
 
@@ -51,9 +56,10 @@ function loadMe(): MeInput {
       years: typeof o?.years === 'number' ? o.years : null,
       role: HIRING_ROLES.find((r) => r === o?.role) ?? 'any',
       dbs: Array.isArray(o?.dbs) ? o.dbs.filter((d): d is string => typeof d === 'string').slice(0, 12) : [],
+      desiredSalary: typeof o?.desiredSalary === 'number' ? o.desiredSalary : null,
     };
   } catch {
-    return { years: null, role: 'any', dbs: [] };
+    return { years: null, role: 'any', dbs: [], desiredSalary: null };
   }
 }
 function saveMe(me: MeInput): void {
@@ -64,7 +70,7 @@ function saveMe(me: MeInput): void {
   }
 }
 
-export function buildInterview(deps: { readonly api: InterviewApi; readonly openMyWork: () => void }) {
+export function buildInterview(deps: { readonly api: InterviewApi; readonly openMyWork: () => void; readonly toMain: (text: string) => void }) {
   const root = el('section', 'iv hr');
   let companies: readonly CompanyView[] = [];
   let stages: readonly StageView[] = [];
@@ -84,7 +90,9 @@ export function buildInterview(deps: { readonly api: InterviewApi; readonly open
   go.addEventListener('click', () => void start());
   const myWork = el('button', 'btn', 'Git › My work');
   myWork.addEventListener('click', () => deps.openMyWork());
-  head.append(el('b', undefined, 'Hiring review'), el('span', 'hint grow', 'Every send makes five new job postings that fit your years. Three fictional recruiters per company; their yardsticks come from what well-known people have said about hiring (named on each card).'), myWork, go);
+  const historyBtn = el('button', 'btn', 'Review history');
+  historyBtn.addEventListener('click', () => void openHistory());
+  head.append(el('b', undefined, 'Hiring review'), el('span', 'hint grow', 'Every send makes five new job postings that fit your years. Three fictional recruiters per company; their yardsticks come from what well-known people have said about hiring (named on each card).'), historyBtn, myWork, go);
   const marketBar = el('div', 'hr-market');
   const summary = el('div', 'hr-sum');
   const office = el('div', 'hr-office');
@@ -167,7 +175,7 @@ export function buildInterview(deps: { readonly api: InterviewApi; readonly open
     } else if (s.kind === 'error') {
       r.badge.classList.add('err');
       r.badge.textContent = 'Could not finish';
-    } else r.badge.replaceChildren(el('span', `hr-stamp ${s.verdict.stamp}`, STAMP_TEXT[s.verdict.stamp]), el('span', undefined, `${stopText(s.verdict.reached)} · top ${s.verdict.percentile}%`));
+    } else r.badge.replaceChildren(el('span', `hr-stamp ${s.verdict.stamp}`, STAMP_TEXT[s.verdict.stamp]), el('span', undefined, `${s.verdict.total}/${p?.rubric.passScore ?? '?'} · ${stopText(s.verdict.reached)}`));
     const line = r.script.length === 0 ? null : r.script[Math.min(r.at, r.script.length - 1)]!;
     r.bubble.hidden = line === null;
     if (line !== null) r.bubble.replaceChildren(el('b', undefined, line.who), el('span', undefined, line.text));
@@ -265,8 +273,31 @@ export function buildInterview(deps: { readonly api: InterviewApi; readonly open
     dbBox.append(other);
     const dbRow = el('div', 'hr-field col');
     dbRow.append(el('span', undefined, 'Databases you use'), dbBox);
-    const stack = el('div', 'hr-stack dim', facts === null ? 'Tech stack: read from git when you send' : `From git: ${factsLine(facts)}`);
-    hub.replaceChildren(face('me', 0, 3, running ? 'read' : 'idle'), el('b', undefined, 'Me'), yearsRow, roleRow, dbRow, stack);
+    const pay = el('input', 'hr-years');
+    pay.id = 'hr-pay';
+    pay.type = 'number';
+    pay.min = '1000';
+    pay.max = '100000';
+    pay.step = '100';
+    pay.placeholder = 'e.g. 5500';
+    pay.value = me.desiredSalary === null ? '' : String(me.desiredSalary);
+    pay.disabled = running;
+    pay.title = 'Optional. In 10,000 KRW per year (5500 = 5,500만 원). Used only at the offer stage.';
+    pay.addEventListener('input', () => {
+      const n = Number(pay.value);
+      me.desiredSalary = pay.value.trim() === '' || !Number.isFinite(n) || n < 1000 ? null : Math.round(n);
+      saveMe(me);
+    });
+    const payRow = el('label', 'hr-field');
+    payRow.append(el('span', undefined, 'Desired salary (만 원, optional)'), pay);
+    const stack = el('div', 'hr-stack dim');
+    if (facts === null) stack.textContent = 'Tech stack: read from git when you send';
+    else {
+      stack.append(el('div', undefined, `From git: ${factsLine(facts)}`));
+      // 읽은 레포마다 찾은 스택(빠진 게 있으면 그 레포가 작업 폴더에 없거나 내 계정 커밋이 없는 것)
+      for (const r of facts.scanned) stack.append(el('div', undefined, `· ${r.repo}: ${r.stack.join(', ') || '(no stack found)'}`));
+    }
+    hub.replaceChildren(face('me', 0, 3, running ? 'read' : 'idle'), el('b', undefined, 'Me'), yearsRow, roleRow, payRow, dbRow, stack);
   }
 
   /** 이력서가 가운데 책상에서 각 방으로 날아간다(움직임을 줄이는 설정이면 생략) */
@@ -310,7 +341,7 @@ export function buildInterview(deps: { readonly api: InterviewApi; readonly open
     paintHub();
     paintMarket();
     paintSummary();
-    const prep = await deps.api.prepare({ years: me.years, role: me.role, dbs: me.dbs });
+    const prep = await deps.api.prepare({ years: me.years, role: me.role, dbs: me.dbs, desiredSalary: me.desiredSalary });
     if (!prep.ok) {
       running = false;
       error = prep.error;
@@ -456,9 +487,26 @@ export function buildInterview(deps: { readonly api: InterviewApi; readonly open
           const dot = el('div', `hr-rank-me ${s.verdict.stamp}`);
           dot.style.left = `${Math.min(99, s.verdict.percentile)}%`;
           bar.append(line, dot);
-          post.append(bar, el('div', 'hint', `You: about top ${s.verdict.percentile}% of applicants · pass line top ${cut}%`));
+          post.append(bar, el('div', 'hint', `Reference: about top ${s.verdict.percentile}% of applicants · document pass rate ${cut}%`));
         }
         report.append(post);
+        // 회사 서류 평가표: 항목·배점·점수·근거, 합계와 기준 점수, 언어 정책, 연봉 범위
+        const rb = el('div', 'hr-rubric');
+        const fitPay = salaryFit(me.desiredSalary, p.salary);
+        const langMark = s.kind === 'done' ? (s.verdict.languageMet ? ' ✓' : ' ✗') : '';
+        rb.append(el('div', 'hr-rubric-head', `Screening rubric · pass score ${p.rubric.passScore}/100 · ${LANG_POLICY[p.rubric.languagePolicy]} (${p.rubric.mainLanguage})${langMark} · salary ${p.salary.min.toLocaleString()}~${p.salary.max.toLocaleString()}만 원${fitPay === null ? '' : ` · your ask: ${SALARY_FIT[fitPay]}`}`));
+        for (const cr of p.rubric.criteria) {
+          const sc = s.kind === 'done' ? s.verdict.scores.find((x) => x.key === cr.key) : undefined;
+          const row = el('div', 'hr-rubric-row');
+          const bar = el('div', 'hr-rubric-bar');
+          const fill = el('div', 'hr-rubric-fill');
+          fill.style.width = `${sc?.score ?? 0}%`;
+          bar.append(fill);
+          row.append(el('span', 'hr-rubric-label', `${cr.label} · ${cr.weight}`), bar, el('span', 'hr-rubric-score', sc === undefined ? '—' : String(sc.score)), el('span', 'hr-rubric-ev', sc?.evidence ?? ''));
+          rb.append(row);
+        }
+        if (s.kind === 'done') rb.append(el('div', `hr-rubric-total ${s.verdict.stamp}`, `Total ${s.verdict.total}/100 · pass score ${p.rubric.passScore} → ${STAMP_TEXT[s.verdict.stamp]}`));
+        report.append(rb);
         if (s.kind === 'done') {
           const track = el('div', 'iv-track');
           const idx = stages.findIndex((st) => st.id === s.verdict.reached);
@@ -504,6 +552,44 @@ export function buildInterview(deps: { readonly api: InterviewApi; readonly open
     };
     openReport = { id: c.id, paint };
     paint();
+  }
+
+  /** N차 리뷰 기록: 회차마다 회사 5곳의 판정·점수·중점 목록, Main 에 포트폴리오 문서 부탁 */
+  async function openHistory(): Promise<void> {
+    const { rounds } = await deps.api.history();
+    const veil = el('div', 'veil');
+    const box = el('div', 'dialog hr-report hr-history');
+    box.setAttribute('role', 'dialog');
+    box.setAttribute('aria-label', 'Review history');
+    const close = (): void => {
+      veil.remove();
+      document.removeEventListener('keydown', onKey);
+    };
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') close();
+    };
+    document.addEventListener('keydown', onKey);
+    veil.addEventListener('click', (e) => {
+      if (e.target === veil) close();
+    });
+    const x = el('button', 'btn sm', 'Close');
+    x.addEventListener('click', close);
+    const done = rounds.filter((r: HiringRound) => r.results.length > 0);
+    const ask = el('button', 'btn primary', 'Ask Main for a portfolio doc');
+    ask.disabled = done.length === 0;
+    ask.title = 'Fills the Main chat with these reviews and a request. You can edit it before sending.';
+    ask.addEventListener('click', () => {
+      close();
+      deps.toMain(portfolioPrompt(done.slice(-5)));
+    });
+    const top = el('div', 'hr-rep-top');
+    top.append(el('b', 'grow', `Review history · ${done.length} rounds`), ask, x);
+    const body = el('div', 'hr-rep-body');
+    if (done.length === 0) body.append(el('div', 'dim', 'No reviews yet. Send your resume first.'));
+    for (const r of [...done].reverse()) body.append(el('pre', 'hr-round', roundMarkdown(r)));
+    box.append(top, body);
+    veil.append(box);
+    document.body.append(veil);
   }
 
   /** 회사 담당자들과 대화(모달 아래). 모달이 다시 그려져도 이 칸은 그대로 둔다 */

@@ -23,6 +23,7 @@ export function workFacts(s: WorkSummary): WorkFacts {
   return {
     total: s.total,
     langs: [...lines.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([lang, n]) => ({ lang, share: changed === 0 ? 0 : Math.round((n / changed) * 100) })),
+    scanned: s.stacks.map((r) => ({ repo: r.repo, stack: r.stack })),
     stack: [...new Set(s.stacks.flatMap((r) => r.stack))].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
     accounts: s.accounts.map((a) => ({ label: a.label, commits: a.commits, from: monthOf(a.first), to: monthOf(a.last) })),
     repos: [...repos.entries()].map(([repo, commits]) => ({ repo, commits })).sort((a, b) => b.commits - a.commits),

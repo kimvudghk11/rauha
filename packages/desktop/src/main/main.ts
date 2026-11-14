@@ -11,12 +11,13 @@ import { GitAccounts, resumeNote, summarizeWork } from '../shared/my-work.js';
 import { INTERVIEW_IPC, type WorkFacts } from '../shared/interview-ipc.js';
 import { workFacts } from '../shared/hiring-banter.js';
 import { hiringInputOf } from '../shared/hiring-input.js';
+import { HiringHistory } from '../shared/hiring-history.js';
 import { scanMyWork, scanRepoStacks } from './git/my-work-service.js';
 import { accessSync, constants as fsConstants, existsSync, readdirSync, statSync } from 'node:fs';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, Notification, safeStorage, screen, shell, type IpcMainInvokeEvent } from 'electron';
-import { DefaultRuleSet, DefaultRulesDto, DomainError, askInterviewer, COMPANIES, companyOf, discoverRepos, draftBlog, draftCommit, draftPostings, draftResume, draftRule, evaluateCompany, INDUSTRY_ROLES, MarketDto, researchMarket, STAGES, type JobPosting, type Market, FileRuleStore, loadSecretPolicy, PromptLibrary, readPlanUsage, RuleBook, RuleBookDto, type PlanUsage } from '@rauha/core';
+import { DefaultRuleSet, DefaultRulesDto, DomainError, askInterviewer, COMPANIES, companyOf, discoverRepos, draftBlog, draftCommit, draftPostings, draftResume, draftRule, evaluateCompany, INDUSTRY_ROLES, MarketDto, researchMarket, STAGES, LANGUAGE_POLICY_LABEL, type JobPosting, type Market, FileRuleStore, loadSecretPolicy, PromptLibrary, readPlanUsage, RuleBook, RuleBookDto, type PlanUsage } from '@rauha/core';
 import { JobRunner } from '@rauha/core/jobs';
 import { replaceRule, ruleSizeError, type RuleView } from '../shared/rules-form.js';
 import { boardView, jobView, IPC, type ThreadLink, type ApprovalChoice, type DiagnosticsResult, type RepoRow, type SettingsPatch } from '../shared/ipc.js';
@@ -992,7 +993,16 @@ void app.whenReady().then(async () => {
     return workCache;
   };
   // 이번에 보낸 이력서: 연차·공고(main 이 만든 것만 믿는다)·DB 를 붙인 요약
-  let round: { years: number; postings: Map<string, JobPosting>; note: string } | null = null;
+  let round: { n: number; years: number; desiredSalary: number | null; postings: Map<string, JobPosting>; note: string } | null = null;
+  // N차 리뷰 기록: 평가가 끝날 때마다 main 이 붙여 저장한다(화면 값을 믿지 않음)
+  const historyFile = join(dataDir, 'hiring-reviews.json');
+  let hiringHistory = HiringHistory.empty();
+  const historyReady = readFile(historyFile, 'utf8').then((t) => (hiringHistory = HiringHistory.from(JSON.parse(t)))).catch(() => undefined);
+  const saveHistory = async (): Promise<void> => {
+    await mkdir(dataDir, { recursive: true }).catch(() => undefined);
+    await writeFile(historyFile, JSON.stringify(hiringHistory.toJson(), null, 2), 'utf8').catch(() => undefined);
+  };
+  const stageName = (id: string): string => STAGES.find((s) => s.id === id)?.label ?? id;
   const marketFile = join(dataDir, 'hiring-market.json');
   const loadMarket = async (): Promise<Market | null> => MarketDto.fromSaved(JSON.parse(await readFile(marketFile, 'utf8').catch(() => 'null')));
   const interviewEnv = async (): Promise<Record<string, string>> => ({ ...(process.env as Record<string, string>), ...(await profileResolver(home, settings.account))(currentWorkDir()).agentEnv(home) });
@@ -1015,8 +1025,15 @@ void app.whenReady().then(async () => {
     // 보낼 때마다 다른 회사 조건: seed 는 main 이 정한다(화면이 고르지 못하게)
     const postings = draftPostings({ years: input.years, role: input.role, seed: randomInt(1, 2 ** 31 - 1) }, await loadMarket().catch(() => null));
     const dbLine = input.dbs.length === 0 ? '' : `\n## Databases the candidate says they use (self-reported, not from git)\n${input.dbs.join(', ')}`;
-    round = { years: input.years, postings: new Map(postings.map((p) => [p.id, p])), note: `${w.note}${dbLine}` };
+    await historyReady;
+    hiringHistory = hiringHistory.start({ at: new Date().toISOString(), years: input.years, role: input.role });
+    await saveHistory();
+    round = { n: hiringHistory.latest()!.n, years: input.years, desiredSalary: input.desiredSalary, postings: new Map(postings.map((p) => [p.id, p])), note: `${w.note}${dbLine}` };
     return { ok: true, data: { facts: w.facts, postings } };
+  });
+  ipcMain.handle(INTERVIEW_IPC.history, async () => {
+    await historyReady;
+    return hiringHistory.toJson();
   });
   ipcMain.handle(INTERVIEW_IPC.market, async () => {
     const m = await loadMarket().catch(() => null);
@@ -1041,15 +1058,22 @@ void app.whenReady().then(async () => {
     if (c === null) return { ok: false, error: 'Unknown company.' };
     const posting = round?.postings.get(c.id);
     if (round === null || posting === undefined) return { ok: false, error: NEED_ROUND };
+    const thisRound = round;
+    const keep = async (v: { stamp: 'pass' | 'hold' | 'drop'; reached: string; total: number; strengths: readonly string[]; gaps: readonly string[]; question: string; comment: string }): Promise<void> => {
+      hiringHistory = hiringHistory.record(thisRound.n, { id: c.id, label: posting.label, role: posting.role, stamp: v.stamp, reached: v.reached, reachedLabel: stageName(v.reached), total: v.total, passScore: posting.rubric.passScore, languagePolicy: LANGUAGE_POLICY_LABEL[posting.rubric.languagePolicy], strengths: v.strengths, gaps: v.gaps, question: v.question, comment: v.comment });
+      await saveHistory();
+    };
     if (FAKE) {
       // 확인용: 회사마다 끝나는 시각을 달리해 먼저 끝난 곳부터 보이는지 본다
       const i = COMPANIES.indexOf(c);
       await new Promise((r) => setTimeout(r, 1500 + i * 1200));
       const [x, y, z] = c.recruiters;
-      return {
-        ok: true,
-        data: {
+      const fakeTotal = [80, 76, 40, 85, 60][i]!;
+      const data = {
           id: c.id,
+          scores: posting.rubric.criteria.map((cr) => ({ ...cr, score: fakeTotal, evidence: `(test) ${cr.label}` })),
+          total: fakeTotal,
+          languageMet: i !== 2,
           reached: (['assignment', 'technical', 'document', 'culture', 'document'] as const)[i]!,
           stamp: (['pass', 'pass', 'drop', 'pass', 'hold'] as const)[i]!,
           percentile: [12, 9, 40, 5, 50][i]!,
@@ -1062,11 +1086,14 @@ void app.whenReady().then(async () => {
           notes: c.recruiters.map((r) => ({ who: r.name, note: `(test) ${r.principle.by}` })),
           evidence: ['(test) commit'],
           talk: [{ who: x!.name, text: '(test) 다 읽었어요.' }, { who: y!.name, text: '(test) 저도요.' }, { who: z!.name, text: '(test) 정리할게요.' }],
-        },
       };
+      await keep(data);
+      return { ok: true, data };
     }
     try {
-      return { ok: true, data: await evaluateCompany(c.id, posting, round.years, round.note, await interviewEnv(), claudeExecutable(), settings.models.sonnet) };
+      const v = await evaluateCompany(c.id, posting, thisRound.years, thisRound.note, await interviewEnv(), claudeExecutable(), settings.models.sonnet, undefined, thisRound.desiredSalary);
+      await keep(v);
+      return { ok: true, data: v };
     } catch (e) {
       return { ok: false, error: e instanceof DomainError ? e.message : `${posting.label} could not answer. Check sign-in or the usage limit.` };
     }
