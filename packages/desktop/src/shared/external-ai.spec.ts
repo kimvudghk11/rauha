@@ -1,5 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { askArgs, cleanAnswer, installFailure, limitMessage, loginState, AI_PROVIDERS, providerOf } from './external-ai.js';
+import { askArgs, cleanAnswer, installFailure, limitMessage, loginState, AI_PROVIDERS, providerOf, terminalLine } from './external-ai.js';
+
+describe('로그인 터미널 명령 줄: 이름이 아니라 찾아 둔 전체 경로로', () => {
+  it('Windows 는 공백 있는 경로를 큰따옴표로 감싸고 % 는 배치 파일용으로 두 번 쓴다', () => {
+    expect(terminalLine('win32', ['C:\\Program Files\\nodejs\\node.exe', 'C:\\Users\\a\\AppData\\Roaming\\npm\\node_modules\\@openai\\codex\\bin\\codex.js', 'login'])).toBe(
+      '"C:\\Program Files\\nodejs\\node.exe" "C:\\Users\\a\\AppData\\Roaming\\npm\\node_modules\\@openai\\codex\\bin\\codex.js" login',
+    );
+    expect(terminalLine('win32', ['C:\\100%\\kiro-cli.exe', 'login'])).toBe('"C:\\100%%\\kiro-cli.exe" login');
+  });
+  it('macOS·Linux 는 작은따옴표로 감싸고 안의 작은따옴표를 풀어 쓴다', () => {
+    expect(terminalLine('darwin', ['/Users/a b/.rauha/npm-global/bin/codex', 'login'])).toBe("'/Users/a b/.rauha/npm-global/bin/codex' login");
+    expect(terminalLine('linux', ["/home/o'k/codex", 'login'])).toBe("'/home/o'\\''k/codex' login");
+  });
+});
 
 describe('바깥 AI 고르기', () => {
   it('kiro · codex 만 받는다(claude 는 팀이 맡는다)', () => {

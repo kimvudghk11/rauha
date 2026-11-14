@@ -36,6 +36,15 @@ export const LOGIN_ARGS: Readonly<Record<AiProviderId, readonly string[]>> = { k
 export const LOGOUT_ARGS: Readonly<Record<AiProviderId, readonly string[]>> = { kiro: ['logout'], codex: ['logout'] };
 export const STATUS_ARGS: Readonly<Record<AiProviderId, readonly string[]>> = { kiro: ['whoami'], codex: ['login', 'status'] };
 
+/**
+ * 새 터미널 창에서 칠 명령 줄. 새 창의 PATH 에 CLI 가 없을 수 있어서(npm 전역 폴더가 빠진 경우) 찾아 둔 전체 경로를 쓴다.
+ * Windows 는 배치 파일에 넣으므로 % 를 두 번 쓴다. 경로에 큰따옴표는 올 수 없다.
+ */
+export function terminalLine(platform: NodeJS.Platform, parts: readonly string[]): string {
+  if (platform === 'win32') return parts.map((p) => (/[\s&()^|<>\\/]/.test(p) ? `"${p}"` : p).replace(/%/g, '%%')).join(' ');
+  return parts.map((p) => (/^[\w@%+=:,./-]+$/.test(p) ? p : `'${p.replace(/'/g, "'\\''")}'`)).join(' ');
+}
+
 // eslint-disable-next-line no-control-regex
 const ANSI = /\u001b\[[0-9;?]*[A-Za-z]|\u001b\][^\u0007]*\u0007/g;
 

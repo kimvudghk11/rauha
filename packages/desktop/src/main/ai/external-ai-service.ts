@@ -1,9 +1,9 @@
 import { execFile, spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
-import { AI_PROVIDERS, askArgs, cleanAnswer, installFailure, limitMessage, LOGIN_ARGS, LOGOUT_ARGS, loginState, providerOf, STATUS_ARGS, type AiProviderId } from '../../shared/external-ai.js';
+import { AI_PROVIDERS, askArgs, cleanAnswer, installFailure, limitMessage, LOGIN_ARGS, LOGOUT_ARGS, loginState, providerOf, STATUS_ARGS, terminalLine, type AiProviderId } from '../../shared/external-ai.js';
 import type { AiResult, AiStatusView } from '../../shared/external-ai-ipc.js';
 
 const PROMPT_MAX = 20_000;
@@ -19,8 +19,6 @@ interface Ran {
 interface Exe {
   readonly file: string;
   readonly pre: readonly string[];
-  /** 새 터미널 창에서 칠 명령 이름 */
-  readonly shellName: string;
 }
 
 export interface ExternalAiDeps {
@@ -63,18 +61,18 @@ export class ExternalAiService {
     const { env, platform } = this.deps;
     if (id === 'kiro') {
       const found = which('kiro-cli', env, platform) ?? (platform === 'win32' && env['LOCALAPPDATA'] !== undefined && existsSync(join(env['LOCALAPPDATA'], 'Kiro-Cli', 'kiro-cli.exe')) ? join(env['LOCALAPPDATA'], 'Kiro-Cli', 'kiro-cli.exe') : null);
-      return found === null ? null : { file: found, pre: [], shellName: 'kiro-cli' };
+      return found === null ? null : { file: found, pre: [] };
     }
     if (platform !== 'win32') {
       const mine = join(this.userPrefix(), 'bin', 'codex');
       const found = which('codex', env, platform) ?? (existsSync(mine) ? mine : null);
-      return found === null ? null : { file: found, pre: [], shellName: 'codex' };
+      return found === null ? null : { file: found, pre: [] };
     }
     const cmd = which('codex', env, platform) ?? (existsSync(join(this.userPrefix(), 'codex.cmd')) ? join(this.userPrefix(), 'codex.cmd') : null);
     if (cmd === null) return null;
     const js = join(dirname(cmd), 'node_modules', '@openai', 'codex', 'bin', 'codex.js');
     const node = existsSync(join(dirname(cmd), 'node.exe')) ? join(dirname(cmd), 'node.exe') : which('node', env, platform);
-    return existsSync(js) && node !== null ? { file: node, pre: [js], shellName: 'codex.cmd' } : null;
+    return existsSync(js) && node !== null ? { file: node, pre: [js] } : null;
   }
 
   /** 권한 문제로 전역 설치가 막히면 쓰는 사용자 폴더(~/.rauha/npm-global) */
@@ -132,7 +130,7 @@ export class ExternalAiService {
       const all = `${r.stdout}\n${r.stderr}`;
       const limited = limitMessage(p.id, all);
       if (limited !== null) return { ok: false, error: limited };
-      if (/not logged in|login required|please log in|sign in/i.test(all) && r.code !== 0) return { ok: false, error: `${p.label} is not signed in. Sign in from Extensions > AI accounts.` };
+      if (/not logged in|login required|please log in|sign in/i.test(all) && r.code !== 0) return { ok: false, error: `${p.label} is not signed in. Sign in from the AI bar above the chat.` };
       const fromFile = p.id === 'codex' ? await readFile(last, 'utf8').catch(() => '') : '';
       const text = cleanAnswer(p.id, fromFile !== '' ? fromFile : r.stdout);
       if (r.code !== 0 && text === '') return { ok: false, error: `${p.label} stopped: ${cleanAnswer(p.id, r.stderr).split('\n').find((l) => l.trim() !== '') ?? `exit code ${r.code}`}` };
@@ -150,10 +148,15 @@ export class ExternalAiService {
     if (exe === null) return { ok: false, error: `${p.label} is not installed. ${p.install}` };
     // 계정 바꾸기: Kiro 는 로그아웃해야 다른 계정으로 로그인된다(Codex 도 같은 방식으로 깨끗하게)
     if (switchAccount) await runFile(exe.file, [...exe.pre, ...LOGOUT_ARGS[p.id]], { timeoutMs: 20_000, env: this.deps.env });
-    const line = [exe.shellName, ...LOGIN_ARGS[p.id]].join(' ');
+    // 이름(codex.cmd)만 쓰면 새 창의 PATH 에 npm 전역 폴더가 없을 때 "명령 없음" 이 된다 → 찾아 둔 전체 경로로
+    const line = terminalLine(this.deps.platform, [exe.file, ...exe.pre, ...LOGIN_ARGS[p.id]]);
     try {
-      if (this.deps.platform === 'win32') spawn('cmd.exe', ['/c', 'start', `rauha · ${p.label} sign-in`, 'cmd', '/k', line], { detached: true, stdio: 'ignore', windowsHide: false, env: this.deps.env }).unref();
-      else if (this.deps.platform === 'darwin') spawn('osascript', ['-e', `tell application "Terminal" to do script "${line}"`, '-e', 'tell application "Terminal" to activate'], { detached: true, stdio: 'ignore' }).unref();
+      if (this.deps.platform === 'win32') {
+        // cmd /k 에 따옴표 든 줄을 바로 넘기면 따옴표가 깨진다 → 배치 파일로
+        const bat = join(await mkdtemp(join(tmpdir(), 'rauha-login-')), `${p.id}-login.cmd`);
+        await writeFile(bat, `@echo off\r\necho rauha: ${p.label} sign-in\r\n${line}\r\n`, 'utf8');
+        spawn('cmd.exe', ['/c', 'start', `rauha · ${p.label} sign-in`, 'cmd', '/k', bat], { detached: true, stdio: 'ignore', windowsHide: false, env: this.deps.env }).unref();
+      } else if (this.deps.platform === 'darwin') spawn('osascript', ['-e', `tell application "Terminal" to do script "${line.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`, '-e', 'tell application "Terminal" to activate'], { detached: true, stdio: 'ignore' }).unref();
       else spawn('x-terminal-emulator', ['-e', line], { detached: true, stdio: 'ignore' }).unref();
       return { ok: true, data: null };
     } catch {
