@@ -93,7 +93,8 @@ const api: RauhaApi = {
   },
   interview: {
     panel: () => ipcRenderer.invoke(INTERVIEW_IPC.panel),
-    evaluate: () => ipcRenderer.invoke(INTERVIEW_IPC.evaluate),
+    prepare: () => ipcRenderer.invoke(INTERVIEW_IPC.prepare),
+    evaluate: (id) => ipcRenderer.invoke(INTERVIEW_IPC.evaluate, id),
     ask: (id, history, question) => ipcRenderer.invoke(INTERVIEW_IPC.ask, id, history, question),
   },
   myWork: {
