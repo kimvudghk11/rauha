@@ -24,6 +24,16 @@ export interface Company {
   readonly id: string;
   /** 회사 이름(가상) */
   readonly label: string;
+  /** 규모·업종 한 줄 */
+  readonly size: string;
+  /** 채용 공고 직무 */
+  readonly role: string;
+  /** 공고가 원하는 스택·경험 */
+  readonly wants: readonly string[];
+  /** 자리 하나에 오는 지원자 수(경쟁률 N:1) */
+  readonly applicants: number;
+  /** 단계별 통과율(%). 서류 통과율 = 지원자 중 상위 몇 %까지 붙는지 */
+  readonly passRates: Readonly<Record<StageId, number>>;
   readonly lens: string;
   /** 모델에 주는 분위기·말투 */
   readonly style: string;
@@ -38,6 +48,11 @@ export const COMPANIES: readonly Company[] = [
   {
     id: 'A',
     label: 'A사 · 금융 운용사',
+    size: '임직원 3,000명 · 증권 · 안정성 우선',
+    role: '백엔드 개발자(경력 3년 이상)',
+    wants: ['Java', 'Spring Boot', 'Oracle·SQL 튜닝', '배치 처리', '금융 도메인·정합성'],
+    applicants: 60,
+    passRates: { document: 20, assignment: 50, technical: 40, culture: 60, offer: 85 },
     lens: 'Integrity, long-term value, knowing your limits',
     style: 'Calm, plain words, short anecdotes; asks what lasts ten years and whether the record is honest.',
     recruiters: [
@@ -49,6 +64,11 @@ export const COMPANIES: readonly Company[] = [
   {
     id: 'B',
     label: 'B사 · 소비자 제품',
+    size: '월 사용자 1,000만 · 커머스 B2C',
+    role: '프론트엔드 개발자(경력 3년 이상)',
+    wants: ['TypeScript', 'React', 'Next.js', '디자인 시스템', '웹 성능 지표 개선'],
+    applicants: 180,
+    passRates: { document: 10, assignment: 45, technical: 35, culture: 60, offer: 85 },
     lens: 'Product taste, craft, growth',
     style: 'Intense, blunt, obsessed with simplicity and the end user; dislikes feature lists without a point.',
     recruiters: [
@@ -60,6 +80,11 @@ export const COMPANIES: readonly Company[] = [
   {
     id: 'C',
     label: 'C사 · 핀테크',
+    size: '유니콘 · 송금·결제',
+    role: '서버 개발자(경력 3년 이상)',
+    wants: ['Kotlin', 'Spring', 'Kafka', 'MySQL', '대용량 트래픽', '돈의 정합성'],
+    applicants: 250,
+    passRates: { document: 8, assignment: 40, technical: 30, culture: 55, offer: 85 },
     lens: 'Technical depth, evidence in code, finishing',
     style: 'Fast, precise, keeps asking "why" and "how did you measure it"; cares about reliability, money flows and ownership.',
     recruiters: [
@@ -71,6 +96,11 @@ export const COMPANIES: readonly Company[] = [
   {
     id: 'D',
     label: 'D사 · 대규모 플랫폼',
+    size: '빅테크 · 클라우드 플랫폼',
+    role: '백엔드·인프라 엔지니어(경력 5년 이상)',
+    wants: ['Go 또는 Java', 'Kubernetes', 'AWS', '분산 시스템', '장애 대응·SRE'],
+    applicants: 300,
+    passRates: { document: 6, assignment: 40, technical: 30, culture: 50, offer: 80 },
     lens: 'Scale, reliability, raising the bar',
     style: 'Methodical; asks about trade-offs, failure modes, boundaries and how the system grows.',
     recruiters: [
@@ -82,6 +112,11 @@ export const COMPANIES: readonly Company[] = [
   {
     id: 'E',
     label: 'E사 · 초기 스타트업',
+    size: '시리즈 A SaaS · 12명',
+    role: '풀스택 개발자(연차 무관)',
+    wants: ['TypeScript', 'Node.js', 'React', 'AWS', '혼자 끝까지 만들어 낸 경험'],
+    applicants: 25,
+    passRates: { document: 35, assignment: 50, technical: 45, culture: 60, offer: 80 },
     lens: 'Execution, speed, initiative',
     style: 'Energetic; cares about shipping, learning loops and doing hard things without being asked.',
     recruiters: [
@@ -111,8 +146,15 @@ export type Stamp = (typeof STAMPS)[number];
 
 export interface CompanyVerdict {
   readonly id: string;
+  /** 지원자가 멈추는 단계(offer 면 최종 합격) */
   readonly reached: StageId;
+  /** 1차 서류 결과 */
   readonly stamp: Stamp;
+  /** 이 회사 지원자 중 추정 순위(상위 %, 1 이 가장 좋음) */
+  readonly percentile: number;
+  /** 공고가 원하는 것 중 근거가 있는 것 / 없는 것 */
+  readonly stackHave: readonly string[];
+  readonly stackMissing: readonly string[];
   readonly comment: string;
   readonly strengths: readonly string[];
   readonly gaps: readonly string[];
@@ -132,8 +174,11 @@ const whoText = (key: string) => ({ type: 'array', items: { type: 'object', prop
 export const COMPANY_SCHEMA = {
   type: 'object',
   properties: {
-    reached: { type: 'string', enum: stageIds, description: 'Furthest stage the candidate would pass at this company' },
-    stamp: { type: 'string', enum: STAMPS, description: 'pass = moves on from the first round, hold = unsure, drop = would not' },
+    percentile: { type: 'number', description: 'Where the candidate ranks among this company’s real applicants for this role: top N percent (1 = best, 100 = worst)' },
+    stackHave: { ...strArr, description: 'Items of the job posting the summary gives real evidence for' },
+    stackMissing: { ...strArr, description: 'Items of the job posting with no evidence in the summary' },
+    reached: { type: 'string', enum: stageIds, description: 'The stage where the candidate would stop (offer = gets the offer)' },
+    stamp: { type: 'string', enum: STAMPS, description: 'Result of the document screening: pass = moves on, hold = borderline, drop = rejected' },
     comment: { type: 'string', description: 'The company’s decision in two to four Korean sentences' },
     strengths: strArr,
     gaps: strArr,
@@ -142,7 +187,7 @@ export const COMPANY_SCHEMA = {
     evidence: { ...strArr, description: 'Commit subjects, repos or numbers from the summary this rests on (quote them)' },
     talk: { ...whoText('text'), description: '6 to 10 short Korean lines: the three recruiters discussing the candidate like real colleagues, leading to the decision' },
   },
-  required: ['reached', 'stamp', 'comment', 'strengths', 'gaps', 'question', 'notes', 'evidence', 'talk'],
+  required: ['percentile', 'stackHave', 'stackMissing', 'reached', 'stamp', 'comment', 'strengths', 'gaps', 'question', 'notes', 'evidence', 'talk'],
 } as const;
 
 type Obj = Record<string, unknown>;
@@ -163,10 +208,14 @@ export class CompanyVerdictDto {
     const rows = (v: unknown, key: string): { who: string; text: string }[] =>
       (Array.isArray(v) ? v.filter(isObj) : []).map((x) => ({ who: str(x['who'], 40), text: str(x[key], 500) })).filter((x) => names.includes(x.who) && x.text !== '');
     const notes = rows(output['notes'], 'note');
+    const { reached, stamp, percentile } = CompanyVerdictDto.calibrate(company, stage(output['reached']), stampOf(output['stamp']), output['percentile']);
     return {
       id: company.id,
-      reached: stage(output['reached']),
-      stamp: stampOf(output['stamp']),
+      reached,
+      stamp,
+      percentile,
+      stackHave: strs(output['stackHave'], 10),
+      stackMissing: strs(output['stackMissing'], 10),
       comment: str(output['comment']),
       strengths: strs(output['strengths']),
       gaps: strs(output['gaps']),
@@ -175,5 +224,20 @@ export class CompanyVerdictDto {
       evidence: strs(output['evidence'], 8),
       talk: rows(output['talk'], 'text').slice(0, TALK_MAX),
     };
+  }
+
+  /**
+   * 후하게 나오지 않게 하는 규칙. 서류 통과율이 8%면 지원자 중 상위 8% 안이어야 PASS.
+   * 통과선 밖이면 2배 안은 HOLD, 그 밖은 DROP. 도장과 단계가 어긋나면 더 엄격한 쪽을 따른다.
+   */
+  private static calibrate(company: Company, reached0: StageId, stamp0: Stamp, rawPct: unknown): { reached: StageId; stamp: Stamp; percentile: number } {
+    const percentile = typeof rawPct === 'number' && Number.isFinite(rawPct) && rawPct >= 1 && rawPct <= 100 ? Math.round(rawPct) : 100;
+    const cut = company.passRates.document;
+    let stamp = stamp0;
+    let reached = reached0;
+    if (percentile > cut && stamp === 'pass') stamp = percentile <= cut * 2 ? 'hold' : 'drop';
+    if (stamp !== 'pass') reached = 'document';
+    else if (reached === 'document') stamp = 'hold';
+    return { reached, stamp, percentile };
   }
 }

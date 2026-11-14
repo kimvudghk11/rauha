@@ -9,7 +9,7 @@ import { MY_WORK_IPC } from '../shared/my-work-ipc.js';
 import { GitAccounts, resumeNote, summarizeWork } from '../shared/my-work.js';
 import { INTERVIEW_IPC, type WorkFacts } from '../shared/interview-ipc.js';
 import { workFacts } from '../shared/hiring-banter.js';
-import { scanMyWork } from './git/my-work-service.js';
+import { scanMyWork, scanRepoStacks } from './git/my-work-service.js';
 import { accessSync, constants as fsConstants, existsSync, readdirSync, statSync } from 'node:fs';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -983,7 +983,8 @@ void app.whenReady().then(async () => {
     const key = JSON.stringify([settings.gitAccounts, currentWorkDir()]);
     if (workCache?.key === key) return workCache;
     const repos = (await scanWorkFolder(currentWorkDir())).filter((e) => e.kind === 'repo').map((e) => e.root);
-    const summary = summarizeWork(await scanMyWork(repos, 0), accounts);
+    const [commits, stacks] = await Promise.all([scanMyWork(repos, 0), scanRepoStacks(repos)]);
+    const summary = summarizeWork(commits, accounts, stacks);
     if (summary.total === 0) return null;
     workCache = { key, note: resumeNote(summary), facts: workFacts(summary) };
     return workCache;
@@ -992,7 +993,7 @@ void app.whenReady().then(async () => {
   const interviewEnv = async (): Promise<Record<string, string>> => ({ ...(process.env as Record<string, string>), ...(await profileResolver(home, settings.account))(currentWorkDir()).agentEnv(home) });
   const NEED_ACCOUNTS = 'Add your git accounts in Git > My work first. The recruiters read your commits from there.';
   ipcMain.handle(INTERVIEW_IPC.panel, () => ({
-    companies: COMPANIES.map((c) => ({ id: c.id, label: c.label, lens: c.lens, recruiters: c.recruiters.map((r) => ({ name: r.name, title: r.title, by: r.principle.by, rule: r.principle.rule })) })),
+    companies: COMPANIES.map((c) => ({ id: c.id, label: c.label, lens: c.lens, size: c.size, role: c.role, wants: c.wants, applicants: c.applicants, passRates: c.passRates, recruiters: c.recruiters.map((r) => ({ name: r.name, title: r.title, by: r.principle.by, rule: r.principle.rule })) })),
     stages: STAGES.map((s) => ({ id: s.id, label: s.label })),
   }));
   ipcMain.handle(INTERVIEW_IPC.prepare, async () => {
@@ -1014,8 +1015,11 @@ void app.whenReady().then(async () => {
         ok: true,
         data: {
           id: c.id,
-          reached: (['assignment', 'technical', 'document', 'culture', 'assignment'] as const)[i]!,
+          reached: (['assignment', 'technical', 'document', 'culture', 'document'] as const)[i]!,
           stamp: (['pass', 'pass', 'drop', 'pass', 'hold'] as const)[i]!,
+          percentile: [12, 9, 40, 5, 50][i]!,
+          stackHave: ['TypeScript'],
+          stackMissing: c.wants.slice(0, 2),
           comment: `(test) ${c.label}`,
           strengths: ['tests'],
           gaps: ['no impact numbers'],

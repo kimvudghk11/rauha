@@ -211,3 +211,14 @@
 .ext-toast.ok { color: var(--green); background: color-mix(in srgb, var(--green) 12%, transparent); }
 .ext-toast.bad { color: var(--red); background: color-mix(in srgb, var(--red) 12%, transparent); }
 .dialog.hr-report ul { font-family: inherit; font-size: var(--fs-sm); color: var(--text); word-break: normal; }
+.hr-post { font-size: var(--fs-xs); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hr-posting { display: flex; flex-direction: column; gap: var(--s1); padding: var(--s2) var(--s3); border: 1px solid var(--border); border-radius: var(--r-md); background: var(--well); font-size: var(--fs-sm); }
+.hr-wants { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+.hr-want { font-size: var(--fs-xs); padding: 1px 8px; border-radius: var(--r-pill); border: 1px solid var(--border2); color: var(--muted); }
+.hr-want.have { color: var(--green); border-color: color-mix(in srgb, var(--green) 50%, transparent); }
+.hr-want.miss { color: var(--yellow); border-color: color-mix(in srgb, var(--yellow) 50%, transparent); }
+.hr-rank { position: relative; height: 10px; margin: var(--s2) 0 2px; border-radius: var(--r-pill); background: linear-gradient(90deg, color-mix(in srgb, var(--green) 45%, transparent), color-mix(in srgb, var(--red) 35%, transparent)); }
+.hr-rank-cut { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--bright); }
+.hr-rank-me { position: absolute; top: 50%; width: 14px; height: 14px; border-radius: 50%; transform: translate(-50%, -50%); border: 2px solid var(--bg); background: var(--yellow); }
+.hr-rank-me.pass { background: var(--green); }
+.hr-rank-me.drop { background: var(--red); }

@@ -55,6 +55,9 @@ export function buildInterview(deps: { readonly api: InterviewApi; readonly open
   root.append(head, summary, office);
 
   const stageLabel = (id: string): string => stages.find((s) => s.id === id)?.label ?? id;
+  /** reached 는 멈추는 단계(offer 면 최종 합격) */
+  const stopText = (id: string): string => (id === 'offer' ? 'Offer' : `Stops at ${stageLabel(id)}`);
+  const factsLine = (f: WorkFacts): string => [`${f.total} commits`, f.langs.slice(0, 3).map((l) => `${l.lang} ${l.share}%`).join(' · '), f.stack.slice(0, 5).join(', ')].filter((x) => x !== '').join(' · ');
 
   function face(company: string, index: number, scale: number, pose: 'read' | 'idle'): HTMLCanvasElement {
     const cv = el('canvas', 'px');
@@ -69,6 +72,8 @@ export function buildInterview(deps: { readonly api: InterviewApi; readonly open
     const top = el('div', 'hr-rt');
     const badge = el('span', 'hr-badge');
     top.append(el('b', undefined, c.label), badge);
+    const post = el('div', 'hr-post', `${c.role} · ${c.applicants}:1`);
+    post.title = `${c.size} · wants ${c.wants.join(', ')} · document screening passes the top ${c.passRates['document'] ?? '?'}%`;
     const bubble = el('div', 'hr-bub');
     const crew = el('div', 'hr-crew');
     const faces = c.recruiters.map((r, i) => {
@@ -78,7 +83,7 @@ export function buildInterview(deps: { readonly api: InterviewApi; readonly open
       crew.append(who);
       return who;
     });
-    box.append(top, bubble, crew, el('div', 'hr-desk'));
+    box.append(top, post, bubble, crew, el('div', 'hr-desk'));
     const room: Room = { company: c, index, state: { kind: 'idle' }, script: [], at: 0, log: [], el: box, badge, bubble, faces };
     box.addEventListener('click', () => openModal(room));
     return room;
@@ -96,7 +101,7 @@ export function buildInterview(deps: { readonly api: InterviewApi; readonly open
       r.badge.classList.add('err');
       r.badge.textContent = 'Could not finish';
     } else {
-      r.badge.replaceChildren(el('span', `hr-stamp ${s.verdict.stamp}`, STAMP_TEXT[s.verdict.stamp]), el('span', undefined, stageLabel(s.verdict.reached)));
+      r.badge.replaceChildren(el('span', `hr-stamp ${s.verdict.stamp}`, STAMP_TEXT[s.verdict.stamp]), el('span', undefined, `${stopText(s.verdict.reached)} · top ${s.verdict.percentile}%`));
     }
     const line = r.script.length === 0 ? null : r.script[Math.min(r.at, r.script.length - 1)]!;
     r.bubble.hidden = line === null;
@@ -120,16 +125,16 @@ export function buildInterview(deps: { readonly api: InterviewApi; readonly open
     const count = (k: 'pass' | 'hold' | 'drop'): number => done.filter((d) => d.v.stamp === k).length;
     summary.append(
       el('b', undefined, `${done.length}/${rooms.length} companies done`),
-      el('span', undefined, best === undefined ? 'Still reading…' : `Furthest: ${best.r.company.label} · ${stageLabel(best.v.reached)}`),
+      el('span', undefined, best === undefined ? 'Still reading…' : `Furthest: ${best.r.company.label} · ${stopText(best.v.reached)}`),
       el('span', 'hr-stamp pass', `PASS ${count('pass')}`),
       el('span', 'hr-stamp hold', `HOLD ${count('hold')}`),
       el('span', 'hr-stamp drop', `DROP ${count('drop')}`),
     );
-    if (facts !== null) summary.append(el('span', 'dim grow right', `Your work: ${facts.total} commits · ${facts.repos.length} repos`));
+    if (facts !== null) summary.append(el('span', 'dim grow right', `Your work: ${factsLine(facts)}`));
   }
 
   function paintHub(): void {
-    hub.replaceChildren(face('me', 0, 4, running ? 'read' : 'idle'), el('b', undefined, 'Me'), el('span', 'dim', facts === null ? 'Resume not sent yet' : `${facts.total} commits · ${facts.repos.length} repos`));
+    hub.replaceChildren(face('me', 0, 4, running ? 'read' : 'idle'), el('b', undefined, 'Me'), el('span', 'dim', facts === null ? 'Resume not sent yet' : factsLine(facts)));
   }
 
   /** 이력서가 가운데 책상에서 각 방으로 날아간다(움직임을 줄이는 설정이면 생략) */
@@ -171,7 +176,7 @@ export function buildInterview(deps: { readonly api: InterviewApi; readonly open
     paintHub();
     for (const r of rooms) {
       r.state = { kind: 'reviewing' };
-      r.script = waitingTalk(r.company.recruiters, prep.data, r.index);
+      r.script = waitingTalk(r.company.recruiters, prep.data, r.index, r.company.wants, r.company.applicants);
       r.at = 0;
       r.log = [r.script[0]!];
       paintRoom(r);
@@ -262,11 +267,36 @@ export function buildInterview(deps: { readonly api: InterviewApi; readonly open
       else status.append(el('span', 'hint', s.kind === 'reviewing' ? 'Reviewing…' : s.kind === 'error' ? 'Could not finish' : 'Not sent yet'));
       const keepTop = report.scrollTop;
       report.replaceChildren();
+      // 채용 공고·경쟁률·내 위치: 서류 통과선과 추정 순위를 한 줄 막대로
+      const post = el('div', 'hr-posting');
+      const cut = c.passRates['document'] ?? 0;
+      post.append(el('div', undefined, `${c.size} · ${c.role}`), el('div', 'hint', `About ${c.applicants} applicants per opening. The document screening passes the top ${cut}%.`));
+      const chips = el('div', 'hr-wants');
+      const have = s.kind === 'done' ? s.verdict.stackHave.map((x) => x.toLowerCase()) : [];
+      const miss = s.kind === 'done' ? s.verdict.stackMissing.map((x) => x.toLowerCase()) : [];
+      for (const w of c.wants) {
+        const k = w.toLowerCase();
+        const st = have.some((h) => h.includes(k) || k.includes(h)) ? 'have' : miss.some((m) => m.includes(k) || k.includes(m)) ? 'miss' : '';
+        chips.append(el('span', `hr-want ${st}`, `${st === 'have' ? '✓ ' : st === 'miss' ? '✗ ' : ''}${w}`));
+      }
+      post.append(chips);
+      if (s.kind === 'done') {
+        const bar = el('div', 'hr-rank');
+        const line = el('div', 'hr-rank-cut');
+        line.style.left = `${cut}%`;
+        line.title = `Pass line: top ${cut}%`;
+        const me = el('div', `hr-rank-me ${s.verdict.stamp}`);
+        me.style.left = `${Math.min(99, s.verdict.percentile)}%`;
+        bar.append(line, me);
+        post.append(bar, el('div', 'hint', `You: about top ${s.verdict.percentile}% of applicants · pass line top ${cut}%`));
+      }
+      report.append(post);
       if (s.kind === 'done') {
         const track = el('div', 'iv-track');
         const idx = stages.findIndex((st) => st.id === s.verdict.reached);
-        stages.forEach((st, i) => track.append(el('span', `iv-stage${i < idx ? ' pass' : i === idx ? ' here' : ''}`, st.label)));
-        report.append(track, el('p', 'iv-comment', s.verdict.comment));
+        const offer = s.verdict.reached === 'offer';
+        stages.forEach((st, i) => track.append(el('span', `iv-stage${i < idx || offer ? ' pass' : i === idx ? ' here' : ''}`, `${st.label} ${c.passRates[st.id] ?? ''}%`)));
+        report.append(track, el('div', 'hint', `${stopText(s.verdict.reached)}. Percent = share of people who pass that stage here.`), el('p', 'iv-comment', s.verdict.comment));
       }
       if (s.kind === 'error') report.append(el('div', 'err', s.error));
       // 담당자 셋: 각자 맡은 기준(출처)과 그 기준으로 본 한 줄

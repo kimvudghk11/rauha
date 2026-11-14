@@ -12,14 +12,16 @@ const summary: WorkSummary = {
       removed: 200,
       first: Date.UTC(2026, 4, 3) / 1000,
       last: Date.UTC(2026, 10, 1) / 1000,
+      langs: [{ lang: 'Kotlin', lines: 300 }, { lang: 'SQL', lines: 100 }],
       months: [
         { month: '2026-11', repos: [{ repo: 'pay', commits: 50, added: 1, removed: 1, subjects: ['feat: 결제 재시도', 'fix: 타임아웃'] }] },
         { month: '2026-06', repos: [{ repo: 'pay', commits: 10, added: 1, removed: 1, subjects: ['chore: 정리'] }, { repo: 'admin', commits: 20, added: 1, removed: 1, subjects: ['feat: 정산 화면'] }] },
       ],
     },
-    { label: 'Personal', commits: 40, added: 1, removed: 1, first: Date.UTC(2025, 0, 1) / 1000, last: Date.UTC(2026, 3, 1) / 1000, months: [{ month: '2026-04', repos: [{ repo: 'rauha', commits: 40, added: 1, removed: 1, subjects: ['feat: 팀 대화'] }] }] },
+    { label: 'Personal', commits: 40, added: 1, removed: 1, langs: [{ lang: 'TypeScript', lines: 100 }], first: Date.UTC(2025, 0, 1) / 1000, last: Date.UTC(2026, 3, 1) / 1000, months: [{ month: '2026-04', repos: [{ repo: 'rauha', commits: 40, added: 1, removed: 1, subjects: ['feat: 팀 대화'] }] }] },
   ],
   others: [],
+  stacks: [{ repo: 'pay', stack: ['Spring Boot', 'Kotlin'] }],
 };
 
 const crew = [
@@ -36,6 +38,11 @@ describe('기다리는 동안 이야기할 사실', () => {
     expect(f.accounts[0]).toEqual({ label: 'Company', commits: 80, from: '2026-05', to: '2026-11' });
     expect(f.samples).toContain('feat: 결제 재시도');
   });
+  it('바꾼 언어 비중(계정 합산)과 설정 파일 스택', () => {
+    const f = workFacts(summary);
+    expect(f.langs).toEqual([{ lang: 'Kotlin', share: 60 }, { lang: 'SQL', share: 20 }, { lang: 'TypeScript', share: 20 }]);
+    expect(f.stack).toEqual(['Kotlin', 'Spring Boot']);
+  });
 });
 
 describe('검토 중 담당자 대화(판정 없이 사실만)', () => {
@@ -49,6 +56,11 @@ describe('검토 중 담당자 대화(판정 없이 사실만)', () => {
     expect(all).toMatch(/pay/);
     expect(all).toMatch(/120/);
   });
+  it('언어·스택·공고·경쟁률도 사실로 이야기한다', () => {
+    const all = waitingTalk(crew, facts, 0, ['Kotlin', 'Kafka'], 250).map((l) => l.text).join(' ');
+    expect(all).toMatch(/Kotlin/);
+    expect(all).toMatch(/250명/);
+  });
   it('담당자는 자기 기준의 출처를 밝히며 말한다', () => {
     expect(waitingTalk(crew, facts, 0).some((l) => l.text.includes('리누스 토르발스'))).toBe(true);
   });
@@ -59,6 +71,6 @@ describe('검토 중 담당자 대화(판정 없이 사실만)', () => {
     expect(waitingTalk(crew, facts, 1).map((l) => l.text)).not.toEqual(waitingTalk(crew, facts, 2).map((l) => l.text));
   });
   it('커밋이 없어도 깨지지 않는다', () => {
-    expect(waitingTalk(crew, { total: 0, accounts: [], repos: [], samples: [] }, 3).length).toBeGreaterThan(0);
+    expect(waitingTalk(crew, { total: 0, accounts: [], repos: [], samples: [], langs: [], stack: [] }, 3).length).toBeGreaterThan(0);
   });
 });

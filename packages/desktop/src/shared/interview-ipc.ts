@@ -17,6 +17,14 @@ export interface CompanyView {
   readonly id: string;
   readonly label: string;
   readonly lens: string;
+  readonly size: string;
+  /** 채용 공고 직무와 원하는 스택 */
+  readonly role: string;
+  readonly wants: readonly string[];
+  /** 자리 하나에 오는 지원자 수(N:1) */
+  readonly applicants: number;
+  /** 단계별 통과율(%) */
+  readonly passRates: Readonly<Record<string, number>>;
   readonly recruiters: readonly RecruiterView[];
 }
 export interface StageView {
@@ -32,6 +40,10 @@ export interface VerdictView {
   readonly id: string;
   readonly reached: string;
   readonly stamp: StampView;
+  /** 이 회사 지원자 중 추정 순위(상위 %) */
+  readonly percentile: number;
+  readonly stackHave: readonly string[];
+  readonly stackMissing: readonly string[];
   readonly comment: string;
   readonly strengths: readonly string[];
   readonly gaps: readonly string[];
@@ -48,6 +60,10 @@ export interface WorkFacts {
   readonly repos: readonly { readonly repo: string; readonly commits: number }[];
   /** 커밋 제목 몇 개 */
   readonly samples: readonly string[];
+  /** 내가 바꾼 언어 비중(%) */
+  readonly langs: readonly { readonly lang: string; readonly share: number }[];
+  /** 레포 설정 파일에서 읽은 스택(합쳐서) */
+  readonly stack: readonly string[];
 }
 
 export type InterviewReply<T> = { readonly ok: true; readonly data: T } | { readonly ok: false; readonly error: string };
