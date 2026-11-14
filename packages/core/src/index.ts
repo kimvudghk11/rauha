@@ -152,6 +152,8 @@ export { draftRule } from './orchestration/infrastructure/agent-sdk-rule-parser.
 export { CommitDraftDto, commitDraftPrompt, COMMIT_DIFF_LIMIT, type CommitDraft } from './orchestration/application/dto/commit-draft.dto.js';
 export { draftCommit } from './orchestration/infrastructure/agent-sdk-commit-draft.js';
 export { draftResume, RESUME_NOTE_LIMIT } from './orchestration/infrastructure/agent-sdk-resume-draft.js';
+export { INTERVIEWERS, STAGES, InterviewDto, type Interviewer, type InterviewResult, type PanelVerdict, type StageId } from './orchestration/application/dto/interview.dto.js';
+export { askInterviewer, evaluateCandidate } from './orchestration/infrastructure/agent-sdk-interview.js';
 export { draftBlog, BLOG_NOTE_LIMIT, type BlogTone, type BlogQuery } from './orchestration/infrastructure/agent-sdk-blog-draft.js';
 
 // analysis

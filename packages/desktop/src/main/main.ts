@@ -6,12 +6,14 @@ import { ClaudeHistoryService } from './history/claude-history-service.js';
 import { EXTERNAL_AI_IPC } from '../shared/external-ai-ipc.js';
 import { ExternalAiService } from './ai/external-ai-service.js';
 import { MY_WORK_IPC } from '../shared/my-work-ipc.js';
+import { GitAccounts, resumeNote, summarizeWork } from '../shared/my-work.js';
+import { INTERVIEW_IPC } from '../shared/interview-ipc.js';
 import { scanMyWork } from './git/my-work-service.js';
 import { accessSync, constants as fsConstants, existsSync, readdirSync, statSync } from 'node:fs';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, Notification, safeStorage, screen, shell, type IpcMainInvokeEvent } from 'electron';
-import { DefaultRuleSet, DefaultRulesDto, DomainError, discoverRepos, draftBlog, draftCommit, draftResume, draftRule, FileRuleStore, loadSecretPolicy, PromptLibrary, readPlanUsage, RuleBook, RuleBookDto, type PlanUsage } from '@rauha/core';
+import { DefaultRuleSet, DefaultRulesDto, DomainError, askInterviewer, discoverRepos, draftBlog, draftCommit, draftResume, draftRule, evaluateCandidate, INTERVIEWERS, STAGES, FileRuleStore, loadSecretPolicy, PromptLibrary, readPlanUsage, RuleBook, RuleBookDto, type PlanUsage } from '@rauha/core';
 import { JobRunner } from '@rauha/core/jobs';
 import { replaceRule, ruleSizeError, type RuleView } from '../shared/rules-form.js';
 import { boardView, jobView, IPC, type ApprovalChoice, type DiagnosticsResult, type RepoRow, type SettingsPatch } from '../shared/ipc.js';
@@ -955,6 +957,38 @@ void app.whenReady().then(async () => {
       return { ok: true, data: { commits, repos: repos.length } };
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  });
+  // 면접관 패널: My work 에 묶은 내 계정들의 커밋 요약(제목·숫자만)으로 평가·대화
+  const myWorkNote = async (): Promise<string> => {
+    const accounts = GitAccounts.from(settings.gitAccounts);
+    if (accounts.list.length === 0) return '';
+    const repos = (await scanWorkFolder(currentWorkDir())).filter((e) => e.kind === 'repo').map((e) => e.root);
+    return resumeNote(summarizeWork(await scanMyWork(repos, 0), accounts));
+  };
+  const interviewEnv = async (): Promise<Record<string, string>> => ({ ...(process.env as Record<string, string>), ...(await profileResolver(home, settings.account))(currentWorkDir()).agentEnv(home) });
+  const NEED_ACCOUNTS = 'Add your git accounts in Git > My work first. The panel reads your commits from there.';
+  ipcMain.handle(INTERVIEW_IPC.panel, () => ({ interviewers: INTERVIEWERS.map((p) => ({ id: p.id, name: p.name, lens: p.lens })), stages: STAGES.map((s) => ({ id: s.id, label: s.label })) }));
+  ipcMain.handle(INTERVIEW_IPC.evaluate, async () => {
+    const note = await myWorkNote().catch(() => '');
+    if (note === '') return { ok: false, error: NEED_ACCOUNTS };
+    if (FAKE) return { ok: true, data: { overall: { reached: 'technical', summary: '(test) steady shipping', strengths: ['tests'], gaps: ['no impact numbers'], next: ['add numbers'] }, panel: INTERVIEWERS.map((p) => ({ id: p.id, reached: 'assignment', comment: `(test) ${p.name}`, strengths: ['a'], gaps: ['b'], question: 'Why?' })) } };
+    try {
+      return { ok: true, data: await evaluateCandidate(note, await interviewEnv(), claudeExecutable(), settings.models.sonnet) };
+    } catch (e) {
+      return { ok: false, error: e instanceof DomainError ? e.message : 'The panel could not answer. Check sign-in or the usage limit.' };
+    }
+  });
+  ipcMain.handle(INTERVIEW_IPC.ask, async (_e, id: unknown, history: unknown, question: unknown) => {
+    if (typeof id !== 'string' || typeof question !== 'string' || question.trim() === '') return { ok: false, error: 'Type a question first.' };
+    const turns = (Array.isArray(history) ? history : []).filter((h): h is { from: 'me' | 'them'; text: string } => typeof h === 'object' && h !== null && (h.from === 'me' || h.from === 'them') && typeof h.text === 'string').slice(-8);
+    const note = await myWorkNote().catch(() => '');
+    if (note === '') return { ok: false, error: NEED_ACCOUNTS };
+    if (FAKE) return { ok: true, data: `(test) ${id}: ${question.slice(0, 40)}` };
+    try {
+      return { ok: true, data: await askInterviewer(id, note, turns, question, await interviewEnv(), claudeExecutable(), settings.models.haiku) };
+    } catch (e) {
+      return { ok: false, error: e instanceof DomainError ? e.message : 'The interviewer could not answer.' };
     }
   });
   ipcMain.handle(MY_WORK_IPC.resume, async (_e, note: unknown) => {

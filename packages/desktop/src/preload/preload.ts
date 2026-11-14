@@ -12,6 +12,7 @@ import { DATA_IPC } from '../shared/data-api.js';
 import { CLAUDE_HISTORY_IPC } from '../shared/claude-history-ipc.js';
 import { EXTERNAL_AI_IPC } from '../shared/external-ai-ipc.js';
 import { MY_WORK_IPC } from '../shared/my-work-ipc.js';
+import { INTERVIEW_IPC } from '../shared/interview-ipc.js';
 import { BLOG_IPC } from '../shared/blog-dto.js';
 import { CODE_IPC } from '../shared/code-api.js';
 import { NAV_IPC } from '../shared/ts-nav.js';
@@ -89,6 +90,11 @@ const api: RauhaApi = {
   claudeHistory: {
     list: () => ipcRenderer.invoke(CLAUDE_HISTORY_IPC.list),
     open: (id) => ipcRenderer.invoke(CLAUDE_HISTORY_IPC.open, id),
+  },
+  interview: {
+    panel: () => ipcRenderer.invoke(INTERVIEW_IPC.panel),
+    evaluate: () => ipcRenderer.invoke(INTERVIEW_IPC.evaluate),
+    ask: (id, history, question) => ipcRenderer.invoke(INTERVIEW_IPC.ask, id, history, question),
   },
   myWork: {
     scan: (since) => ipcRenderer.invoke(MY_WORK_IPC.scan, since),

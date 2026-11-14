@@ -1,4 +1,4 @@
-export type TabId = 'chat' | 'code' | 'todo' | 'api' | 'docker' | 'db' | 'records' | 'git' | 'commands' | 'rules' | 'extensions' | 'settings';
+export type TabId = 'chat' | 'code' | 'todo' | 'api' | 'docker' | 'db' | 'records' | 'git' | 'commands' | 'rules' | 'extensions' | 'interview' | 'settings';
 
 export interface Tab {
   readonly id: TabId;
@@ -26,6 +26,7 @@ export const TABS: readonly Tab[] = [
   tab('rules', 'Rules', 'M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6z M9 12l2 2 4-4', true),
   // 커넥터·MCP·플러그인·스킬(설정에서 따로 뺐다)
   tab('extensions', 'Extensions', 'M9 4h6v3a2 2 0 1 0 0 4h3v6h-3a2 2 0 1 0-4 0H6v-6h3a2 2 0 1 0 0-4z', true),
+  tab('interview', 'Interview', 'M4 6h11v8H8l-4 3z M15 9h5v8l-3-2h-6v-1', true),
   tab('settings', 'Settings', 'M12 9a3 3 0 1 0 0 6a3 3 0 1 0 0-6 M12 3v3 M12 18v3 M3 12h3 M18 12h3 M5.6 5.6l2.1 2.1 M16.3 16.3l2.1 2.1 M5.6 18.4l2.1-2.1 M16.3 7.7l2.1-2.1', true, true),
 ];
 
