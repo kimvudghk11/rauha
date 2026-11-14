@@ -45,6 +45,23 @@ describe('레포 설정 파일에서 스택 읽기(이름만)', () => {
     ];
     expect(stackOf(files)).toEqual(['AWS', 'Docker', 'FastAPI', 'Gin', 'GitHub Actions', 'Kafka', 'Kotlin', 'MySQL', 'SQLAlchemy', 'Spring Boot', 'Terraform']);
   });
+  it('DB 는 docker-compose 이미지·Prisma provider·여러 드라이버 이름으로도 알아본다', () => {
+    expect(isManifestPath('prisma/schema.prisma')).toBe(true);
+    expect(isManifestPath('.env.example')).toBe(true);
+    const files = [
+      { path: 'docker-compose.yml', text: 'services:\n  db:\n    image: postgres:16-alpine\n  cache:\n    image: "redis:7"\n  search:\n    image: docker.elastic.co/elasticsearch/elasticsearch:8.1\n' },
+      { path: 'prisma/schema.prisma', text: 'datasource db {\n  provider = "postgresql"\n  url = env("DATABASE_URL")\n}' },
+      { path: 'requirements.txt', text: 'psycopg2-binary==2.9\n' },
+      { path: 'package.json', text: JSON.stringify({ dependencies: { postgres: '3', mongodb: '6' } }) },
+      { path: '.env.example', text: 'DATABASE_URL=mysql://user:pass@localhost:3306/app\n' },
+    ];
+    expect(stackOf(files)).toEqual(expect.arrayContaining(['Docker', 'PostgreSQL', 'Redis', 'Elasticsearch', 'Prisma', 'MongoDB', 'MySQL']));
+  });
+  it('.env 는 예시 파일만(진짜 비밀이 든 .env 는 읽지 않는다)', () => {
+    expect(isManifestPath('.env')).toBe(false);
+    expect(isManifestPath('.env.local')).toBe(false);
+    expect(isManifestPath('.env.sample')).toBe(true);
+  });
   it('깨진 package.json 은 건너뛴다', () => {
     expect(stackOf([{ path: 'package.json', text: '{oops' }])).toEqual([]);
   });

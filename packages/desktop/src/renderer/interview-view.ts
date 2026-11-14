@@ -190,7 +190,7 @@ export function buildInterview(deps: { readonly api: InterviewApi; readonly open
       return;
     }
     if (!running && done.length === 0) {
-      summary.append(el('span', 'dim', 'Enter your years in the Me box and press "Send my resume". Each company decides on its own and shows its stamp the moment it is done. Only commit subjects, counts and stack names are sent, no code.'));
+      summary.append(el('span', 'dim', 'Set your years in My profile (the Me box) and press "Send my resume". Each company decides on its own and shows its stamp the moment it is done. Only commit subjects, counts and stack names are sent, no code.'));
       return;
     }
     const order = stages.map((s) => s.id);
@@ -205,27 +205,70 @@ export function buildInterview(deps: { readonly api: InterviewApi; readonly open
     );
   }
 
-  // ── Me 칸: 연차(필수)·희망 직무·DB(git 에서 찾은 것은 미리 체크). 스택은 git 에서만 ──
+  // ── Me 칸: 가운데에는 요약만, 입력은 넓은 "My profile" 창에서(연차 필수·직무·희망 연봉·DB, 스택은 git 에서만) ──
+  /** git 에서 찾은 DB 는 처음 한 번 미리 체크 */
+  function syncFoundDbs(): string[] {
+    const found = facts === null ? [] : detectedDbs(facts.stack);
+    if (!dbsTouched && found.length > 0) me.dbs = [...found];
+    return found;
+  }
+
   function paintHub(): void {
-    const years = el('input', 'hr-years');
+    syncFoundDbs();
+    const lines = el('div', 'hr-me-lines');
+    const basics = [me.years === null ? 'Years not set' : `${me.years} yrs`, HIRING_ROLE_LABEL[me.role], me.desiredSalary === null ? '' : `${me.desiredSalary.toLocaleString()}만 원`].filter((x) => x !== '');
+    lines.append(el('div', me.years === null ? 'hr-me-need' : 'hr-me-main', basics.join(' · ')));
+    lines.append(el('div', 'hr-me-sub', me.dbs.length === 0 ? 'DB: none chosen' : `DB: ${me.dbs.join(', ')}`));
+    lines.append(el('div', 'hr-me-sub', facts === null ? 'Stack: read from git' : `Git: ${factsLine(facts)}`));
+    const edit = el('button', me.years === null ? 'btn sm primary' : 'btn sm', 'Edit my profile');
+    edit.disabled = running;
+    edit.addEventListener('click', () => openProfile());
+    hub.replaceChildren(face('me', 0, 3, running ? 'read' : 'idle'), el('b', undefined, 'Me'), lines, edit);
+  }
+
+  /** My profile 창: 항목 이름 | 입력 두 열, DB 칩은 줄바꿈, 레포별 git 스택 목록 */
+  function openProfile(focusYears = false): void {
+    const veil = el('div', 'veil');
+    const box = el('div', 'dialog hr-profile');
+    box.setAttribute('role', 'dialog');
+    box.setAttribute('aria-label', 'My profile');
+    const close = (): void => {
+      veil.remove();
+      document.removeEventListener('keydown', onKey);
+      paintHub();
+    };
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') close();
+    };
+    document.addEventListener('keydown', onKey);
+    veil.addEventListener('click', (e) => {
+      if (e.target === veil) close();
+    });
+    const form = el('div', 'hr-form');
+    const row = (label: string, hint: string, control: HTMLElement): void => {
+      const l = el('div', 'hr-form-label');
+      l.append(el('span', undefined, label));
+      if (hint !== '') l.append(el('span', 'hint', hint));
+      const c = el('div', 'hr-form-control');
+      c.append(control);
+      form.append(l, c);
+    };
+    const years = el('input', 'hr-num');
     years.id = 'hr-years';
     years.type = 'number';
     years.min = '0';
     years.max = '40';
     years.step = '1';
-    years.placeholder = 'Years';
+    years.placeholder = '0 if new';
     years.value = me.years === null ? '' : String(me.years);
-    years.disabled = running;
     years.addEventListener('input', () => {
       const n = Number(years.value);
       me.years = years.value.trim() === '' || !Number.isFinite(n) ? null : Math.max(0, Math.min(40, Math.round(n)));
       saveMe(me);
     });
-    const yearsRow = el('label', 'hr-field');
-    yearsRow.append(el('span', undefined, 'Years of experience'), years);
-    const role = el('select', 'hr-role');
+    row('Years of experience', 'Required', years);
+    const role = el('select', 'hr-select');
     role.id = 'hr-role';
-    role.disabled = running;
     for (const r of HIRING_ROLES) {
       const o = el('option', undefined, HIRING_ROLE_LABEL[r]);
       o.value = r;
@@ -236,44 +279,8 @@ export function buildInterview(deps: { readonly api: InterviewApi; readonly open
       me.role = HIRING_ROLES.find((r) => r === role.value) ?? 'any';
       saveMe(me);
     });
-    const roleRow = el('label', 'hr-field');
-    roleRow.append(el('span', undefined, 'Role'), role);
-    // DB: git 에서 찾은 것 + 고른 것 + 직접 넣은 것
-    const found = facts === null ? [] : detectedDbs(facts.stack);
-    if (!dbsTouched && found.length > 0) me.dbs = [...found];
-    const dbBox = el('div', 'hr-dbs');
-    const all = [...new Set([...DB_CHOICES, ...me.dbs])];
-    for (const d of all) {
-      const chip = el('button', `hr-db${me.dbs.includes(d) ? ' on' : ''}`, d);
-      chip.type = 'button';
-      chip.disabled = running;
-      chip.title = found.includes(d) ? 'Found in your repos (git)' : 'Click to say you use it';
-      if (found.includes(d)) chip.classList.add('git');
-      chip.addEventListener('click', () => {
-        dbsTouched = true;
-        me.dbs = me.dbs.includes(d) ? me.dbs.filter((x) => x !== d) : [...me.dbs, d].slice(0, 12);
-        saveMe(me);
-        paintHub();
-      });
-      dbBox.append(chip);
-    }
-    const other = el('input', 'hr-db-other');
-    other.id = 'hr-db-other';
-    other.placeholder = 'Other DB + Enter';
-    other.disabled = running;
-    other.addEventListener('keydown', (e) => {
-      if (!isEnterKey(e)) return;
-      const v = other.value.trim();
-      if (v === '' || v.length > 40 || me.dbs.includes(v)) return;
-      dbsTouched = true;
-      me.dbs = [...me.dbs, v].slice(0, 12);
-      saveMe(me);
-      paintHub();
-    });
-    dbBox.append(other);
-    const dbRow = el('div', 'hr-field col');
-    dbRow.append(el('span', undefined, 'Databases you use'), dbBox);
-    const pay = el('input', 'hr-years');
+    row('Role', 'Mixed = each company may hire a different role', role);
+    const pay = el('input', 'hr-num');
     pay.id = 'hr-pay';
     pay.type = 'number';
     pay.min = '1000';
@@ -281,23 +288,73 @@ export function buildInterview(deps: { readonly api: InterviewApi; readonly open
     pay.step = '100';
     pay.placeholder = 'e.g. 5500';
     pay.value = me.desiredSalary === null ? '' : String(me.desiredSalary);
-    pay.disabled = running;
-    pay.title = 'Optional. In 10,000 KRW per year (5500 = 5,500만 원). Used only at the offer stage.';
     pay.addEventListener('input', () => {
       const n = Number(pay.value);
       me.desiredSalary = pay.value.trim() === '' || !Number.isFinite(n) || n < 1000 ? null : Math.round(n);
       saveMe(me);
     });
-    const payRow = el('label', 'hr-field');
-    payRow.append(el('span', undefined, 'Desired salary (만 원, optional)'), pay);
-    const stack = el('div', 'hr-stack dim');
-    if (facts === null) stack.textContent = 'Tech stack: read from git when you send';
-    else {
-      stack.append(el('div', undefined, `From git: ${factsLine(facts)}`));
-      // 읽은 레포마다 찾은 스택(빠진 게 있으면 그 레포가 작업 폴더에 없거나 내 계정 커밋이 없는 것)
-      for (const r of facts.scanned) stack.append(el('div', undefined, `· ${r.repo}: ${r.stack.join(', ') || '(no stack found)'}`));
+    const payWrap = el('div', 'hr-inline');
+    payWrap.append(pay, el('span', 'hint', '만 원 / year · used only at the offer stage'));
+    row('Desired salary', 'Optional', payWrap);
+    // DB: git 에서 찾은 것(표시) + 고르기 + 직접 넣기
+    const dbs = el('div', 'hr-dbs');
+    const paintDbs = (): void => {
+      const found = syncFoundDbs();
+      dbs.replaceChildren();
+      for (const d of [...new Set([...DB_CHOICES, ...me.dbs])]) {
+        const chip = el('button', `hr-db${me.dbs.includes(d) ? ' on' : ''}${found.includes(d) ? ' git' : ''}`, d);
+        chip.type = 'button';
+        chip.setAttribute('aria-pressed', String(me.dbs.includes(d)));
+        chip.title = found.includes(d) ? 'Found in your repos (git)' : 'Click if you use it';
+        chip.addEventListener('click', () => {
+          dbsTouched = true;
+          me.dbs = me.dbs.includes(d) ? me.dbs.filter((x) => x !== d) : [...me.dbs, d].slice(0, 12);
+          saveMe(me);
+          paintDbs();
+        });
+        dbs.append(chip);
+      }
+    };
+    paintDbs();
+    const other = el('input', 'hr-text');
+    other.id = 'hr-db-other';
+    other.placeholder = 'Another database';
+    const addDb = el('button', 'btn sm', 'Add');
+    const add = (): void => {
+      const v = other.value.trim();
+      if (v === '' || v.length > 40 || me.dbs.includes(v)) return;
+      dbsTouched = true;
+      me.dbs = [...me.dbs, v].slice(0, 12);
+      saveMe(me);
+      other.value = '';
+      paintDbs();
+    };
+    addDb.addEventListener('click', add);
+    other.addEventListener('keydown', (e) => {
+      if (isEnterKey(e)) add();
+    });
+    const dbCol = el('div', 'hr-col');
+    const otherRow = el('div', 'hr-inline');
+    otherRow.append(other, addDb);
+    dbCol.append(dbs, otherRow);
+    row('Databases you use', 'Marked “git” = found in your repos', dbCol);
+    // 스택은 입력받지 않는다: git 에서 읽은 것을 레포별로 보여 준다
+    const stack = el('div', 'hr-stack-list');
+    if (facts === null || facts.scanned.length === 0) stack.append(el('div', 'hint', facts === null ? 'Read from your repos when you send.' : 'No stack found yet. Check Git › My work (accounts, GitHub).'));
+    else for (const r of facts.scanned) {
+      const line = el('div', 'hr-stack-row');
+      line.append(el('b', undefined, r.repo), el('span', undefined, r.stack.join(', ') || '(no stack found)'));
+      stack.append(line);
     }
-    hub.replaceChildren(face('me', 0, 3, running ? 'read' : 'idle'), el('b', undefined, 'Me'), yearsRow, roleRow, payRow, dbRow, stack);
+    row('Tech stack', 'From git only', stack);
+    const done = el('button', 'btn primary', 'Done');
+    done.addEventListener('click', close);
+    const foot = el('div', 'btns');
+    foot.append(el('span', 'hint grow', 'Saved on this computer.'), done);
+    box.append(el('b', undefined, 'My profile'), form, foot);
+    veil.append(box);
+    document.body.append(veil);
+    if (focusYears || me.years === null) queueMicrotask(() => years.focus());
   }
 
   /** 이력서가 가운데 책상에서 각 방으로 날아간다(움직임을 줄이는 설정이면 생략) */
@@ -322,17 +379,10 @@ export function buildInterview(deps: { readonly api: InterviewApi; readonly open
   async function start(): Promise<void> {
     if (running) return;
     error = '';
-    // 보낼 때는 입력칸에 지금 적힌 값을 그대로 읽는다(저장해 둔 값과 어긋나지 않게)
-    const field = hub.querySelector<HTMLInputElement>('#hr-years');
-    if (field !== null) {
-      const n = Number(field.value);
-      me.years = field.value.trim() === '' || !Number.isFinite(n) ? null : Math.max(0, Math.min(40, Math.round(n)));
-      saveMe(me);
-    }
     if (me.years === null) {
-      error = 'Enter your years of experience in the Me box first (0 if you are new).';
+      error = 'Enter your years of experience first (0 if you are new).';
       paintSummary();
-      (hub.querySelector('#hr-years') as HTMLInputElement | null)?.focus();
+      openProfile(true);
       return;
     }
     running = true;
