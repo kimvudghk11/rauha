@@ -9,6 +9,15 @@
 - DB 나무 남은 일: 연결 여러 개를 동시에 펼치기(지금은 지금 연결 하나만), 스키마 단계(PostgreSQL search_path 밖), 테이블 더블클릭 = 새 SQL 탭(DBeaver 식 편집기 탭)은 없음.
 - Postman 대비 남은 것: 폴더 단위 인증·변수, fetch/axios/Python 코드 스니펫, 응답 검색·JSON 접기, 요청별 시간 제한·리다이렉트 끄기, WebSocket.
 
+## v0.2.9 (2026-11-14) — 모든 대화·이어가기·팀 대화·컨셉 무대·여백
+
+- **Records = All conversations**(기본): Claude Code(모든 rauha 계정)·Kiro CLI·Kiro crew·Codex 한 목록, 출처 칩, 질문 카드(You asked / <AI> did: 한 일 요약 + 접히는 답), 내 질문만, ✍ Blog post.
+- **대화 이어가기**: 작업 카드 ↩ Reply, 작업 상세 "Continue with this team", 같은 레포에서 앞 요청·결과를 맥락으로, Continued 목록.
+- **팀 대화 로그**: 팀원 얼굴·캐릭터 이름·말풍선, 역할 성격 말투(진행 글은 그대로), 이어받는 말.
+- **컨셉 무대**: 배경·소품, 팀원이 두 소품 사이를 걸어 다님, 팀장은 가운데. 다른 탭에 다녀오면 무대가 굳던 것 고침.
+- **여백·글자**: 바깥 여백 16(넓으면 24), 글자 12·13·14·16, Extensions 넓힘.
+- 전체 테스트 4,986개 통과. v0.2.8 설치 파일(exe 218MB · arm64 237MB · x64 248MB).
+
 ## v0.2.8 (2026-11-14) — 계정 바꾸기 버그·Kiro 계정 전환·Codex 설치
 
 - **Claude 계정**: 팀 작업이 앱을 켤 때 계정으로 고정되던 버그 — 작업마다 지금 고른 계정. 채팅 위 Claude 칩 옆에 계정 고르기(Follow folder rules / personal / work)와 그 계정 Sign in.
